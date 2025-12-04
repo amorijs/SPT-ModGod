@@ -82,14 +82,17 @@ public class ModInstallService
         await _configService.SaveStagingIndexAsync();
         await _configService.SaveConfigAsync();
 
-        // Generate and launch install script if there are pending installs
-        if (result.QueuedForInstall.Count > 0)
+        // Generate and launch install script if there are pending installs OR removals
+        if (result.QueuedForInstall.Count > 0 || result.QueuedForRemoval.Count > 0)
         {
             result.InstallScriptPath = await _configService.GenerateInstallScriptAsync();
             
-            // Launch the auto-install script in a new window
-            _configService.LaunchInstallScript();
-            result.AutoInstallerLaunched = true;
+            if (!string.IsNullOrEmpty(result.InstallScriptPath))
+            {
+                // Launch the auto-install script in a new window
+                _configService.LaunchInstallScript();
+                result.AutoInstallerLaunched = true;
+            }
         }
 
         result.RequiresRestart = result.QueuedForRemoval.Count > 0 || result.QueuedForInstall.Count > 0;

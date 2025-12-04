@@ -1,16 +1,16 @@
 using System.Net.Security;
 using System.Text.Json;
-using BewasModSync.SyncClient.Models;
+using BewasModSync.Updater.Models;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using Spectre.Console;
 
-namespace BewasModSync.SyncClient;
+namespace BewasModSync.Updater;
 
 class Program
 {
-    private static readonly string ConfigPath = "BewasModSyncClient.json";
-    private static readonly string ModsDownloadedPath = "modsDownloaded.json";
+    // Internal data folder for config files
+    private static readonly string InternalDataFolderName = "BewasModSyncInternalData";
     private static readonly string TempDownloadPath = Path.Combine(Path.GetTempPath(), "BewasModSync");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -22,44 +22,41 @@ class Program
     private static ClientConfig _clientConfig = new();
     private static List<DownloadedMod> _modsDownloaded = new();
     private static string _sptRoot = string.Empty;
+    private static string _internalDataPath = string.Empty;
 
     static async Task Main(string[] args)
     {
-        Console.Title = "Bewa's Mod Sync";
+        Console.Title = "BewasModSync Updater";
 
         AnsiConsole.Write(
-            new FigletText("BewasModSync")
+            new FigletText("BewasModUpdater")
                 .Color(Color.Cyan1));
 
         AnsiConsole.MarkupLine("[grey]SPT Mod Synchronization Tool[/]");
         AnsiConsole.WriteLine();
 
-        // Determine SPT root (parent directory - this tool should be in a subfolder like BewasModSync/)
+        // This exe should be in SPT root directly
         var currentDir = Directory.GetCurrentDirectory();
-        var parentDir = Directory.GetParent(currentDir)?.FullName;
 
-        // First check if we're already in SPT root (for flexibility)
         if (IsSptDirectory(currentDir))
         {
             _sptRoot = currentDir;
         }
-        // Then check parent directory (preferred setup)
-        else if (parentDir != null && IsSptDirectory(parentDir))
-        {
-            _sptRoot = parentDir;
-        }
         else
         {
-            AnsiConsole.MarkupLine("[red]Error:[/] Could not find SPT installation.");
-            AnsiConsole.MarkupLine("[grey]This tool should be placed in a subfolder of your SPT directory.[/]");
+            AnsiConsole.MarkupLine("[red]Error:[/] BewasModUpdater.exe must be in your SPT root directory.");
             AnsiConsole.MarkupLine("[grey]Expected structure:[/]");
             AnsiConsole.MarkupLine("[grey]  SPT/[/]");
             AnsiConsole.MarkupLine("[grey]  ├── BepInEx/[/]");
             AnsiConsole.MarkupLine("[grey]  ├── SPT/[/]");
-            AnsiConsole.MarkupLine("[grey]  └── BewasModSync/  [cyan]← Put this tool here[/][/]");
+            AnsiConsole.MarkupLine("[grey]  ├── BewasModSyncInternalData/[/]");
+            AnsiConsole.MarkupLine("[grey]  └── [cyan]BewasModUpdater.exe[/][/]");
             WaitForExit();
             return;
         }
+
+        _internalDataPath = Path.Combine(_sptRoot, InternalDataFolderName);
+        Directory.CreateDirectory(_internalDataPath);
 
         AnsiConsole.MarkupLine($"[green]✓[/] SPT Root: [cyan]{_sptRoot}[/]");
         AnsiConsole.WriteLine();
@@ -95,11 +92,16 @@ class Program
         return Directory.Exists(bepInExPath) || Directory.Exists(sptPath);
     }
 
+    static string GetConfigPath() => Path.Combine(_internalDataPath, "BewasModSyncClient.json");
+    static string GetModsDownloadedPath() => Path.Combine(_internalDataPath, "modsDownloaded.json");
+
     static async Task LoadOrCreateConfigAsync()
     {
-        if (File.Exists(ConfigPath))
+        var configPath = GetConfigPath();
+        
+        if (File.Exists(configPath))
         {
-            var json = await File.ReadAllTextAsync(ConfigPath);
+            var json = await File.ReadAllTextAsync(configPath);
             _clientConfig = JsonSerializer.Deserialize<ClientConfig>(json, JsonOptions) ?? new ClientConfig();
         }
 
@@ -108,13 +110,13 @@ class Program
             AnsiConsole.MarkupLine("[yellow]First time setup - please enter the server URL[/]");
 
             _clientConfig.ServerUrl = AnsiConsole.Ask<string>(
-                "Enter server URL (e.g., [cyan]http://192.168.1.100:6969[/]):");
+                "Enter server URL (e.g., [cyan]https://192.168.1.100:6969[/]):");
 
             // Ensure URL doesn't have trailing slash
             _clientConfig.ServerUrl = _clientConfig.ServerUrl.TrimEnd('/');
 
             await SaveConfigAsync();
-            AnsiConsole.MarkupLine($"[green]✓[/] Server URL saved to [cyan]{ConfigPath}[/]");
+            AnsiConsole.MarkupLine($"[green]✓[/] Server URL saved to [cyan]{configPath}[/]");
             AnsiConsole.WriteLine();
         }
         else
@@ -128,14 +130,15 @@ class Program
     static async Task SaveConfigAsync()
     {
         var json = JsonSerializer.Serialize(_clientConfig, JsonOptions);
-        await File.WriteAllTextAsync(ConfigPath, json);
+        await File.WriteAllTextAsync(GetConfigPath(), json);
     }
 
     static async Task LoadModsDownloadedAsync()
     {
-        if (File.Exists(ModsDownloadedPath))
+        var modsPath = GetModsDownloadedPath();
+        if (File.Exists(modsPath))
         {
-            var json = await File.ReadAllTextAsync(ModsDownloadedPath);
+            var json = await File.ReadAllTextAsync(modsPath);
             _modsDownloaded = JsonSerializer.Deserialize<List<DownloadedMod>>(json, JsonOptions) ?? new();
         }
     }
@@ -143,7 +146,7 @@ class Program
     static async Task SaveModsDownloadedAsync()
     {
         var json = JsonSerializer.Serialize(_modsDownloaded, JsonOptions);
-        await File.WriteAllTextAsync(ModsDownloadedPath, json);
+        await File.WriteAllTextAsync(GetModsDownloadedPath(), json);
     }
 
     // Create HttpClient that accepts self-signed certificates (SPT 4.0 uses HTTPS with self-signed cert)
@@ -155,7 +158,7 @@ class Program
         };
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("BewasModSync/1.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BewasModUpdater/1.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         return client;
     }
@@ -294,6 +297,7 @@ class Program
                 {
                     // Download mod (use CreateHttpClient for SSL certificate handling)
                     using var client = CreateHttpClient();
+                    client.Timeout = TimeSpan.FromMinutes(30); // Long timeout for large mods
 
                     var response = await client.GetAsync(mod.DownloadUrl);
                     response.EnsureSuccessStatusCode();
@@ -324,11 +328,11 @@ class Program
 
                     ctx.Status($"Installing {mod.ModName}...");
 
-                    // Copy files according to sync paths
-                    foreach (var syncPath in mod.SyncPaths)
+                    // Copy files according to install paths
+                    foreach (var installPath in mod.InstallPaths)
                     {
-                        var sourcePath = Path.Combine(tempExtractPath, syncPath[0]);
-                        var targetPath = syncPath[1].Replace("<SPT_ROOT>", _sptRoot);
+                        var sourcePath = Path.Combine(tempExtractPath, installPath[0]);
+                        var targetPath = installPath[1].Replace("<SPT_ROOT>", _sptRoot);
 
                         if (Directory.Exists(sourcePath))
                         {

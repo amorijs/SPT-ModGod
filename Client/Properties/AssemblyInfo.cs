@@ -1,11 +1,11 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("BewasModSync")]
-[assembly: AssemblyDescription("SPT Mod Sync Client Plugin")]
+[assembly: AssemblyTitle("BewasModSyncClientEnforcer")]
+[assembly: AssemblyDescription("SPT Mod Sync Client Enforcer Plugin")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("BewasModSync")]
+[assembly: AssemblyProduct("BewasModSyncClientEnforcer")]
 [assembly: AssemblyCopyright("")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -15,4 +15,3 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
-

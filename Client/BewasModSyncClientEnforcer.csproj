@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <RootNamespace>BewasModSync</RootNamespace>
-    <AssemblyName>BewasModSync</AssemblyName>
+    <RootNamespace>BewasModSync.ClientEnforcer</RootNamespace>
+    <AssemblyName>BewasModSyncClientEnforcer</AssemblyName>
     <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <LangVersion>7.3</LangVersion>
     <!-- Clean output -->
@@ -17,10 +17,10 @@
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <OutputPath>..\dist\BepInEx\plugins\BewasModSync\</OutputPath>
+    <OutputPath>..\dist\BepInEx\plugins\BewasModSyncClientEnforcer\</OutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <OutputPath>..\dist\BepInEx\plugins\BewasModSync\</OutputPath>
+    <OutputPath>..\dist\BepInEx\plugins\BewasModSyncClientEnforcer\</OutputPath>
   </PropertyGroup>
 
   <!-- Update this to your SPT installation path -->
@@ -29,7 +29,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="BewasModSync.cs" />
+    <Compile Include="BewasModSyncClientEnforcer.cs" />
     <Compile Include="Models\ModsDownloaded.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -98,7 +98,7 @@
 
   <!-- Optional: Copy to SPT for testing -->
   <Target Name="CopyToSPT" AfterTargets="CleanupOutput" Condition="Exists('$(SPTPath)')">
-    <Copy SourceFiles="$(OutputPath)BewasModSync.dll" DestinationFolder="$(SPTPath)\BepInEx\plugins\BewasModSync" />
+    <Copy SourceFiles="$(OutputPath)BewasModSyncClientEnforcer.dll" DestinationFolder="$(SPTPath)\BepInEx\plugins\BewasModSyncClientEnforcer" />
   </Target>
 </Project>
 

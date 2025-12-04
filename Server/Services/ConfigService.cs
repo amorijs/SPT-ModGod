@@ -67,7 +67,7 @@ public class ConfigService : IOnLoad
         
         // IMPORTANT: Data folder must be OUTSIDE of SPT/user/mods/ to prevent SPT from
         // scanning extracted DLLs in staging as server mods!
-        _dataPath = Path.Combine(_sptRoot, "BewaModSyncData");
+        _dataPath = Path.Combine(_sptRoot, "BewasModSyncInternalData");
 
         // Ensure data directory exists
         Directory.CreateDirectory(_dataPath);
@@ -247,7 +247,7 @@ public class ConfigService : IOnLoad
     }
     
     /// <summary>
-    /// Check if pending mods have been installed (via the completion marker file)
+    /// Check if pending mods have been installed/removed (via the completion marker file)
     /// </summary>
     private async Task CheckAndMarkInstalledModsAsync()
     {
@@ -259,21 +259,35 @@ public class ConfigService : IOnLoad
         try
         {
             var json = await File.ReadAllTextAsync(completedPath);
-            var completedUrls = JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? new();
             
-            if (completedUrls.Count == 0)
+            // Try new format first (object with installed/removed arrays)
+            CompletionData? completionData = null;
+            try
+            {
+                completionData = JsonSerializer.Deserialize<CompletionData>(json, JsonOptions);
+            }
+            catch
+            {
+                // Fall back to old format (just a list of URLs for installs)
+                var legacyUrls = JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? new();
+                completionData = new CompletionData { Installed = legacyUrls };
+            }
+
+            if (completionData == null || (completionData.Installed.Count == 0 && completionData.Removed.Count == 0))
             {
                 File.Delete(completedPath);
                 return;
             }
 
             _logger.Info("========================================");
-            _logger.Info("BewasModSync: Processing completed installations...");
+            _logger.Info("BewasModSync: Processing completed operations...");
             _logger.Info("========================================");
 
-            var markedCount = 0;
+            var installedCount = 0;
+            var removedCount = 0;
             
-            foreach (var url in completedUrls)
+            // Process installations
+            foreach (var url in completionData.Installed)
             {
                 var mod = Config.ModList.Find(m => m.DownloadUrl == url);
                 if (mod != null && mod.Status == ModStatus.Pending)
@@ -287,14 +301,41 @@ public class ConfigService : IOnLoad
                         ClearStagingForUrl(mod.DownloadUrl);
                     }
                     
-                    markedCount++;
-                    _logger.Success($"  ✓ {mod.ModName}");
+                    installedCount++;
+                    _logger.Success($"  ✓ Installed: {mod.ModName}");
                 }
             }
-
-            if (markedCount > 0)
+            
+            // Process removals - remove from config entirely
+            foreach (var url in completionData.Removed)
             {
-                _logger.Info($"Marked {markedCount} mod(s) as installed");
+                var modIndex = Config.ModList.FindIndex(m => m.DownloadUrl == url);
+                if (modIndex >= 0)
+                {
+                    var modName = Config.ModList[modIndex].ModName;
+                    Config.ModList.RemoveAt(modIndex);
+                    
+                    // Clear staging if any
+                    if (IsUrlStaged(url))
+                    {
+                        ClearStagingForUrl(url);
+                    }
+                    
+                    removedCount++;
+                    _logger.Success($"  ✓ Removed: {modName}");
+                }
+            }
+            
+            // Clear the pending deletions list since they've been processed
+            if (completionData.Removed.Count > 0)
+            {
+                PendingOps.PathsToDelete.Clear();
+                await SavePendingOpsAsync();
+            }
+
+            if (installedCount > 0 || removedCount > 0)
+            {
+                _logger.Info($"Processed {installedCount} installation(s), {removedCount} removal(s)");
                 await SaveStagingIndexAsync();
                 await SaveConfigAsync();
             }
@@ -377,19 +418,25 @@ public class ConfigService : IOnLoad
     }
 
     /// <summary>
-    /// Generate a PowerShell script that auto-polls the server and installs mods when it shuts down
+    /// Generate a PowerShell script that auto-polls the server and installs/removes mods when it shuts down
     /// </summary>
     public async Task<string?> GenerateInstallScriptAsync(string serverUrl = "https://127.0.0.1:6969")
     {
-        var pendingMods = Config.ModList
+        var pendingInstalls = Config.ModList
             .Where(m => m.Status == ModStatus.Pending && IsUrlStaged(m.DownloadUrl))
             .ToList();
 
+        var pendingRemovals = Config.ModList
+            .Where(m => m.Status == ModStatus.PendingRemoval)
+            .ToList();
+
+        var pathsToDelete = PendingOps.PathsToDelete.ToList();
+
         var scriptPath = Path.Combine(_dataPath, "install-pending-mods.ps1");
 
-        if (pendingMods.Count == 0)
+        if (pendingInstalls.Count == 0 && pendingRemovals.Count == 0 && pathsToDelete.Count == 0)
         {
-            // No pending mods - delete script if it exists
+            // No pending operations - delete script if it exists
             if (File.Exists(scriptPath))
                 File.Delete(scriptPath);
             return null;
@@ -405,11 +452,33 @@ public class ConfigService : IOnLoad
         sb.AppendLine("");
         
         // Configuration
-        sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
+        sb.AppendLine("$ErrorActionPreference = 'Stop'");
+        sb.AppendLine("$script:HasCriticalError = $false");
         sb.AppendLine($"$ServerUrl = '{serverUrl}'");
         sb.AppendLine("$StatusEndpoint = \"$ServerUrl/bewasmodsync/api/status\"");
         sb.AppendLine("$PollIntervalSeconds = 2");
         sb.AppendLine($"$SptRoot = '{_sptRoot}'");
+        sb.AppendLine("");
+        
+        // Global error handler
+        sb.AppendLine("# Global error handler to keep window open on critical errors");
+        sb.AppendLine("trap {");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host '  CRITICAL ERROR                      ' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host $_.Exception.Message -ForegroundColor Red");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host 'Script Location:' $_.InvocationInfo.ScriptName -ForegroundColor Yellow");
+        sb.AppendLine("    Write-Host 'Line:' $_.InvocationInfo.ScriptLineNumber -ForegroundColor Yellow");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host 'Press any key to close this window...' -ForegroundColor Cyan");
+        sb.AppendLine("    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')");
+        sb.AppendLine("    exit 1");
+        sb.AppendLine("}");
+        sb.AppendLine("");
+        sb.AppendLine("# Reset error action for non-critical operations");
+        sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
         sb.AppendLine("");
         
         // SSL certificate bypass for self-signed certs
@@ -430,19 +499,31 @@ public class ConfigService : IOnLoad
         sb.AppendLine("$Host.UI.RawUI.WindowTitle = 'BewasModSync - Waiting for Server Shutdown'");
         sb.AppendLine("Clear-Host");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Cyan");
-        sb.AppendLine("Write-Host '  BewasModSync - Auto Mod Installer   ' -ForegroundColor Cyan");
+        sb.AppendLine("Write-Host '  BewasModSync - Auto Mod Manager     ' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host ''");
-        sb.AppendLine($"Write-Host 'Pending mods to install: {pendingMods.Count}' -ForegroundColor Yellow");
         
-        // List pending mods
-        foreach (var mod in pendingMods)
+        if (pendingInstalls.Count > 0)
         {
-            sb.AppendLine($"Write-Host '  - {mod.ModName}' -ForegroundColor Gray");
+            sb.AppendLine($"Write-Host 'Pending mods to install: {pendingInstalls.Count}' -ForegroundColor Yellow");
+            foreach (var mod in pendingInstalls)
+            {
+                sb.AppendLine($"Write-Host '  + {mod.ModName}' -ForegroundColor Green");
+            }
+            sb.AppendLine("Write-Host ''");
         }
         
-        sb.AppendLine("Write-Host ''");
-        sb.AppendLine("Write-Host 'Mods will be installed automatically when SPT server shuts down.' -ForegroundColor Green");
+        if (pendingRemovals.Count > 0)
+        {
+            sb.AppendLine($"Write-Host 'Pending mods to remove: {pendingRemovals.Count}' -ForegroundColor Yellow");
+            foreach (var mod in pendingRemovals)
+            {
+                sb.AppendLine($"Write-Host '  - {mod.ModName}' -ForegroundColor Red");
+            }
+            sb.AppendLine("Write-Host ''");
+        }
+        
+        sb.AppendLine("Write-Host 'Changes will be applied automatically when SPT server shuts down.' -ForegroundColor Green");
         sb.AppendLine("Write-Host 'Close this window to cancel.' -ForegroundColor DarkGray");
         sb.AppendLine("Write-Host ''");
         sb.AppendLine("");
@@ -480,41 +561,73 @@ public class ConfigService : IOnLoad
         sb.AppendLine("}");
         sb.AppendLine("");
         
-        // Installation section
-        sb.AppendLine("# Install mods");
-        sb.AppendLine("Write-Host 'Installing mods...' -ForegroundColor Cyan");
-        sb.AppendLine("Write-Host ''");
-        sb.AppendLine("");
-
-        foreach (var mod in pendingMods)
+        // Removal section
+        if (pathsToDelete.Count > 0)
         {
-            var stagingPath = Staging.UrlToPath[mod.DownloadUrl];
-            var extractedPath = Path.Combine(stagingPath, "extracted");
-
-            sb.AppendLine($"# {mod.ModName}");
-            sb.AppendLine($"Write-Host 'Installing: {mod.ModName}' -ForegroundColor Yellow");
-
-            foreach (var installPath in mod.InstallPaths)
-            {
-                var sourcePath = installPath[0];
-                var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SptRoot");
-                var fullSourcePath = Path.Combine(extractedPath, sourcePath);
-
-                sb.AppendLine($"if (Test-Path '{fullSourcePath}') {{");
-                sb.AppendLine($"    try {{");
-                sb.AppendLine($"        Copy-Item -Path '{fullSourcePath}\\*' -Destination '{targetPath}' -Recurse -Force -ErrorAction Stop");
-                sb.AppendLine($"        Write-Host '  [OK] Copied {sourcePath}' -ForegroundColor Green");
-                sb.AppendLine($"    }} catch {{");
-                sb.AppendLine($"        Write-Host '  [FAIL] {sourcePath}: ' $_.Exception.Message -ForegroundColor Red");
-                sb.AppendLine($"    }}");
-                sb.AppendLine("}");
-            }
+            sb.AppendLine("# Remove mods");
+            sb.AppendLine("Write-Host 'Removing mods...' -ForegroundColor Cyan");
+            sb.AppendLine("Write-Host ''");
             sb.AppendLine("");
+
+            foreach (var pathToDelete in pathsToDelete)
+            {
+                var fullPath = pathToDelete.Replace("<SPT_ROOT>", "$SptRoot");
+                sb.AppendLine($"if (Test-Path \"{fullPath}\") {{");
+                sb.AppendLine($"    try {{");
+                sb.AppendLine($"        Remove-Item -Path \"{fullPath}\" -Recurse -Force -ErrorAction Stop");
+                sb.AppendLine($"        Write-Host '  [OK] Removed {Path.GetFileName(pathToDelete.TrimEnd('/', '\\'))}' -ForegroundColor Green");
+                sb.AppendLine($"    }} catch {{");
+                sb.AppendLine($"        Write-Host '  [FAIL] {pathToDelete}: ' $_.Exception.Message -ForegroundColor Red");
+                sb.AppendLine($"    }}");
+                sb.AppendLine($"}}");
+                sb.AppendLine("");
+            }
+        }
+
+        // Installation section
+        if (pendingInstalls.Count > 0)
+        {
+            sb.AppendLine("# Install mods");
+            sb.AppendLine("Write-Host 'Installing mods...' -ForegroundColor Cyan");
+            sb.AppendLine("Write-Host ''");
+            sb.AppendLine("");
+
+            foreach (var mod in pendingInstalls)
+            {
+                var stagingPath = Staging.UrlToPath[mod.DownloadUrl];
+                var extractedPath = Path.Combine(stagingPath, "extracted");
+
+                sb.AppendLine($"# {mod.ModName}");
+                sb.AppendLine($"Write-Host 'Installing: {mod.ModName}' -ForegroundColor Yellow");
+
+                foreach (var installPath in mod.InstallPaths)
+                {
+                    var sourcePath = installPath[0];
+                    var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SptRoot");
+                    var fullSourcePath = Path.Combine(extractedPath, sourcePath);
+
+                    sb.AppendLine($"if (Test-Path '{fullSourcePath}') {{");
+                    sb.AppendLine($"    try {{");
+                    sb.AppendLine($"        Copy-Item -Path '{fullSourcePath}\\*' -Destination \"{targetPath}\" -Recurse -Force -ErrorAction Stop");
+                    sb.AppendLine($"        Write-Host '  [OK] Copied {sourcePath}' -ForegroundColor Green");
+                    sb.AppendLine($"    }} catch {{");
+                    sb.AppendLine($"        Write-Host '  [FAIL] {sourcePath}: ' $_.Exception.Message -ForegroundColor Red");
+                    sb.AppendLine($"    }}");
+                    sb.AppendLine("}");
+                }
+                sb.AppendLine("");
+            }
         }
 
         // Write completion marker file
         var completedPath = Path.Combine(_dataPath, "completed-installs.json");
-        var urlsJson = JsonSerializer.Serialize(pendingMods.Select(m => m.DownloadUrl).ToList(), JsonOptions);
+        
+        // Include both installed URLs and removed URLs so server knows to update their status
+        var completionData = new {
+            installed = pendingInstalls.Select(m => m.DownloadUrl).ToList(),
+            removed = pendingRemovals.Select(m => m.DownloadUrl).ToList()
+        };
+        var urlsJson = JsonSerializer.Serialize(completionData, JsonOptions);
         
         sb.AppendLine("# Write completion marker file");
         sb.AppendLine($"$completedUrls = @'");
@@ -660,4 +773,13 @@ public class ConfigService : IOnLoad
     }
 
     #endregion
+}
+
+/// <summary>
+/// Completion data written by the PowerShell installer script
+/// </summary>
+public class CompletionData
+{
+    public List<string> Installed { get; set; } = new();
+    public List<string> Removed { get; set; } = new();
 }

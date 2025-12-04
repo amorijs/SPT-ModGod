@@ -477,23 +477,12 @@
                     </MudText>
                 </MudAlert>
             }
-            else if (_applyResult.RequiresRestart || _applyResult.QueuedForInstall.Count > 0)
+            else if (_applyResult.QueuedForInstall.Count > 0)
             {
-                <MudAlert Severity="Severity.Warning" Class="mt-4">
-                    <MudText Typo="Typo.subtitle2">⚠️ Manual Action Required</MudText>
-                    <MudText Typo="Typo.body2" Class="mt-2">
-                        To complete installation:
+                <MudAlert Severity="Severity.Info" Class="mt-4">
+                    <MudText Typo="Typo.body2">
+                        @(_applyResult.QueuedForInstall.Count) mod(s) queued for installation on next server restart.
                     </MudText>
-                    <MudText Typo="Typo.body2" Class="ml-3">1. Stop the SPT server</MudText>
-                    @if (!string.IsNullOrEmpty(_applyResult.InstallScriptPath))
-                    {
-                        <MudText Typo="Typo.body2" Class="ml-3">2. Run: <code>@_applyResult.InstallScriptPath</code></MudText>
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2" Class="ml-3">2. Run the install script in BewaModSyncData folder</MudText>
-                    }
-                    <MudText Typo="Typo.body2" Class="ml-3">3. Start the server again</MudText>
                 </MudAlert>
             }
         }

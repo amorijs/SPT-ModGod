@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace BewasModSync.Models
+namespace BewasModSync.ClientEnforcer.Models
 {
     public class DownloadedMod
     {

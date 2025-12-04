@@ -10,24 +10,28 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using BepInEx;
 using BepInEx.Logging;
-using BewasModSync.Models;
+using BewasModSync.ClientEnforcer.Models;
 using Comfort.Common;
 using EFT.UI;
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace BewasModSync
+namespace BewasModSync.ClientEnforcer
 {
-    [BepInPlugin("com.bewas.modsync.client", "BewasModSync", "1.0.0")]
-    public class BewasModSyncPlugin : BaseUnityPlugin
+    [BepInPlugin("com.bewas.modsync.clientenforcer", "BewasModSync Client Enforcer", "1.0.0")]
+    public class BewasModSyncClientEnforcerPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
 
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        // Config files are stored in BewasModSync subfolder
-        private static readonly string SyncDataFolder = Path.Combine(SptRoot, "BewasModSync");
-        private static readonly string ConfigPath = Path.Combine(SyncDataFolder, "BewasModSyncClient.json");
-        private static readonly string ModsDownloadedPath = Path.Combine(SyncDataFolder, "modsDownloaded.json");
+        
+        // Config files are stored in BewasModSyncInternalData folder
+        private static readonly string InternalDataFolder = Path.Combine(SptRoot, "BewasModSyncInternalData");
+        private static readonly string ConfigPath = Path.Combine(InternalDataFolder, "BewasModSyncClient.json");
+        private static readonly string ModsDownloadedPath = Path.Combine(InternalDataFolder, "modsDownloaded.json");
+        
+        // Mod updater exe is at SPT root
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
 
         // Directories to scan for extra files
         private static readonly string BepInExPluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
@@ -36,7 +40,7 @@ namespace BewasModSync
         private void Awake()
         {
             LogSource = Logger;
-            LogSource.LogInfo("BewasModSync Client loaded!");
+            LogSource.LogInfo("BewasModSync Client Enforcer loaded!");
 
             // Accept self-signed SSL certificates (SPT 4.0 uses HTTPS)
             ServicePointManager.ServerCertificateValidationCallback = AcceptAllCertificates;
@@ -68,7 +72,7 @@ namespace BewasModSync
                 LogSource.LogError("BewasModSync: SETUP REQUIRED!");
                 LogSource.LogError("========================================");
                 LogSource.LogError("BewasModSync has not been set up yet.");
-                LogSource.LogError("Please run the BewasModSync.exe tool to sync your mods.");
+                LogSource.LogError("Please run BewasModUpdater.exe to sync your mods.");
                 LogSource.LogError("========================================");
 
                 // Wait for UI to be ready
@@ -137,10 +141,10 @@ namespace BewasModSync
 
             try
             {
-                // Check if sync folder exists
-                if (!Directory.Exists(SyncDataFolder))
+                // Check if internal data folder exists
+                if (!Directory.Exists(InternalDataFolder))
                 {
-                    LogSource.LogWarning($"BewasModSync: Sync folder not found at {SyncDataFolder}. Run the sync tool first.");
+                    LogSource.LogWarning($"BewasModSync: Internal data folder not found at {InternalDataFolder}. Run BewasModUpdater.exe first.");
                     setupRequired = true;
                     return issues;
                 }
@@ -148,7 +152,7 @@ namespace BewasModSync
                 // Check if we have client config
                 if (!File.Exists(ConfigPath))
                 {
-                    LogSource.LogWarning("BewasModSync: No client config found. Run the sync tool first.");
+                    LogSource.LogWarning("BewasModSync: No client config found. Run BewasModUpdater.exe first.");
                     setupRequired = true;
                     return issues;
                 }
@@ -443,20 +447,20 @@ namespace BewasModSync
     public class SyncWarningGui : MonoBehaviour
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        private static readonly string SyncToolPath = Path.Combine(SptRoot, "BewasModSync", "BewasModSync.exe");
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
         private static readonly string PluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
         private static readonly string ServerModsPath = Path.Combine(SptRoot, "SPT", "user", "mods");
         
         public List<FileIssue> Issues = new List<FileIssue>();
         private bool _showWarning = true;
-        private bool _syncToolExists;
+        private bool _updaterExists;
         private Rect _windowRect;
         private Vector2 _scrollPosition;
 
         private void Start()
         {
             _windowRect = new Rect(Screen.width / 2 - 375, Screen.height / 2 - 250, 750, 500);
-            _syncToolExists = File.Exists(SyncToolPath);
+            _updaterExists = File.Exists(UpdaterExePath);
         }
 
         private void Update()
@@ -604,7 +608,7 @@ namespace BewasModSync
             }
             else if (missingFiles.Any() || hashMismatches.Any())
             {
-                GUILayout.Label("Run the BewasModSync tool to download/update missing mods.", bodyStyle);
+                GUILayout.Label("Run BewasModUpdater.exe to download/update missing mods.", bodyStyle);
             }
 
             GUILayout.FlexibleSpace();
@@ -651,11 +655,11 @@ namespace BewasModSync
                 GUILayout.Space(10);
             }
 
-            if (_syncToolExists && (missingFiles.Any() || hashMismatches.Any()))
+            if (_updaterExists && (missingFiles.Any() || hashMismatches.Any()))
             {
-                if (GUILayout.Button("Run Sync Tool & Exit", buttonStyle, GUILayout.Width(155), GUILayout.Height(35)))
+                if (GUILayout.Button("Run Updater & Exit", buttonStyle, GUILayout.Width(145), GUILayout.Height(35)))
                 {
-                    LaunchSyncToolAndQuit();
+                    LaunchUpdaterAndQuit();
                 }
                 GUILayout.Space(10);
             }
@@ -675,12 +679,12 @@ namespace BewasModSync
         {
             try
             {
-                BewasModSyncPlugin.LogSource.LogInfo($"Opening folder: {path}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Opening folder: {path}");
                 Process.Start("explorer.exe", path);
             }
             catch (Exception ex)
             {
-                BewasModSyncPlugin.LogSource.LogError($"Failed to open folder: {ex.Message}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to open folder: {ex.Message}");
             }
         }
 
@@ -690,16 +694,16 @@ namespace BewasModSync
             return "..." + path.Substring(path.Length - maxLength + 3);
         }
 
-        private void LaunchSyncToolAndQuit()
+        private void LaunchUpdaterAndQuit()
         {
             try
             {
-                BewasModSyncPlugin.LogSource.LogInfo($"Launching sync tool: {SyncToolPath}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
                 
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = SyncToolPath,
-                    WorkingDirectory = Path.GetDirectoryName(SyncToolPath),
+                    FileName = UpdaterExePath,
+                    WorkingDirectory = SptRoot,
                     UseShellExecute = true
                 };
 
@@ -708,7 +712,7 @@ namespace BewasModSync
             }
             catch (Exception ex)
             {
-                BewasModSyncPlugin.LogSource.LogError($"Failed to launch sync tool: {ex.Message}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
             }
         }
 
@@ -735,15 +739,15 @@ namespace BewasModSync
     public class SetupRequiredGui : MonoBehaviour
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        private static readonly string SyncToolPath = Path.Combine(SptRoot, "BewasModSync", "BewasModSync.exe");
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
         
         private Rect _windowRect;
-        private bool _syncToolExists;
+        private bool _updaterExists;
 
         private void Start()
         {
             _windowRect = new Rect(Screen.width / 2 - 275, Screen.height / 2 - 175, 550, 350);
-            _syncToolExists = File.Exists(SyncToolPath);
+            _updaterExists = File.Exists(UpdaterExePath);
         }
 
         private void Update()
@@ -802,12 +806,12 @@ namespace BewasModSync
             GUILayout.Label("This server requires BewasModSync", headerStyle);
             GUILayout.Space(15);
 
-            GUILayout.Label("Before you can play, you need to run the sync tool\nto download the required mods.", bodyStyle);
+            GUILayout.Label("Before you can play, you need to run the updater\nto download the required mods.", bodyStyle);
             GUILayout.Space(15);
 
-            GUILayout.Label("Run BewasModSync.exe in <SPT_ROOT>\\BewasModSync. If missing, reinstall the mod.", bodyStyle);
+            GUILayout.Label("Run BewasModUpdater.exe in your SPT root folder.", bodyStyle);
             GUILayout.Space(5);
-            GUILayout.Label("<SPT_ROOT>\\BewasModSync\\BewasModSync.exe", pathStyle);
+            GUILayout.Label("<SPT_ROOT>\\BewasModUpdater.exe", pathStyle);
 
             GUILayout.FlexibleSpace();
 
@@ -820,11 +824,11 @@ namespace BewasModSync
                 fontStyle = FontStyle.Bold
             };
 
-            if (_syncToolExists)
+            if (_updaterExists)
             {
-                if (GUILayout.Button("Exit & Run Sync Tool", buttonStyle, GUILayout.Width(180), GUILayout.Height(40)))
+                if (GUILayout.Button("Exit & Run Updater", buttonStyle, GUILayout.Width(180), GUILayout.Height(40)))
                 {
-                    LaunchSyncToolAndQuit();
+                    LaunchUpdaterAndQuit();
                 }
                 GUILayout.Space(20);
             }
@@ -840,16 +844,16 @@ namespace BewasModSync
             GUILayout.Space(20);
         }
 
-        private void LaunchSyncToolAndQuit()
+        private void LaunchUpdaterAndQuit()
         {
             try
             {
-                BewasModSyncPlugin.LogSource.LogInfo($"Launching sync tool: {SyncToolPath}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
                 
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = SyncToolPath,
-                    WorkingDirectory = Path.GetDirectoryName(SyncToolPath),
+                    FileName = UpdaterExePath,
+                    WorkingDirectory = SptRoot,
                     UseShellExecute = true
                 };
 
@@ -858,7 +862,7 @@ namespace BewasModSync
             }
             catch (Exception ex)
             {
-                BewasModSyncPlugin.LogSource.LogError($"Failed to launch sync tool: {ex.Message}");
+                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
             }
         }
 
@@ -882,3 +886,4 @@ namespace BewasModSync
         }
     }
 }
+
