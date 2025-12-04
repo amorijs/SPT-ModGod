@@ -28,5 +28,48 @@ namespace BewasModSync.Models
     {
         public string ServerUrl { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// Manifest of all files that should exist for synced mods
+    /// </summary>
+    public class FileManifest
+    {
+        public string GeneratedAt { get; set; } = string.Empty;
+        public long GenerationTimeMs { get; set; }
+        public Dictionary<string, FileEntry> Files { get; set; } = new Dictionary<string, FileEntry>();
+    }
+
+    /// <summary>
+    /// Metadata for a single file in the manifest
+    /// </summary>
+    public class FileEntry
+    {
+        public string Hash { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public string ModName { get; set; } = string.Empty;
+        public bool Required { get; set; }
+    }
+
+    /// <summary>
+    /// Categories of file verification issues
+    /// </summary>
+    public enum FileIssueType
+    {
+        Missing,      // File should exist but doesn't
+        HashMismatch, // File exists but hash doesn't match
+        ExtraFile     // File exists but isn't in manifest (unknown mod file)
+    }
+
+    /// <summary>
+    /// A file verification issue
+    /// </summary>
+    public class FileIssue
+    {
+        public FileIssueType Type { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+        public string ModName { get; set; } = string.Empty;
+        public bool Required { get; set; }
+        public string Details { get; set; } = string.Empty;
+    }
 }
 

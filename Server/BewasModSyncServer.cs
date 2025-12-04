@@ -101,3 +101,51 @@ public class ModConfigHttpListener : IHttpListener
         await context.Response.CompleteAsync();
     }
 }
+
+/// <summary>
+/// HTTP listener to serve the file manifest to clients
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ManifestHttpListener : IHttpListener
+{
+    private readonly ManifestService _manifestService;
+    private readonly ISptLogger<ManifestHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    public ManifestHttpListener(
+        ManifestService manifestService,
+        ISptLogger<ManifestHttpListener> logger)
+    {
+        _manifestService = manifestService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/bewasmodsync/api/manifest", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        _logger.Info("Client requested file manifest");
+
+        var manifest = _manifestService.GenerateManifest();
+        var json = JsonSerializer.Serialize(manifest, JsonOptions);
+
+        _logger.Info($"Manifest generated: {manifest.Files.Count} files in {manifest.GenerationTimeMs}ms");
+
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
