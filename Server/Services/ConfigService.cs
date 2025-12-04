@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using BewasModSync.Models;
@@ -418,7 +419,7 @@ public class ConfigService : IOnLoad
     }
 
     /// <summary>
-    /// Generate a PowerShell script that auto-polls the server and installs/removes mods when it shuts down
+    /// Generate install scripts (PowerShell for Windows, Bash for Linux) to auto-apply installs/removals on server shutdown
     /// </summary>
     public async Task<string?> GenerateInstallScriptAsync(string serverUrl = "https://127.0.0.1:6969")
     {
@@ -432,25 +433,29 @@ public class ConfigService : IOnLoad
 
         var pathsToDelete = PendingOps.PathsToDelete.ToList();
 
-        var scriptPath = Path.Combine(_dataPath, "install-pending-mods.ps1");
+        var scriptPathPs1 = Path.Combine(_dataPath, "install-pending-mods.ps1");
+        var scriptPathSh = Path.Combine(_dataPath, "install-pending-mods.sh");
 
+        // Nothing to do -> delete scripts
         if (pendingInstalls.Count == 0 && pendingRemovals.Count == 0 && pathsToDelete.Count == 0)
         {
-            // No pending operations - delete script if it exists
-            if (File.Exists(scriptPath))
-                File.Delete(scriptPath);
+            if (File.Exists(scriptPathPs1)) File.Delete(scriptPathPs1);
+            if (File.Exists(scriptPathSh)) File.Delete(scriptPathSh);
             return null;
         }
 
+        // --------------------
+        // PowerShell script
+        // --------------------
         var sb = new System.Text.StringBuilder();
-        
+
         // Header
         sb.AppendLine("# BewasModSync - Auto-Install Pending Mods");
-        sb.AppendLine("# This script polls the SPT server and installs mods when it shuts down");
+        sb.AppendLine("# This script polls the SPT server and installs/removes mods when it shuts down");
         sb.AppendLine("# Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         sb.AppendLine("# Close this window to cancel");
         sb.AppendLine("");
-        
+
         // Configuration
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine("$script:HasCriticalError = $false");
@@ -459,7 +464,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("$PollIntervalSeconds = 2");
         sb.AppendLine($"$SptRoot = '{_sptRoot}'");
         sb.AppendLine("");
-        
+
         // Global error handler
         sb.AppendLine("# Global error handler to keep window open on critical errors");
         sb.AppendLine("trap {");
@@ -480,7 +485,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("# Reset error action for non-critical operations");
         sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
         sb.AppendLine("");
-        
+
         // SSL certificate bypass for self-signed certs
         sb.AppendLine("# Bypass SSL certificate validation (SPT uses self-signed certs)");
         sb.AppendLine("Add-Type @\"");
@@ -494,7 +499,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy");
         sb.AppendLine("[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12");
         sb.AppendLine("");
-        
+
         // Title and info
         sb.AppendLine("$Host.UI.RawUI.WindowTitle = 'BewasModSync - Waiting for Server Shutdown'");
         sb.AppendLine("Clear-Host");
@@ -502,7 +507,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("Write-Host '  BewasModSync - Auto Mod Manager     ' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host ''");
-        
+
         if (pendingInstalls.Count > 0)
         {
             sb.AppendLine($"Write-Host 'Pending mods to install: {pendingInstalls.Count}' -ForegroundColor Yellow");
@@ -512,7 +517,7 @@ public class ConfigService : IOnLoad
             }
             sb.AppendLine("Write-Host ''");
         }
-        
+
         if (pendingRemovals.Count > 0)
         {
             sb.AppendLine($"Write-Host 'Pending mods to remove: {pendingRemovals.Count}' -ForegroundColor Yellow");
@@ -522,12 +527,12 @@ public class ConfigService : IOnLoad
             }
             sb.AppendLine("Write-Host ''");
         }
-        
+
         sb.AppendLine("Write-Host 'Changes will be applied automatically when SPT server shuts down.' -ForegroundColor Green");
         sb.AppendLine("Write-Host 'Close this window to cancel.' -ForegroundColor DarkGray");
         sb.AppendLine("Write-Host ''");
         sb.AppendLine("");
-        
+
         // Polling loop
         sb.AppendLine("# Poll until server shuts down");
         sb.AppendLine("$serverWasUp = $false");
@@ -560,7 +565,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine("");
-        
+
         // Removal section
         if (pathsToDelete.Count > 0)
         {
@@ -579,7 +584,7 @@ public class ConfigService : IOnLoad
                 sb.AppendLine($"    }} catch {{");
                 sb.AppendLine($"        Write-Host '  [FAIL] {pathToDelete}: ' $_.Exception.Message -ForegroundColor Red");
                 sb.AppendLine($"    }}");
-                sb.AppendLine($"}}");
+                sb.AppendLine("}");
                 sb.AppendLine("");
             }
         }
@@ -621,14 +626,15 @@ public class ConfigService : IOnLoad
 
         // Write completion marker file
         var completedPath = Path.Combine(_dataPath, "completed-installs.json");
-        
+
         // Include both installed URLs and removed URLs so server knows to update their status
-        var completionData = new {
+        var completionData = new
+        {
             installed = pendingInstalls.Select(m => m.DownloadUrl).ToList(),
             removed = pendingRemovals.Select(m => m.DownloadUrl).ToList()
         };
         var urlsJson = JsonSerializer.Serialize(completionData, JsonOptions);
-        
+
         sb.AppendLine("# Write completion marker file");
         sb.AppendLine($"$completedUrls = @'");
         sb.AppendLine(urlsJson);
@@ -636,7 +642,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine($"$completedUrls | Out-File -FilePath '{completedPath}' -Encoding UTF8");
         sb.AppendLine("Write-Host 'Wrote completion marker for server.' -ForegroundColor DarkGray");
         sb.AppendLine("");
-        
+
         // Completion
         sb.AppendLine("Write-Host ''");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Green");
@@ -649,18 +655,168 @@ public class ConfigService : IOnLoad
         sb.AppendLine("Write-Host 'This window will close in 10 seconds...' -ForegroundColor DarkGray");
         sb.AppendLine("Start-Sleep -Seconds 10");
 
-        await File.WriteAllTextAsync(scriptPath, sb.ToString());
-        _logger.Info($"Generated install script: {scriptPath}");
-        
-        return scriptPath;
+        await File.WriteAllTextAsync(scriptPathPs1, sb.ToString());
+        _logger.Info($"Generated install script: {scriptPathPs1}");
+
+        // --------------------
+        // Bash script (Linux)
+        // --------------------
+        var sbSh = new System.Text.StringBuilder();
+        var sptRootUnix = _sptRoot.Replace("\\", "/");
+        var completionPathUnix = completedPath.Replace("\\", "/");
+
+        sbSh.AppendLine("#!/usr/bin/env bash");
+        sbSh.AppendLine("set -euo pipefail");
+        sbSh.AppendLine("");
+        sbSh.AppendLine($"SERVER_URL=\"{serverUrl}\"");
+        sbSh.AppendLine("STATUS_ENDPOINT=\"$SERVER_URL/bewasmodsync/api/status\"");
+        sbSh.AppendLine("POLL_INTERVAL=2");
+        sbSh.AppendLine($"SPT_ROOT=\"{sptRootUnix}\"");
+        sbSh.AppendLine($"COMPLETION_FILE=\"{completionPathUnix}\"");
+        sbSh.AppendLine("");
+        sbSh.AppendLine("# Trap to keep window open on errors");
+        sbSh.AppendLine("trap '");
+        sbSh.AppendLine("  echo \"\";");
+        sbSh.AppendLine("  echo \"======================================\";");
+        sbSh.AppendLine("  echo \"  CRITICAL ERROR\";");
+        sbSh.AppendLine("  echo \"======================================\";");
+        sbSh.AppendLine("  echo \"Command: $BASH_COMMAND\";");
+        sbSh.AppendLine("  echo \"Status : $?\";");
+        sbSh.AppendLine("  echo \"\";");
+        sbSh.AppendLine("  read -n1 -s -r -p \"Press any key to close...\";");
+        sbSh.AppendLine("  exit 1;");
+        sbSh.AppendLine("' ERR");
+        sbSh.AppendLine("");
+        sbSh.AppendLine("clear");
+        sbSh.AppendLine("echo \"======================================\"");
+        sbSh.AppendLine("echo \"  BewasModSync - Auto Mod Manager\"");
+        sbSh.AppendLine("echo \"======================================\"");
+        sbSh.AppendLine("");
+
+        if (pendingInstalls.Count > 0)
+        {
+            sbSh.AppendLine($"echo \"Pending mods to install: {pendingInstalls.Count}\"");
+            foreach (var mod in pendingInstalls)
+            {
+                sbSh.AppendLine($"echo \"  + {mod.ModName}\"");
+            }
+            sbSh.AppendLine("echo \"\"");
+        }
+
+        if (pendingRemovals.Count > 0)
+        {
+            sbSh.AppendLine($"echo \"Pending mods to remove: {pendingRemovals.Count}\"");
+            foreach (var mod in pendingRemovals)
+            {
+                sbSh.AppendLine($"echo \"  - {mod.ModName}\"");
+            }
+            sbSh.AppendLine("echo \"\"");
+        }
+
+        sbSh.AppendLine("echo \"Changes will be applied automatically when SPT server shuts down.\"");
+        sbSh.AppendLine("echo \"Close this window to cancel.\"");
+        sbSh.AppendLine("echo \"\"");
+        sbSh.AppendLine("");
+
+        // Polling loop
+        sbSh.AppendLine("server_was_up=false");
+        sbSh.AppendLine("spin='|/-\\\\'");
+        sbSh.AppendLine("i=0");
+        sbSh.AppendLine("while true; do");
+        sbSh.AppendLine("  code=$(curl -k -s -o /dev/null -w \"%{http_code}\" \"$STATUS_ENDPOINT\" || true)");
+        sbSh.AppendLine("  if [[ \"$code\" == \"200\" ]]; then");
+        sbSh.AppendLine("    server_was_up=true");
+        sbSh.AppendLine("    i=$(((i+1)%4))");
+        sbSh.AppendLine("    printf \"\\r[%s] Server is running... waiting for shutdown    \" \"${spin:$i:1}\"");
+        sbSh.AppendLine("    sleep $POLL_INTERVAL");
+        sbSh.AppendLine("  else");
+        sbSh.AppendLine("    if $server_was_up; then");
+        sbSh.AppendLine("      echo \"\"; echo \"\"; echo \"Server shutdown detected!\"; echo \"\";");
+        sbSh.AppendLine("      break");
+        sbSh.AppendLine("    else");
+        sbSh.AppendLine("      i=$(((i+1)%4))");
+        sbSh.AppendLine("      printf \"\\r[%s] Waiting for server to start...            \" \"${spin:$i:1}\"");
+        sbSh.AppendLine("      sleep $POLL_INTERVAL");
+        sbSh.AppendLine("    fi");
+        sbSh.AppendLine("  fi");
+        sbSh.AppendLine("done");
+        sbSh.AppendLine("");
+
+        // Removal section
+        if (pathsToDelete.Count > 0)
+        {
+            sbSh.AppendLine("echo \"Removing mods...\"; echo \"\"");
+            foreach (var pathToDelete in pathsToDelete)
+            {
+                var fullPath = pathToDelete.Replace("<SPT_ROOT>", "$SPT_ROOT").Replace("\\", "/");
+                var name = Path.GetFileName(pathToDelete.TrimEnd('/', '\\'));
+                sbSh.AppendLine($"if [ -e \"{fullPath}\" ]; then");
+                sbSh.AppendLine($"  if rm -rf \"{fullPath}\"; then");
+                sbSh.AppendLine($"    echo \"  [OK] Removed {name}\"");
+                sbSh.AppendLine("  else");
+                sbSh.AppendLine($"    echo \"  [FAIL] {pathToDelete}\"");
+                sbSh.AppendLine("  fi");
+                sbSh.AppendLine("fi");
+                sbSh.AppendLine("");
+            }
+        }
+
+        // Install section
+        if (pendingInstalls.Count > 0)
+        {
+            sbSh.AppendLine("echo \"Installing mods...\"; echo \"\"");
+            foreach (var mod in pendingInstalls)
+            {
+                var stagingPath = Staging.UrlToPath[mod.DownloadUrl].Replace("\\", "/");
+                var extractedPath = Path.Combine(stagingPath, "extracted").Replace("\\", "/");
+                sbSh.AppendLine($"echo \"Installing: {mod.ModName}\"");
+                foreach (var installPath in mod.InstallPaths)
+                {
+                    var sourcePath = installPath[0];
+                    var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SPT_ROOT");
+                    var fullSourcePath = Path.Combine(extractedPath, sourcePath).Replace("\\", "/");
+                    sbSh.AppendLine($"if [ -d \"{fullSourcePath}\" ]; then");
+                    sbSh.AppendLine($"  mkdir -p \"{targetPath}\"");
+                    sbSh.AppendLine($"  cp -a \"{fullSourcePath}/.\" \"{targetPath}/\" && echo \"  [OK] Copied {sourcePath}\" || echo \"  [FAIL] {sourcePath}\"");
+                    sbSh.AppendLine("fi");
+                    sbSh.AppendLine("");
+                }
+            }
+        }
+
+        // Write completion marker file
+        sbSh.AppendLine("echo \"\";");
+        sbSh.AppendLine("echo \"Writing completion marker...\";");
+        sbSh.AppendLine($"cat > \"$COMPLETION_FILE\" <<'EOF'");
+        sbSh.AppendLine(urlsJson);
+        sbSh.AppendLine("EOF");
+        sbSh.AppendLine("echo \"Done.\"");
+        sbSh.AppendLine("");
+
+        sbSh.AppendLine("echo \"======================================\"");
+        sbSh.AppendLine("echo \"  Installation Complete!\"");
+        sbSh.AppendLine("echo \"======================================\"");
+        sbSh.AppendLine("echo \"You can now start the SPT server.\"");
+        sbSh.AppendLine("echo \"The server will automatically mark these mods as installed/removed.\"");
+        sbSh.AppendLine("echo \"This window will close in 10 seconds...\"");
+        sbSh.AppendLine("sleep 10");
+
+        await File.WriteAllTextAsync(scriptPathSh, sbSh.ToString());
+        try { File.SetAttributes(scriptPathSh, FileAttributes.Normal); } catch { }
+        _logger.Info($"Generated install script: {scriptPathSh}");
+
+        // Return script path for current OS
+        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        return isWindows ? scriptPathPs1 : scriptPathSh;
     }
     
     /// <summary>
-    /// Launch the install script in a new PowerShell window
+    /// Launch the install script in a new window (PowerShell on Windows, bash on Linux)
     /// </summary>
     public void LaunchInstallScript()
     {
-        var scriptPath = Path.Combine(_dataPath, "install-pending-mods.ps1");
+        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        var scriptPath = Path.Combine(_dataPath, isWindows ? "install-pending-mods.ps1" : "install-pending-mods.sh");
         
         if (!File.Exists(scriptPath))
         {
@@ -670,13 +826,27 @@ public class ConfigService : IOnLoad
         
         try
         {
-            var startInfo = new System.Diagnostics.ProcessStartInfo
+            System.Diagnostics.ProcessStartInfo startInfo;
+            if (isWindows)
             {
-                FileName = "powershell.exe",
-                Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\"",
-                UseShellExecute = true,
-                CreateNoWindow = false
-            };
+                startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\"",
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                };
+            }
+            else
+            {
+                startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "bash",
+                    Arguments = $"\"{scriptPath}\"",
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                };
+            }
             
             System.Diagnostics.Process.Start(startInfo);
             _logger.Info("Launched install script in new window");
