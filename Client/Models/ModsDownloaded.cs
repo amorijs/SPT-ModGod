@@ -21,7 +21,8 @@ namespace BewasModSync.Models
         public string DownloadUrl { get; set; } = string.Empty;
         public bool Optional { get; set; } = false;
         public string LastUpdated { get; set; } = string.Empty;
-        public List<string[]> SyncPaths { get; set; } = new List<string[]>();
+        public List<string[]> InstallPaths { get; set; } = new List<string[]>();
+        public string Status { get; set; } = "Pending"; // "Pending", "Installed", "PendingRemoval"
     }
 
     public class ClientConfig
@@ -72,4 +73,3 @@ namespace BewasModSync.Models
         public string Details { get; set; } = string.Empty;
     }
 }
-

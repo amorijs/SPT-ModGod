@@ -7,7 +7,8 @@ using SPTarkov.Server.Core.Models.Utils;
 namespace BewasModSync.Services;
 
 /// <summary>
-/// Service for generating file manifests from the mod cache
+/// Service for generating file manifests from the actual installed mods
+/// Reads directly from the SPT installation folders, not staging/cache
 /// </summary>
 [Injectable(InjectionType = InjectionType.Singleton)]
 public class ManifestService
@@ -24,17 +25,25 @@ public class ManifestService
     }
 
     /// <summary>
-    /// Generate a file manifest for all mods in the config
-    /// Maps files from mod cache to their target paths and computes hashes
+    /// Generate a file manifest for all installed mods
+    /// Reads directly from actual install paths on the server
+    /// This means any config file changes are automatically reflected
     /// </summary>
     public FileManifest GenerateManifest()
     {
         var stopwatch = Stopwatch.StartNew();
         var manifest = new FileManifest();
 
-        _logger.Info("Generating file manifest...");
+        _logger.Info("Generating file manifest from installed files...");
 
-        foreach (var mod in _configService.Config.ModList)
+        // Only include installed mods (not pending or pending removal)
+        var installedMods = _configService.Config.ModList
+            .Where(m => m.Status == ModStatus.Installed)
+            .ToList();
+
+        _logger.Info($"Processing {installedMods.Count} installed mods...");
+
+        foreach (var mod in installedMods)
         {
             try
             {
@@ -50,65 +59,60 @@ public class ManifestService
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
         manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
 
-        _logger.Success($"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files");
+        _logger.Success($"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
 
         return manifest;
     }
 
     private void AddModToManifest(FileManifest manifest, ModEntry mod)
     {
-        // Get the cached extraction path for this mod
-        if (!_configService.IsUrlCached(mod.DownloadUrl))
+        // Process each install path - read from ACTUAL installed location
+        foreach (var installPath in mod.InstallPaths)
         {
-            _logger.Warning($"Mod '{mod.ModName}' is not cached, skipping manifest generation");
-            return;
-        }
+            var sourcePath = installPath[0]; // e.g., "BepInEx" (relative path in original archive)
+            var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx" (where it was installed)
 
-        var cachePath = _configService.ModCache.UrlToPath[mod.DownloadUrl];
-        var extractedPath = Path.Combine(cachePath, "extracted");
-
-        if (!Directory.Exists(extractedPath))
-        {
-            _logger.Warning($"Extracted path not found for mod '{mod.ModName}': {extractedPath}");
-            return;
-        }
-
-        // Process each sync path
-        foreach (var syncPath in mod.SyncPaths)
-        {
-            var sourcePath = syncPath[0]; // e.g., "BepInEx" or "SPT"
-            var targetPath = syncPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
-
-            // Full source path in the cache
-            var fullSourcePath = Path.Combine(extractedPath, sourcePath);
+            // The actual installed path on the server
+            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
             
-            if (!Directory.Exists(fullSourcePath))
+            if (!Directory.Exists(actualInstalledPath))
             {
                 // Might be a file, not a directory
-                if (File.Exists(fullSourcePath))
+                if (File.Exists(actualInstalledPath))
                 {
-                    AddFileToManifest(manifest, fullSourcePath, targetPath, mod);
+                    AddFileToManifest(manifest, actualInstalledPath, targetPath, mod);
+                }
+                else
+                {
+                    _logger.Warning($"Install path not found for mod '{mod.ModName}': {actualInstalledPath}");
                 }
                 continue;
             }
 
-            // Recursively add all files from this source directory
-            AddDirectoryToManifest(manifest, fullSourcePath, targetPath, mod);
+            // Recursively add all files from this installed directory
+            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, mod);
         }
     }
 
-    private void AddDirectoryToManifest(FileManifest manifest, string sourceDir, string targetBase, ModEntry mod)
+    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod)
     {
-        foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+        try
         {
-            // Calculate relative path from source directory
-            var relativePath = Path.GetRelativePath(sourceDir, file);
-            
-            // Build target path (replace <SPT_ROOT> with empty to get relative path)
-            var targetPath = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
-            var fullTargetPath = Path.Combine(targetPath, relativePath).Replace('\\', '/');
+            foreach (var file in Directory.GetFiles(installedDir, "*", SearchOption.AllDirectories))
+            {
+                // Calculate relative path from the installed directory
+                var relativePath = Path.GetRelativePath(installedDir, file);
+                
+                // Build target path (replace <SPT_ROOT> with empty to get relative path for manifest)
+                var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
 
-            AddFileToManifest(manifest, file, fullTargetPath, mod);
+                AddFileToManifest(manifest, file, fullTargetPath, mod);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Error scanning directory '{installedDir}': {ex.Message}");
         }
     }
 
@@ -117,10 +121,10 @@ public class ManifestService
         // Normalize path separators
         targetPath = targetPath.Replace('\\', '/').TrimStart('/');
 
-        // Skip if already in manifest (shouldn't happen, but safety check)
+        // Skip if already in manifest (another mod may have the same file)
         if (manifest.Files.ContainsKey(targetPath))
         {
-            _logger.Debug($"File already in manifest, skipping: {targetPath}");
+            _logger.Debug($"File already in manifest from another mod, skipping: {targetPath}");
             return;
         }
 
@@ -154,4 +158,3 @@ public class ManifestService
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }
-

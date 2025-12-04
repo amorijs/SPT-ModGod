@@ -29,7 +29,7 @@ public record ModMetadata : AbstractModMetadata, IModWebMetadata
     public override Dictionary<string, SemanticVersioning.Range>? ModDependencies { get; init; }
     public override string? Url { get; init; }
     public override bool? IsBundleMod { get; init; }
-    public override string? License { get; init; } = "MIT";
+    public override string License { get; init; } = "MIT";
 }
 
 /// <summary>
@@ -145,6 +145,30 @@ public class ManifestHttpListener : IHttpListener
         context.Response.StatusCode = 200;
         context.Response.ContentType = "application/json";
         await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener for status checks (used by install script to detect server shutdown)
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class StatusHttpListener : IHttpListener
+{
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/bewasmodsync/api/status", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        // Simple OK response to indicate server is running
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"status\":\"ok\"}"));
         await context.Response.StartAsync();
         await context.Response.CompleteAsync();
     }

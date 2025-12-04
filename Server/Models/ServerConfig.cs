@@ -8,8 +8,26 @@ public class ServerConfig
     public List<ModEntry> ModList { get; set; } = new();
 }
 
-public class ModCache
+/// <summary>
+/// Index of staged (downloaded but not yet installed) mods
+/// </summary>
+public class StagingIndex
 {
+    /// <summary>
+    /// Maps download URL to staging folder path
+    /// </summary>
     [JsonPropertyName("urlToPath")]
     public Dictionary<string, string> UrlToPath { get; set; } = new();
+}
+
+/// <summary>
+/// Pending operations to be applied on next startup
+/// </summary>
+public class PendingOperations
+{
+    /// <summary>
+    /// Paths to delete on next startup (for mod removal)
+    /// </summary>
+    [JsonPropertyName("pathsToDelete")]
+    public List<string> PathsToDelete { get; set; } = new();
 }

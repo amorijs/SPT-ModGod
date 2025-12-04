@@ -377,7 +377,6 @@ class SomePatch
         - Save button to save the mod to the list
     - Web UI lists all current mods in card format
     - Web UI saves all needed files (`serverConfig.jsonc`, `modCache`, etc) to a folder called `BewaModSyncData`
-  - SHOULD NEVER EDIT/MODIFY SERVER BepInEx / SPT directories or files within. It should be completely separated from the SPT installation
 - Client
   - `.exe` or similar which opens command prompt and fetches server mod config, and updates local mods if necessary
   - Ability to select which optional mods are downloaded

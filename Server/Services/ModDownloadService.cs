@@ -30,18 +30,18 @@ public class ModDownloadService
 
         try
         {
-            // Check if already cached
-            if (_configService.IsUrlCached(url))
+            // Check if already staged
+            if (_configService.IsUrlStaged(url))
             {
-                var cachedPath = _configService.ModCache.UrlToPath[url];
-                result.ExtractPath = cachedPath;
+                var stagedPath = _configService.Staging.UrlToPath[url];
+                result.ExtractPath = stagedPath;
                 result.Success = true;
                 result.FromCache = true;
                 AnalyzeModStructure(result);
                 return result;
             }
 
-            // Download the zip file using streaming (better for large files)
+            // Download the archive using streaming (better for large files)
             _logger.Info($"Downloading mod from: {url}");
             using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
@@ -57,33 +57,33 @@ public class ModDownloadService
                 _logger.Warning($"Unexpected content type: {contentType}. Expected application/zip or application/octet-stream");
             }
 
-            var cachePath = _configService.GetCachePathForUrl(url);
+            var stagingPath = _configService.GetStagingPathForUrl(url);
 
             // Clean and create directory
-            if (Directory.Exists(cachePath))
+            if (Directory.Exists(stagingPath))
             {
-                Directory.Delete(cachePath, true);
+                Directory.Delete(stagingPath, true);
             }
-            Directory.CreateDirectory(cachePath);
+            Directory.CreateDirectory(stagingPath);
 
             // Stream directly to file (handles large files efficiently)
-            var zipPath = Path.Combine(cachePath, "mod.zip");
-            await using (var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            var archivePath = Path.Combine(stagingPath, "mod.zip");
+            await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
             {
                 await response.Content.CopyToAsync(fileStream);
             }
 
-            var fileSize = new FileInfo(zipPath).Length;
-            _logger.Info($"Downloaded {fileSize / 1024 / 1024}MB to {zipPath}");
+            var fileSize = new FileInfo(archivePath).Length;
+            _logger.Info($"Downloaded {fileSize / 1024 / 1024}MB to {archivePath}");
 
             // Extract archive (supports .zip, .7z, .rar, .tar.gz, etc.)
-            var extractPath = Path.Combine(cachePath, "extracted");
+            var extractPath = Path.Combine(stagingPath, "extracted");
             Directory.CreateDirectory(extractPath);
             
             _logger.Info("Extracting archive...");
             try
             {
-                using (var archive = ArchiveFactory.Open(zipPath))
+                using (var archive = ArchiveFactory.Open(archivePath))
                 {
                     _logger.Info($"Archive type: {archive.Type}");
                     var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
@@ -106,11 +106,11 @@ public class ModDownloadService
                 throw;
             }
 
-            // Update cache index
-            _configService.ModCache.UrlToPath[url] = cachePath;
-            await _configService.SaveCacheIndexAsync();
+            // Update staging index
+            _configService.Staging.UrlToPath[url] = stagingPath;
+            await _configService.SaveStagingIndexAsync();
 
-            result.ExtractPath = cachePath;
+            result.ExtractPath = stagingPath;
             result.Success = true;
 
             // Analyze structure
@@ -150,13 +150,13 @@ public class ModDownloadService
 
         if (result.IsStandardStructure)
         {
-            result.SuggestedSyncPaths = GenerateSyncPaths(extractedPath, topLevelDirs);
+            result.SuggestedInstallPaths = GenerateInstallPaths(extractedPath, topLevelDirs);
         }
     }
 
-    private List<string[]> GenerateSyncPaths(string extractedPath, List<string> topLevelDirs)
+    private List<string[]> GenerateInstallPaths(string extractedPath, List<string> topLevelDirs)
     {
-        var syncPaths = new List<string[]>();
+        var installPaths = new List<string[]>();
 
         foreach (var dir in topLevelDirs)
         {
@@ -168,15 +168,15 @@ public class ModDownloadService
                 _ => $"<SPT_ROOT>/{dir}"
             };
 
-            syncPaths.Add(new[] { sourcePath, targetPath });
+            installPaths.Add(new[] { sourcePath, targetPath });
         }
 
-        return syncPaths;
+        return installPaths;
     }
 
-    public List<string> GetExtractedContents(string cachePath)
+    public List<string> GetExtractedContents(string stagingPath)
     {
-        var extractedPath = Path.Combine(cachePath, "extracted");
+        var extractedPath = Path.Combine(stagingPath, "extracted");
         if (!Directory.Exists(extractedPath))
         {
             return new List<string>();
@@ -222,6 +222,5 @@ public class ModDownloadResult
     public string? Error { get; set; }
     public bool IsStandardStructure { get; set; }
     public List<string> TopLevelDirectories { get; set; } = new();
-    public List<string[]> SuggestedSyncPaths { get; set; } = new();
+    public List<string[]> SuggestedInstallPaths { get; set; } = new();
 }
-
