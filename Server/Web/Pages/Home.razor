@@ -1,0 +1,408 @@
+@page "/bewasmodsync"
+@layout MainLayout
+
+@using BewasModSync.Models
+@using BewasModSync.Services
+@using Color = MudBlazor.Color
+
+@inject ConfigService ConfigService
+@inject ModDownloadService ModDownloadService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge">
+    <!-- Header Section -->
+    <MudPaper Class="pa-6 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 12px; margin-top: 55px;">
+        <div class="d-flex justify-space-between align-center">
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">Mod Management</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                    Configure mods that will be synced to connected clients
+                </MudText>
+            </div>
+            <MudButton Variant="Variant.Filled" 
+                       StartIcon="@Icons.Material.Filled.Add" 
+                       Color="Color.Primary"
+                       Style="background: var(--accent-cyan); color: #000; font-weight: 600;"
+                       OnClick="OpenAddModDialog">
+                Add Mod
+            </MudButton>
+        </div>
+    </MudPaper>
+
+    <!-- Stats Bar -->
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div class="d-flex align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
+                    <div>
+                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count</MudText>
+                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
+                    </div>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div class="d-flex align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
+                    <div>
+                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => !m.Optional)</MudText>
+                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
+                    </div>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div class="d-flex align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+                    <div>
+                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Optional)</MudText>
+                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Optional</MudText>
+                    </div>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Mod Cards -->
+    @if (ConfigService.Config.ModList.Count == 0)
+    {
+        <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
+            <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
+            <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No mods configured yet</MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Click "Add Mod" to get started</MudText>
+        </MudPaper>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var mod in ConfigService.Config.ModList)
+            {
+                <MudItem xs="12" md="6" lg="4">
+                    <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; height: 100%;">
+                        <div class="d-flex justify-space-between align-start mb-3">
+                            <div>
+                                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
+                                <MudChip T="string" Size="Size.Small" 
+                                         Style="@(mod.Optional ? "background: var(--accent-green); color: #000;" : "background: var(--accent-orange); color: #000;")">
+                                    @(mod.Optional ? "Optional" : "Required")
+                                </MudChip>
+                            </div>
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
+                                <MudMenuItem OnClick="@(() => EditMod(mod))">
+                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
+                                </MudMenuItem>
+                                <MudMenuItem OnClick="@(() => ForceUpdateMod(mod))">
+                                    <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Force Update
+                                </MudMenuItem>
+                                <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> Delete
+                                </MudMenuItem>
+                            </MudMenu>
+                        </div>
+
+                        <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
+                            @TruncateUrl(mod.DownloadUrl)
+                        </MudText>
+
+                        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+
+                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                            <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            Updated: @FormatTimestamp(mod.LastUpdated)
+                        </MudText>
+
+                        <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            @mod.SyncPaths.Count sync path(s)
+                        </MudText>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudContainer>
+
+<!-- Add/Edit Mod Dialog -->
+<MudDialog @bind-Visible="_dialogVisible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            @(_isEditing ? "Edit Mod" : "Add New Mod")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_dialogStep == DialogStep.Input)
+        {
+            <MudTextField @bind-Value="_modName" 
+                          Label="Mod Name" 
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudTextField @bind-Value="_downloadUrl" 
+                          Label="Download URL (direct .zip link)" 
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          Required="true"
+                          HelperText="Must be a direct link to a .zip file" />
+            
+            <MudCheckBox @bind-Value="_isOptional" 
+                         Label="Optional mod (not enforced on clients)"
+                         Color="Color.Primary" />
+        }
+        else if (_dialogStep == DialogStep.Downloading)
+        {
+            <div class="text-center pa-8">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+                <MudText Typo="Typo.body1" Class="mt-4" Style="color: var(--text-secondary);">
+                    @(_downloadResult?.FromCache == true ? "Loading from cache..." : "Downloading and analyzing mod...")
+                </MudText>
+            </div>
+        }
+        else if (_dialogStep == DialogStep.Configure)
+        {
+            @if (_downloadResult != null && _downloadResult.Success)
+            {
+                <MudAlert Severity="@(_downloadResult.IsStandardStructure ? Severity.Success : Severity.Warning)" Class="mb-4">
+                    @if (_downloadResult.IsStandardStructure)
+                    {
+                        <span>Standard structure detected! Sync paths have been auto-generated.</span>
+                    }
+                    else
+                    {
+                        <span>Non-standard structure. Please configure sync paths manually.</span>
+                    }
+                </MudAlert>
+
+                <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">
+                    Top-level directories: @string.Join(", ", _downloadResult.TopLevelDirectories)
+                </MudText>
+
+                <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                    Sync Paths
+                </MudText>
+                
+                @for (int i = 0; i < _syncPaths.Count; i++)
+                {
+                    var index = i;
+                    <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                        <MudGrid>
+                            <MudItem xs="5">
+                                <MudTextField @bind-Value="_syncPaths[index].Source" 
+                                              Label="Source Path" 
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Class="mono" />
+                            </MudItem>
+                            <MudItem xs="1" Class="d-flex align-center justify-center">
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                            </MudItem>
+                            <MudItem xs="5">
+                                <MudTextField @bind-Value="_syncPaths[index].Target" 
+                                              Label="Target Path" 
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Class="mono" />
+                            </MudItem>
+                            <MudItem xs="1" Class="d-flex align-center justify-center">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                               Color="Color.Error" 
+                                               Size="Size.Small"
+                                               OnClick="@(() => RemoveSyncPath(index))" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudPaper>
+                }
+
+                <MudButton Variant="Variant.Text" 
+                           StartIcon="@Icons.Material.Filled.Add" 
+                           Color="Color.Primary"
+                           OnClick="AddSyncPath"
+                           Class="mt-2">
+                    Add Sync Path
+                </MudButton>
+            }
+            else if (_downloadResult != null)
+            {
+                <MudAlert Severity="Severity.Error">
+                    Failed to download mod: @_downloadResult.Error
+                </MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseDialog" Variant="Variant.Text">Cancel</MudButton>
+        
+        @if (_dialogStep == DialogStep.Input)
+        {
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       Disabled="@(string.IsNullOrWhiteSpace(_modName) || string.IsNullOrWhiteSpace(_downloadUrl))"
+                       OnClick="DownloadMod">
+                Next
+            </MudButton>
+        }
+        else if (_dialogStep == DialogStep.Configure)
+        {
+            <MudButton OnClick="@(() => _dialogStep = DialogStep.Input)" Variant="Variant.Text">Back</MudButton>
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       Disabled="@(_syncPaths.Count == 0)"
+                       OnClick="SaveMod">
+                Save Mod
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private bool _dialogVisible = false;
+    private DialogStep _dialogStep = DialogStep.Input;
+    private bool _isEditing = false;
+    private ModEntry? _editingMod = null;
+
+    private string _modName = "";
+    private string _downloadUrl = "";
+    private bool _isOptional = false;
+    private ModDownloadResult? _downloadResult;
+    private List<SyncPathItem> _syncPaths = new();
+
+    private enum DialogStep { Input, Downloading, Configure }
+
+    private class SyncPathItem
+    {
+        public string Source { get; set; } = "";
+        public string Target { get; set; } = "";
+    }
+
+    private void OpenAddModDialog()
+    {
+        _isEditing = false;
+        _editingMod = null;
+        _modName = "";
+        _downloadUrl = "";
+        _isOptional = false;
+        _downloadResult = null;
+        _syncPaths = new();
+        _dialogStep = DialogStep.Input;
+        _dialogVisible = true;
+    }
+
+    private void EditMod(ModEntry mod)
+    {
+        _isEditing = true;
+        _editingMod = mod;
+        _modName = mod.ModName;
+        _downloadUrl = mod.DownloadUrl;
+        _isOptional = mod.Optional;
+        _syncPaths = mod.SyncPaths.Select(p => new SyncPathItem { Source = p[0], Target = p[1] }).ToList();
+        _dialogStep = DialogStep.Configure;
+        _dialogVisible = true;
+    }
+
+    private async Task DownloadMod()
+    {
+        _dialogStep = DialogStep.Downloading;
+        _downloadResult = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            _downloadResult = await ModDownloadService.DownloadAndAnalyzeModAsync(_downloadUrl);
+
+            if (_downloadResult.Success)
+            {
+                _syncPaths = _downloadResult.SuggestedSyncPaths
+                    .Select(p => new SyncPathItem { Source = p[0], Target = p[1] })
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _downloadResult = new ModDownloadResult 
+            { 
+                Url = _downloadUrl, 
+                Success = false, 
+                Error = $"Download failed: {ex.Message}" 
+            };
+        }
+
+        _dialogStep = DialogStep.Configure;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void AddSyncPath()
+    {
+        _syncPaths.Add(new SyncPathItem());
+    }
+
+    private void RemoveSyncPath(int index)
+    {
+        if (index >= 0 && index < _syncPaths.Count)
+        {
+            _syncPaths.RemoveAt(index);
+        }
+    }
+
+    private async Task SaveMod()
+    {
+        var mod = new ModEntry
+        {
+            ModName = _modName,
+            DownloadUrl = _downloadUrl,
+            Optional = _isOptional,
+            LastUpdated = DateTime.UtcNow.ToString("o"),
+            SyncPaths = _syncPaths.Select(p => new[] { p.Source, p.Target }).ToList()
+        };
+
+        await ConfigService.AddModAsync(mod);
+        Snackbar.Add($"Mod '{_modName}' saved successfully!", Severity.Success);
+        CloseDialog();
+    }
+
+    private async Task ForceUpdateMod(ModEntry mod)
+    {
+        await ConfigService.UpdateModTimestampAsync(mod.DownloadUrl);
+        Snackbar.Add($"Mod '{mod.ModName}' marked for update!", Severity.Info);
+        StateHasChanged();
+    }
+
+    private async Task DeleteMod(ModEntry mod)
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Delete Mod",
+            $"Are you sure you want to remove '{mod.ModName}' from the sync list?",
+            yesText: "Delete", cancelText: "Cancel");
+
+        if (result == true)
+        {
+            await ConfigService.RemoveModAsync(mod.DownloadUrl);
+            Snackbar.Add($"Mod '{mod.ModName}' removed.", Severity.Warning);
+            StateHasChanged();
+        }
+    }
+
+    private void CloseDialog()
+    {
+        _dialogVisible = false;
+        _dialogStep = DialogStep.Input;
+    }
+
+    private string TruncateUrl(string url)
+    {
+        if (url.Length <= 50) return url;
+        return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
+    }
+
+    private string FormatTimestamp(string timestamp)
+    {
+        if (DateTime.TryParse(timestamp, out var dt))
+        {
+            return dt.ToString("MMM dd, yyyy HH:mm");
+        }
+        return "Never";
+    }
+}

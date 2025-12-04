@@ -1,0 +1,57 @@
+# Build output
+dist/
+[Bb]in/
+[Oo]bj/
+*.pdb
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Visual Studio
+*.ncb
+*.sdf
+*.opensdf
+*.aps
+*.vcxproj.filters
+
+# Rider
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Windows shortcuts
+*.lnk
+
+# Logs
+*.log
+logs/
+
+# Local config (may contain sensitive server URLs)
+*.local.json
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Reference directories (not part of the mod - for development only)
+reference_*/
+
+# Cursor/AI assistant files (optional - you may want to keep .cursorrules)
+# .cursorrules

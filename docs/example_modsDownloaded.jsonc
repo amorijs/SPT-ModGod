@@ -1,0 +1,11 @@
+[
+  {
+    // Not used for anything, just for reference
+    "modName": "Name of the mod",
+    "downloadUrl": "direct-link-to-mod-zip",
+    // This field is only used if the mod is optional. If optIn is true, the mod will be installed on the client. If optIn is false, the mod will not be installed on the client.
+    "optIn": false,
+    // If this field does not match the server's `lastUpdated` field, the client will need to download the mod again.
+    "lastUpdated": "utc-timestamp"
+  }
+]
