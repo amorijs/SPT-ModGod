@@ -215,6 +215,7 @@ public class ModDownloadService
 public class ModDownloadResult
 {
     public string Url { get; set; } = string.Empty;
+    public string? ModName { get; set; }
     public bool Success { get; set; }
     public bool FromCache { get; set; }
     public string? ExtractPath { get; set; }
