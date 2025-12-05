@@ -80,58 +80,80 @@
         }
     </MudPaper>
 
-    <!-- Stats Bar -->
-    <MudGrid Class="mb-4">
-        <MudItem xs="12" sm="3">
-            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                <div class="d-flex align-center">
-                    <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
-                    <div>
-                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count</MudText>
-                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
-                    </div>
+    <!-- Stats Bar (Clickable Filters) -->
+    <div class="d-flex gap-3 mb-4" style="flex-wrap: wrap;">
+        <MudPaper Class="pa-4 flex-grow-1" Style="@GetStatsCardStyle(null)" @onclick="() => ToggleStatusFilter(null)">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
                 </div>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="3">
-            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                <div class="d-flex align-center">
-                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
-                    <div>
-                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Installed)</MudText>
-                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Installed</MudText>
-                    </div>
+            </div>
+        </MudPaper>
+        <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("Installed"))" @onclick="@(() => ToggleStatusFilter("Installed"))">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Installed)</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Installed</MudText>
                 </div>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="3">
-            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                <div class="d-flex align-center">
-                    <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
-                    <div>
-                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Pending)</MudText>
-                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Install</MudText>
-                    </div>
+            </div>
+        </MudPaper>
+        <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("Pending"))" @onclick="@(() => ToggleStatusFilter("Pending"))">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Pending)</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Install</MudText>
                 </div>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="3">
-            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                <div class="d-flex align-center">
-                    <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
-                    <div>
-                        <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => !m.Optional)</MudText>
-                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
-                    </div>
+            </div>
+        </MudPaper>
+        <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("Required"))" @onclick="@(() => ToggleStatusFilter("Required"))">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => !m.Optional)</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
                 </div>
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
+            </div>
+        </MudPaper>
+        <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("Optional"))" @onclick="@(() => ToggleStatusFilter("Optional"))">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.LockOpen" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Optional)</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Optional</MudText>
+                </div>
+            </div>
+        </MudPaper>
+    </div>
 
     <MudTabs ActivePanelIndex="@_activeTabIndex"
              ActivePanelIndexChanged="OnTabChanged"
              Class="mb-4">
         <MudTabPanel Text="Mods" class="mt-4">
+            <!-- Search Bar -->
+            <div class="d-flex align-center gap-2 mb-4">
+                <MudTextField @bind-Value="_searchQuery"
+                              Placeholder="Search mods..."
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true"
+                              Clearable="true"
+                              Style="max-width: 400px; background: var(--card-bg);" />
+                @if (_activeStatusFilter != null || !string.IsNullOrEmpty(_searchQuery))
+                {
+                    <MudButton Variant="Variant.Text" 
+                               StartIcon="@Icons.Material.Filled.Clear"
+                               OnClick="ClearFilters"
+                               Style="color: var(--text-secondary);">
+                        Clear Filters
+                    </MudButton>
+                }
+            </div>
+            
             <!-- Mod Cards -->
             @if (ConfigService.Config.ModList.Count == 0)
             {
@@ -143,43 +165,59 @@
             }
             else
             {
-                // Sort pending mods: needs-config first, then alphabetically
-                var pendingMods = ConfigService.Config.ModList
+                // Apply search and status filters
+                var filteredMods = GetFilteredMods();
+                
+                // Sort: Protected mods first (ModGod), then pending mods, then installed
+                // Within each group: needs-config first, then alphabetically
+                var pendingMods = filteredMods
                     .Where(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval)
-                    .OrderByDescending(m => ModNeedsConfiguration(m)) // Needs config first
+                    .OrderByDescending(m => m.IsProtected) // Protected first
+                    .ThenByDescending(m => ModNeedsConfiguration(m)) // Needs config first
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                var installedMods = ConfigService.Config.ModList
+                var installedMods = filteredMods
                     .Where(m => m.Status == ModStatus.Installed)
-                    .OrderBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(m => m.IsProtected) // Protected first (ModGod at top)
+                    .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 
-                if (pendingMods.Count > 0)
+                @if (filteredMods.Count == 0)
                 {
-                    <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-orange); font-weight: 600;">
-                        <MudIcon Icon="@Icons.Material.Filled.Pending" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                        Pending (@pendingMods.Count)
-                    </MudText>
-                    <MudGrid Class="mb-4">
-                        @foreach (var mod in pendingMods)
-                        {
-                            @RenderModCard(mod)
-                        }
-                    </MudGrid>
+                    <MudPaper Class="pa-6 text-center" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                        <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Style="color: var(--text-secondary);" />
+                        <MudText Typo="Typo.body1" Class="mt-2" Style="color: var(--text-secondary);">No mods match your search or filter</MudText>
+                    </MudPaper>
                 }
-                
-                if (installedMods.Count > 0)
+                else
                 {
-                    <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-green); font-weight: 600;">
-                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                        Installed (@installedMods.Count)
-                    </MudText>
-                    <MudGrid>
-                        @foreach (var mod in installedMods)
-                        {
-                            @RenderModCard(mod)
-                        }
-                    </MudGrid>
+                    if (pendingMods.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-orange); font-weight: 600;">
+                            <MudIcon Icon="@Icons.Material.Filled.Pending" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            Pending (@pendingMods.Count)
+                        </MudText>
+                        <MudGrid Class="mb-4">
+                            @foreach (var mod in pendingMods)
+                            {
+                                @RenderModCard(mod)
+                            }
+                        </MudGrid>
+                    }
+                    
+                    if (installedMods.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-green); font-weight: 600;">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            Installed (@installedMods.Count)
+                        </MudText>
+                        <MudGrid>
+                            @foreach (var mod in installedMods)
+                            {
+                                @RenderModCard(mod)
+                            }
+                        </MudGrid>
+                    }
                 }
             }
         </MudTabPanel>
@@ -478,7 +516,7 @@
         </TitleContent>
         <DialogContent>
             <MudTextField @bind-Value="_editModName" 
-                          Label="Mod Name" 
+                          Label="Mod Name (For your reference only)" 
                           Variant="Variant.Outlined"
                           Class="mb-4"
                           Required="true" />
@@ -488,7 +526,7 @@
                           Variant="Variant.Outlined"
                           Class="mb-4 mono"
                           ReadOnly="true"
-                          HelperText="URL cannot be changed. Delete and re-add to use a different URL." />
+                          HelperText="URL cannot be changed. Delete and re-add to update / use a different URL." />
             
             <MudCheckBox @bind-Value="_editIsOptional" 
                          Label="Optional mod (not enforced on clients)"
@@ -765,6 +803,10 @@
     private bool _hasLoggedInit = false;
     private int _activeTabIndex = 0;
     
+    // Search and filter
+    private string _searchQuery = "";
+    private string? _activeStatusFilter = null; // null = show all, "Installed", "Pending", "Required"
+    
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoggedInit)
@@ -811,9 +853,11 @@
                                 </MudMenuItem>
                                 @if (mod.Status == ModStatus.Installed)
                                 {
-                                    <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
-                                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
-                                    </MudMenuItem>
+                                    <MudTooltip Text="Re-download and re-install this mod from the original URL. Useful if mod files were corrupted or manually modified.">
+                                        <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
+                                            <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                                        </MudMenuItem>
+                                    </MudTooltip>
                                 }
                                 <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
                                     <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
@@ -2052,6 +2096,72 @@
                 Snackbar.Add($"Mod '{mod.ModName}' marked for removal. Click 'Apply Changes' to uninstall.", Severity.Warning);
                 StateHasChanged();
             }
+        }
+    }
+
+    // Search and Filter Methods
+    private List<ModEntry> GetFilteredMods()
+    {
+        var mods = ConfigService.Config.ModList.AsEnumerable();
+        
+        // Apply status filter
+        if (_activeStatusFilter != null)
+        {
+            mods = _activeStatusFilter switch
+            {
+                "Installed" => mods.Where(m => m.Status == ModStatus.Installed),
+                "Pending" => mods.Where(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval),
+                "Required" => mods.Where(m => !m.Optional),
+                "Optional" => mods.Where(m => m.Optional),
+                _ => mods
+            };
+        }
+        
+        // Apply search filter (case insensitive)
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            var query = _searchQuery.Trim();
+            mods = mods.Where(m => 
+                m.ModName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                m.DownloadUrl.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+        
+        return mods.ToList();
+    }
+    
+    private void ToggleStatusFilter(string? filter)
+    {
+        // If clicking the same filter, clear it; otherwise set it
+        _activeStatusFilter = _activeStatusFilter == filter ? null : filter;
+    }
+    
+    private void ClearFilters()
+    {
+        _searchQuery = "";
+        _activeStatusFilter = null;
+    }
+    
+    private string GetStatsCardStyle(string? filter)
+    {
+        var isActive = _activeStatusFilter == filter;
+        var baseStyle = "background: var(--card-bg); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; min-width: 140px;";
+        
+        if (isActive)
+        {
+            // Active state - highlighted border based on filter type
+            var borderColor = filter switch
+            {
+                "Installed" => "var(--accent-green)",
+                "Pending" => "var(--accent-orange)",
+                "Required" => "var(--accent-red)",
+                "Optional" => "var(--accent-green)",
+                _ => "var(--accent-cyan)" // Total
+            };
+            return $"{baseStyle} border: 2px solid {borderColor}; box-shadow: 0 0 12px {borderColor}40;";
+        }
+        else
+        {
+            return $"{baseStyle} border: 1px solid var(--border-color);";
         }
     }
 

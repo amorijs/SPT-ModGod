@@ -22,12 +22,12 @@ _Manage your server mods from a web UI. Sync them to your players automatically.
 
 ## 🎯 Overview
 
-ModGod is a complete mod synchronization solution for SPT Tarkov servers. It allows server administrators to manage mods through a sleek web interface, while automatically ensuring all connected clients have the correct mods installed.
+ModGod is a complete mod synchronization solution for SPT Tarkov servers. It allows server administrators to manage mods through a sleek web interface, while automatically ensuring all connected clients have the correct mods and server files installed.
 
 ### Why ModGod?
 
 - **No more "wrong mod version" issues** - Clients automatically verify their mods match the server
-- **Easy mod distribution** - Add mods via URL, players download automatically
+- **Easy mod distribution** - Add mods via download URL, players download automatically
 - **Preserve your configs** - File overwrite rules let you protect server-side customizations
 - **Cross-platform support** - Auto-install scripts for both Windows and Linux servers
 
