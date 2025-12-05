@@ -238,11 +238,26 @@
                         @foreach (var (node, depth) in GetSyncFlattenedTree())
                         {
                             var state = GetSyncNodeState(node);
-                            var indent = depth * 14;
+                            var indent = depth * 18;
                             var capturedNode = node;
-                            <div class="d-flex align-center" style="padding-left:@(indent)px; margin-bottom:4px; cursor: pointer;" @onclick="() => OnSyncNodeClick(capturedNode)">
+                            var isExpanded = node.IsDirectory && _syncExpandedDirs.Contains(node.RelativePath);
+                            var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                            <div class="d-flex align-center" style="padding-left:@(indent)px; margin-bottom:2px;">
+                                @* Expand/collapse button for directories *@
+                                @if (hasChildren)
+                                {
+                                    <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                                   Size="Size.Small"
+                                                   Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                                   OnClick="() => ToggleSyncExpand(capturedNode)" />
+                                }
+                                else
+                                {
+                                    <div style="width: 28px;"></div>
+                                }
+                                @* Checkbox for sync state *@
                                 @{
-                                    var icon = state switch
+                                    var checkIcon = state switch
                                     {
                                         SyncNodeState.Included => Icons.Material.Filled.CheckBox,
                                         SyncNodeState.Excluded => Icons.Material.Filled.CheckBoxOutlineBlank,
@@ -255,10 +270,23 @@
                                         _ => "var(--accent-orange)"
                                     };
                                 }
-                                <MudIcon Icon="@icon" Style="@($"color: {iconColor};")" Size="Size.Small" />
-                                <span class="ml-2 mono" style="color: var(--text-primary);">
-                                    @(node.IsDirectory ? "📁" : "📄") @(node.Name)
-                                </span>
+                                <MudIconButton Icon="@checkIcon"
+                                               Size="Size.Small"
+                                               Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                               OnClick="() => OnSyncNodeClick(capturedNode)" />
+                                @* Directory/file name (click to expand/collapse for directories) *@
+                                @if (node.IsDirectory && hasChildren)
+                                {
+                                    <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleSyncExpand(capturedNode)">
+                                        📁 @(node.Name)
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="ml-1 mono" style="color: var(--text-primary);">
+                                        @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                                    </span>
+                                }
                             </div>
                         }
                     </MudPaper>
@@ -693,6 +721,7 @@
     private bool _syncTabInitialized = false;
     private FileNode? _syncTreeRoot;
     private HashSet<string> _syncExclusionSet = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _syncExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
     private enum SyncNodeState { Included, Excluded, Mixed }
 
@@ -983,6 +1012,19 @@
         _ = ToggleSyncNodeAsync(node);
     }
 
+    private void ToggleSyncExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        
+        var path = node.RelativePath;
+        if (_syncExpandedDirs.Contains(path))
+            _syncExpandedDirs.Remove(path);
+        else
+            _syncExpandedDirs.Add(path);
+        
+        StateHasChanged();
+    }
+
     private Task ToggleSyncNodeAsync(FileNode? node)
     {
         if (node == null) return Task.CompletedTask;
@@ -1133,6 +1175,10 @@
         {
             if (node == null) return;
             result.Add((node, depth));
+
+            // Only recurse into children if this directory is expanded
+            if (node.IsDirectory && !_syncExpandedDirs.Contains(node.RelativePath))
+                return;
 
             var children = node.Children;
             if (children != null)
