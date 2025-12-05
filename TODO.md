@@ -1,3 +1,0 @@
-- Easy click required/optional
-- Text box needs blur before clicking next
-- Errors -> important -> success
