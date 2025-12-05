@@ -20,6 +20,12 @@ public class FileManifest
     /// Key is the target path relative to SPT_ROOT (e.g., "BepInEx/plugins/ModName/ModName.dll")
     /// </summary>
     public Dictionary<string, FileEntry> Files { get; set; } = new();
+
+    /// <summary>
+    /// Paths (relative to SPT root) that were excluded from this manifest.
+    /// Provided so clients can suppress warnings for server-only/generated files.
+    /// </summary>
+    public List<string> SyncExclusions { get; set; } = new();
 }
 
 /// <summary>

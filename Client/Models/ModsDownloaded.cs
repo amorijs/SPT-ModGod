@@ -13,6 +13,7 @@ namespace BewasModSync.ClientEnforcer.Models
     public class ServerConfig
     {
         public List<ModEntry> ModList { get; set; } = new List<ModEntry>();
+        public List<string> SyncExclusions { get; set; } = new List<string>();
     }
 
     public class ModEntry
@@ -38,6 +39,7 @@ namespace BewasModSync.ClientEnforcer.Models
         public string GeneratedAt { get; set; } = string.Empty;
         public long GenerationTimeMs { get; set; }
         public Dictionary<string, FileEntry> Files { get; set; } = new Dictionary<string, FileEntry>();
+        public List<string> SyncExclusions { get; set; } = new List<string>();
     }
 
     /// <summary>

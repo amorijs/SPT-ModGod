@@ -178,11 +178,13 @@ namespace BewasModSync.ClientEnforcer
                     return LegacyVerifyMods(clientConfig);
                 }
 
+                var exclusions = BuildExclusionSet(manifest.SyncExclusions);
+
                 // Verify files from manifest
-                issues.AddRange(VerifyManifestFiles(manifest));
+                issues.AddRange(VerifyManifestFiles(manifest, exclusions));
 
                 // Scan for extra files
-                issues.AddRange(ScanForExtraFiles(manifest));
+                issues.AddRange(ScanForExtraFiles(manifest, exclusions));
             }
             catch (Exception ex)
             {
@@ -205,7 +207,7 @@ namespace BewasModSync.ClientEnforcer
             }
         }
 
-        private List<FileIssue> VerifyManifestFiles(FileManifest manifest)
+        private List<FileIssue> VerifyManifestFiles(FileManifest manifest, HashSet<string> exclusions)
         {
             var issues = new List<FileIssue>();
 
@@ -213,6 +215,11 @@ namespace BewasModSync.ClientEnforcer
             {
                 var relativePath = kvp.Key;
                 var entry = kvp.Value;
+
+                if (IsExcludedPath(relativePath, exclusions))
+                {
+                    continue;
+                }
 
                 // Build full path
                 var fullPath = Path.Combine(SptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
@@ -256,7 +263,7 @@ namespace BewasModSync.ClientEnforcer
             return issues;
         }
 
-        private List<FileIssue> ScanForExtraFiles(FileManifest manifest)
+        private List<FileIssue> ScanForExtraFiles(FileManifest manifest, HashSet<string> exclusions)
         {
             var issues = new List<FileIssue>();
 
@@ -268,19 +275,19 @@ namespace BewasModSync.ClientEnforcer
             // Scan BepInEx/plugins for .dll files
             if (Directory.Exists(BepInExPluginsPath))
             {
-                ScanDirectoryForExtraFiles(BepInExPluginsPath, "*.dll", expectedFiles, issues, "BepInEx/plugins");
+                ScanDirectoryForExtraFiles(BepInExPluginsPath, "*.dll", expectedFiles, issues, "BepInEx/plugins", exclusions);
             }
 
             // Scan SPT/user/mods for .dll files
             if (Directory.Exists(SptUserModsPath))
             {
-                ScanDirectoryForExtraFiles(SptUserModsPath, "*.dll", expectedFiles, issues, "SPT/user/mods");
+                ScanDirectoryForExtraFiles(SptUserModsPath, "*.dll", expectedFiles, issues, "SPT/user/mods", exclusions);
             }
 
             return issues;
         }
 
-        private void ScanDirectoryForExtraFiles(string directory, string pattern, HashSet<string> expectedFiles, List<FileIssue> issues, string displayPrefix)
+        private void ScanDirectoryForExtraFiles(string directory, string pattern, HashSet<string> expectedFiles, List<FileIssue> issues, string displayPrefix, HashSet<string> exclusions)
         {
             try
             {
@@ -289,6 +296,10 @@ namespace BewasModSync.ClientEnforcer
                 foreach (var file in files)
                 {
                     var normalizedPath = NormalizePath(file);
+                    var relativePath = NormalizeRelativePath(GetRelativePath(file, SptRoot));
+
+                    if (IsExcludedPath(relativePath, exclusions))
+                        continue;
 
                     // Skip if this file is in the manifest
                     if (expectedFiles.Contains(normalizedPath))
@@ -306,7 +317,6 @@ namespace BewasModSync.ClientEnforcer
                         continue;
 
                     // This is an extra file
-                    var relativePath = GetRelativePath(file, SptRoot);
                     issues.Add(new FileIssue
                     {
                         Type = FileIssueType.ExtraFile,
@@ -326,6 +336,11 @@ namespace BewasModSync.ClientEnforcer
         private static string NormalizePath(string path)
         {
             return Path.GetFullPath(path).Replace('/', Path.DirectorySeparatorChar).TrimEnd(Path.DirectorySeparatorChar);
+        }
+
+        private static string NormalizeRelativePath(string path)
+        {
+            return path.Replace('\\', '/').TrimStart('/');
         }
 
         private static string GetRelativePath(string fullPath, string basePath)
@@ -413,6 +428,21 @@ namespace BewasModSync.ClientEnforcer
             }
 
             return issues;
+        }
+
+        private HashSet<string> BuildExclusionSet(IEnumerable<string> exclusions)
+        {
+            return new HashSet<string>(
+                (exclusions ?? Array.Empty<string>()).Select(NormalizeRelativePath),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static bool IsExcludedPath(string relativePath, HashSet<string> exclusions)
+        {
+            var norm = NormalizeRelativePath(relativePath);
+            return exclusions.Any(ex =>
+                norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+                norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
         }
 
         private ServerConfig FetchServerConfig(string serverUrl)

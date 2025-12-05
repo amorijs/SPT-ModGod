@@ -100,6 +100,9 @@ public class ConfigService : IOnLoad
             Config = new ServerConfig();
             await SaveConfigAsync();
         }
+
+        // Safety: ensure new properties are initialized
+        Config.SyncExclusions ??= new List<string>();
     }
 
     public async Task SaveConfigAsync()

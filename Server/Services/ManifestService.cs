@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Linq;
 using BewasModSync.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
@@ -15,6 +16,12 @@ public class ManifestService
 {
     private readonly ConfigService _configService;
     private readonly ISptLogger<ManifestService> _logger;
+
+    private static readonly string[] ManifestAllowedRoots =
+    {
+        "BepInEx/plugins",
+        "SPT/user/mods"
+    };
 
     public ManifestService(
         ConfigService configService,
@@ -34,6 +41,12 @@ public class ManifestService
         var stopwatch = Stopwatch.StartNew();
         var manifest = new FileManifest();
 
+        var exclusions = new HashSet<string>(
+            (_configService.Config.SyncExclusions ?? new List<string>())
+                .Select(NormalizePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p)),
+            StringComparer.OrdinalIgnoreCase);
+
         _logger.Info("Generating file manifest from installed files...");
 
         // Only include installed mods (not pending or pending removal)
@@ -47,13 +60,15 @@ public class ManifestService
         {
             try
             {
-                AddModToManifest(manifest, mod);
+                AddModToManifest(manifest, mod, exclusions);
             }
             catch (Exception ex)
             {
                 _logger.Warning($"Failed to process mod '{mod.ModName}' for manifest: {ex.Message}");
             }
         }
+
+        manifest.SyncExclusions = exclusions.ToList();
 
         stopwatch.Stop();
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
@@ -64,7 +79,7 @@ public class ManifestService
         return manifest;
     }
 
-    private void AddModToManifest(FileManifest manifest, ModEntry mod)
+    private void AddModToManifest(FileManifest manifest, ModEntry mod, HashSet<string> exclusions)
     {
         // Process each install path - read from ACTUAL installed location
         foreach (var installPath in mod.InstallPaths)
@@ -80,7 +95,7 @@ public class ManifestService
                 // Might be a file, not a directory
                 if (File.Exists(actualInstalledPath))
                 {
-                    AddFileToManifest(manifest, actualInstalledPath, targetPath, mod);
+                    AddFileToManifest(manifest, actualInstalledPath, targetPath, mod, exclusions);
                 }
                 else
                 {
@@ -90,11 +105,11 @@ public class ManifestService
             }
 
             // Recursively add all files from this installed directory
-            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, mod);
+            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, mod, exclusions);
         }
     }
 
-    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod)
+    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod, HashSet<string> exclusions)
     {
         try
         {
@@ -107,7 +122,7 @@ public class ManifestService
                 var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
                 var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
 
-                AddFileToManifest(manifest, file, fullTargetPath, mod);
+                AddFileToManifest(manifest, file, fullTargetPath, mod, exclusions);
             }
         }
         catch (Exception ex)
@@ -116,10 +131,22 @@ public class ManifestService
         }
     }
 
-    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod)
+    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod, HashSet<string> exclusions)
     {
         // Normalize path separators
         targetPath = targetPath.Replace('\\', '/').TrimStart('/');
+
+        if (!IsAllowedPath(targetPath))
+        {
+            _logger.Debug($"Skipping non-sync path: {targetPath}");
+            return;
+        }
+
+        if (IsExcluded(targetPath, exclusions))
+        {
+            _logger.Debug($"Excluded from manifest: {targetPath}");
+            return;
+        }
 
         // Skip if already in manifest (another mod may have the same file)
         if (manifest.Files.ContainsKey(targetPath))
@@ -156,5 +183,23 @@ public class ManifestService
         using var stream = File.OpenRead(filePath);
         var hashBytes = sha256.ComputeHash(stream);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static string NormalizePath(string path)
+    {
+        return path.Replace("\\", "/").TrimStart('/');
+    }
+
+    private static bool IsExcluded(string relativePath, HashSet<string> exclusions)
+    {
+        var norm = NormalizePath(relativePath);
+        return exclusions.Any(ex => norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+                                    norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsAllowedPath(string relativePath)
+    {
+        return ManifestAllowedRoots.Any(root =>
+            relativePath.StartsWith(root, StringComparison.OrdinalIgnoreCase));
     }
 }

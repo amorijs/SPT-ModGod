@@ -122,72 +122,156 @@
         </MudItem>
     </MudGrid>
 
-    <!-- Mod Cards -->
-    @if (ConfigService.Config.ModList.Count == 0)
-    {
-        <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
-            <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
-            <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No mods configured yet</MudText>
-            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Click "Add Mods" to get started</MudText>
-        </MudPaper>
-    }
-    else
-    {
-        <MudGrid>
-            @foreach (var mod in ConfigService.Config.ModList)
+    <MudTabs ActivePanelIndex="@_activeTabIndex"
+             ActivePanelIndexChanged="OnTabChanged"
+             Class="mb-4">
+        <MudTabPanel Text="Mods">
+            <!-- Mod Cards -->
+            @if (ConfigService.Config.ModList.Count == 0)
             {
-                <MudItem xs="12" md="6" lg="4">
-                    <MudPaper Class="pa-4" Style="@GetModCardStyle(mod)">
-                        <div class="d-flex justify-space-between align-start mb-3">
-                            <div>
-                                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
-                                <div class="d-flex gap-1 flex-wrap mt-1">
-                                    <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyle(mod.Status)">
-                                        @GetStatusText(mod.Status)
-                                    </MudChip>
-                                    <MudChip T="string" Size="Size.Small" 
-                                             Style="@(mod.Optional ? "background: var(--accent-green); color: #000;" : "background: var(--accent-orange); color: #000;")">
-                                        @(mod.Optional ? "Optional" : "Required")
-                                    </MudChip>
-                                </div>
-                            </div>
-                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
-                                <MudMenuItem OnClick="@(() => EditMod(mod))">
-                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
-                                </MudMenuItem>
-                                @if (mod.Status == ModStatus.Installed)
-                                {
-                                    <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
-                                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
-                                    </MudMenuItem>
-                                }
-                                <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
-                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
-                                    @(mod.Status == ModStatus.Pending ? "Remove" : "Uninstall")
-                                </MudMenuItem>
-                            </MudMenu>
-                        </div>
-
-                        <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
-                            @TruncateUrl(mod.DownloadUrl)
-                        </MudText>
-
-                        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
-
-                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
-                            <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                            Updated: @FormatTimestamp(mod.LastUpdated)
-                        </MudText>
-
-                        <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
-                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                            @mod.InstallPaths.Count install path(s)
-                        </MudText>
-                    </MudPaper>
-                </MudItem>
+                <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
+                    <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No mods configured yet</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Click "Add Mods" to get started</MudText>
+                </MudPaper>
             }
-        </MudGrid>
-    }
+            else
+            {
+                <MudGrid>
+                    @foreach (var mod in ConfigService.Config.ModList)
+                    {
+                        <MudItem xs="12" md="6" lg="4">
+                            <MudPaper Class="pa-4" Style="@GetModCardStyle(mod)">
+                                <div class="d-flex justify-space-between align-start mb-3">
+                                    <div>
+                                        <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
+                                        <div class="d-flex gap-1 flex-wrap mt-1">
+                                            <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyle(mod.Status)">
+                                                @GetStatusText(mod.Status)
+                                            </MudChip>
+                                            <MudChip T="string" Size="Size.Small" 
+                                                     Style="@(mod.Optional ? "background: var(--accent-green); color: #000;" : "background: var(--accent-orange); color: #000;")">
+                                                @(mod.Optional ? "Optional" : "Required")
+                                            </MudChip>
+                                        </div>
+                                    </div>
+                                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
+                                        <MudMenuItem OnClick="@(() => EditMod(mod))">
+                                            <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
+                                        </MudMenuItem>
+                                        @if (mod.Status == ModStatus.Installed)
+                                        {
+                                            <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                                            </MudMenuItem>
+                                        }
+                                        <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
+                                            <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
+                                            @(mod.Status == ModStatus.Pending ? "Remove" : "Uninstall")
+                                        </MudMenuItem>
+                                    </MudMenu>
+                                </div>
+
+                                <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
+                                    @TruncateUrl(mod.DownloadUrl)
+                                </MudText>
+
+                                <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    Updated: @FormatTimestamp(mod.LastUpdated)
+                                </MudText>
+
+                                <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    @mod.InstallPaths.Count install path(s)
+                                </MudText>
+                            </MudPaper>
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Sync Exclusions">
+            <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">Sync Exclusions</MudText>
+                <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                    Files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> are synced to clients by default.
+                    Uncheck items to exclude server-only/generated files from the manifest and client warnings.
+                </MudText>
+
+                <div class="d-flex gap-2 mb-3">
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Disabled="_syncExclusionsLoading"
+                               OnClick="LoadSyncExclusionsTreeAsync">
+                        Refresh
+                    </MudButton>
+                    <MudButton Color="Color.Success"
+                               Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.Save"
+                               Disabled="_syncExclusionsLoading"
+                               OnClick="SaveSyncExclusionsAsync">
+                        Save Exclusions
+                    </MudButton>
+                </div>
+
+                @if (_syncExclusionsLoading)
+                {
+                    <div class="d-flex align-center mb-2">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <MudText Typo="Typo.body2">Scanning mod folders...</MudText>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(_syncExclusionsError))
+                {
+                    <MudAlert Severity="Severity.Warning">@_syncExclusionsError</MudAlert>
+                }
+                else if (_syncTreeRoot != null && _syncTreeRoot.Children != null && _syncTreeRoot.Children.Any())
+                {
+                    <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 420px; overflow-y: auto;">
+                        <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
+                            ✓ Checked = sync to client &nbsp;|&nbsp; ☐ Unchecked = exclude
+                        </div>
+                        @foreach (var (node, depth) in GetSyncFlattenedTree())
+                        {
+                            var state = GetSyncNodeState(node);
+                            var indent = depth * 14;
+                            var capturedNode = node;
+                            <div class="d-flex align-center" style="padding-left:@(indent)px; margin-bottom:4px; cursor: pointer;" @onclick="() => OnSyncNodeClick(capturedNode)">
+                                @{
+                                    var icon = state switch
+                                    {
+                                        SyncNodeState.Included => Icons.Material.Filled.CheckBox,
+                                        SyncNodeState.Excluded => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                        _ => Icons.Material.Filled.IndeterminateCheckBox
+                                    };
+                                    var iconColor = state switch
+                                    {
+                                        SyncNodeState.Included => "var(--accent-green)",
+                                        SyncNodeState.Excluded => "var(--text-secondary)",
+                                        _ => "var(--accent-orange)"
+                                    };
+                                }
+                                <MudIcon Icon="@icon" Style="@($"color: {iconColor};")" Size="Size.Small" />
+                                <span class="ml-2 mono" style="color: var(--text-primary);">
+                                    @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                                </span>
+                            </div>
+                        }
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">
+                        No files found in the tracked directories. Install mods or refresh.
+                    </MudAlert>
+                }
+            </MudPaper>
+        </MudTabPanel>
+    </MudTabs>
 </MudContainer>
 
 <!-- Add Mods Dialog (Bulk) -->
@@ -561,13 +645,14 @@
 
 @code {
     private bool _hasLoggedInit = false;
+    private int _activeTabIndex = 0;
     
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoggedInit)
         {
             _hasLoggedInit = true;
-            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Build: 2024-12-05-G (Remove if wrapper) - Frontend loaded!");
+            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Frontend loaded!");
         }
     }
     
@@ -601,6 +686,15 @@
         public string Source { get; set; } = "";
         public string Target { get; set; } = "";
     }
+
+    // Sync exclusions (manifest opt-out)
+    private bool _syncExclusionsLoading = false;
+    private string? _syncExclusionsError;
+    private bool _syncTabInitialized = false;
+    private FileNode? _syncTreeRoot;
+    private HashSet<string> _syncExclusionSet = new(StringComparer.OrdinalIgnoreCase);
+
+    private enum SyncNodeState { Included, Excluded, Mixed }
 
     // File rules for install (overwrite/ignore)
     private enum FileRuleState { Overwrite, Ignore, Mixed }
@@ -752,6 +846,333 @@
         _addDialogStep = AddDialogStep.Input;
         StateHasChanged();
     }
+
+    #region Sync Exclusions (manifest opt-out)
+
+    private async Task OnTabChanged(int index)
+    {
+        _activeTabIndex = index;
+
+        if (index == 1 && !_syncTabInitialized)
+        {
+            await LoadSyncExclusionsTreeAsync();
+        }
+    }
+
+    private async Task LoadSyncExclusionsTreeAsync()
+    {
+        _syncExclusionsLoading = true;
+        _syncExclusionsError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            _syncExclusionSet = new HashSet<string>(
+                (ConfigService.Config.SyncExclusions ?? new List<string>())
+                    .Select(NormalizeRulePath)
+                    .Where(p => !string.IsNullOrWhiteSpace(p)),
+                StringComparer.OrdinalIgnoreCase);
+
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+            AddSyncRoot(ConfigService.BepInExPluginsPath, "BepInEx/plugins", root);
+            AddSyncRoot(ConfigService.SptUserModsPath, "SPT/user/mods", root);
+
+            _syncTreeRoot = root;
+            _syncTabInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            _syncExclusionsError = $"Failed to load exclusions: {ex.Message}";
+        }
+        finally
+        {
+            _syncExclusionsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AddSyncRoot(string absolutePath, string relativePath, FileNode root)
+    {
+        if (!Directory.Exists(absolutePath)) return;
+
+        var node = BuildSyncNodeRecursive(absolutePath, NormalizeRulePath(relativePath), relativePath);
+        root.Children.Add(node);
+    }
+
+    private FileNode BuildSyncNodeRecursive(string fullPath, string relativePath, string? displayName = null)
+    {
+        var node = new FileNode
+        {
+            Name = displayName ?? Path.GetFileName(fullPath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullPath))
+        {
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, Path.GetFileName(dir)));
+            node.Children.Add(BuildSyncNodeRecursive(dir, childRel));
+        }
+
+        foreach (var file in Directory.GetFiles(fullPath))
+        {
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, Path.GetFileName(file)));
+            node.Children.Add(new FileNode
+            {
+                Name = Path.GetFileName(file),
+                RelativePath = childRel,
+                IsDirectory = false
+            });
+        }
+
+        return node;
+    }
+
+    private SyncNodeState GetSyncNodeState(FileNode? node)
+    {
+        if (node == null) return SyncNodeState.Included;
+
+        var rel = NormalizeRulePath(node.RelativePath);
+
+        if (!node.IsDirectory)
+        {
+            var isExcluded = IsSyncExcluded(rel);
+            return isExcluded ? SyncNodeState.Excluded : SyncNodeState.Included;
+        }
+
+        // For directories: derive state from all leaf nodes
+        var leaves = GetSyncLeafNodes(node).ToList();
+        if (leaves.Count == 0) return SyncNodeState.Included;
+        
+        var leafStates = leaves.Select(leaf => IsSyncExcluded(NormalizeRulePath(leaf.RelativePath)) ? SyncNodeState.Excluded : SyncNodeState.Included).Distinct().ToList();
+        if (leafStates.Count == 1) return leafStates[0];
+        return SyncNodeState.Mixed;
+    }
+
+    private IEnumerable<FileNode> GetSyncLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!node.IsDirectory)
+        {
+            yield return node;
+            yield break;
+        }
+
+        var children = node.Children;
+        if (children == null) yield break;
+
+        foreach (var child in children)
+        {
+            foreach (var leaf in GetSyncLeafNodes(child))
+                yield return leaf;
+        }
+    }
+
+    private bool IsSyncExcluded(string relativePath)
+    {
+        var norm = NormalizeRulePath(relativePath);
+        return _syncExclusionSet.Any(ex =>
+            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void OnSyncNodeClick(FileNode node)
+    {
+        _ = ToggleSyncNodeAsync(node);
+    }
+
+    private Task ToggleSyncNodeAsync(FileNode? node)
+    {
+        if (node == null) return Task.CompletedTask;
+
+        var current = GetSyncNodeState(node);
+        var next = current == SyncNodeState.Excluded ? SyncNodeState.Included : SyncNodeState.Excluded;
+
+        if (node.IsDirectory)
+        {
+            ApplySyncDirectoryState(node, next);
+        }
+        else
+        {
+            ApplySyncFileState(node, next);
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void ApplySyncDirectoryState(FileNode? node, SyncNodeState state)
+    {
+        if (node == null) return;
+        var rel = NormalizeRulePath(node.RelativePath);
+
+        // Clear this directory and all its descendants from exclusions
+        foreach (var path in EnumerateSyncAllPaths(node).ToList())
+            _syncExclusionSet.Remove(path);
+
+        if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
+        {
+            _syncExclusionSet.Add(rel);
+        }
+        else if (state == SyncNodeState.Included && !string.IsNullOrEmpty(rel))
+        {
+            // Check if a PROPER ANCESTOR (not self) is excluded - need to lift it
+            var ancestorExclusion = _syncExclusionSet
+                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorExclusion != null)
+            {
+                _syncExclusionSet.Remove(ancestorExclusion);
+                var ancestorNode = FindNodeByPath(_syncTreeRoot, ancestorExclusion);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in EnumerateSyncLeafPaths(ancestorNode))
+                    {
+                        var leafNorm = NormalizeRulePath(leaf);
+                        if (!leafNorm.StartsWith(rel + "/", StringComparison.OrdinalIgnoreCase) &&
+                            !leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _syncExclusionSet.Add(leafNorm);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void ApplySyncFileState(FileNode? node, SyncNodeState state)
+    {
+        if (node == null) return;
+        var rel = NormalizeRulePath(node.RelativePath);
+
+        if (state == SyncNodeState.Excluded)
+        {
+            _syncExclusionSet.Add(rel);
+        }
+        else
+        {
+            var ancestorExclusion = _syncExclusionSet
+                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorExclusion != null)
+            {
+                _syncExclusionSet.Remove(ancestorExclusion);
+                var ancestorNode = FindNodeByPath(_syncTreeRoot, ancestorExclusion);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in EnumerateSyncLeafPaths(ancestorNode))
+                    {
+                        var leafNorm = NormalizeRulePath(leaf);
+                        if (!leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _syncExclusionSet.Add(leafNorm);
+                        }
+                    }
+                }
+            }
+            _syncExclusionSet.Remove(rel);
+        }
+    }
+
+    private IEnumerable<string> EnumerateSyncAllPaths(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!string.IsNullOrEmpty(node.RelativePath))
+            yield return NormalizeRulePath(node.RelativePath);
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+            foreach (var p in EnumerateSyncAllPaths(child))
+                yield return p;
+    }
+
+    private FileNode? FindNodeByPath(FileNode? node, string relativePath)
+    {
+        if (node == null) return null;
+        var norm = NormalizeRulePath(relativePath);
+        if (NormalizeRulePath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
+            return node;
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+        {
+            var found = FindNodeByPath(child, relativePath);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private IEnumerable<string> EnumerateSyncLeafPaths(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!node.IsDirectory)
+        {
+            if (!string.IsNullOrEmpty(node.RelativePath))
+                yield return NormalizeRulePath(node.RelativePath);
+            yield break;
+        }
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+        {
+            foreach (var leaf in EnumerateSyncLeafPaths(child))
+                yield return leaf;
+        }
+    }
+
+    private List<(FileNode Node, int Depth)> GetSyncFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_syncTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _syncTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private async Task SaveSyncExclusionsAsync()
+    {
+        try
+        {
+            ConfigService.Config.SyncExclusions = _syncExclusionSet
+                .Select(NormalizeRulePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p)
+                .ToList();
+
+            await ConfigService.SaveConfigAsync();
+            Snackbar.Add("Sync exclusions updated.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to save exclusions: {ex.Message}", Severity.Error);
+        }
+    }
+
+    #endregion
 
     // Edit Mod Dialog Methods
     private void EditMod(ModEntry mod)

@@ -6,6 +6,13 @@ public class ServerConfig
 {
     [JsonPropertyName("modList")]
     public List<ModEntry> ModList { get; set; } = new();
+
+    /// <summary>
+    /// Paths (relative to SPT root) to exclude from client sync/manifest.
+    /// Example: "SPT/user/logs" or "BepInEx/plugins/SomeMod/cache.json"
+    /// </summary>
+    [JsonPropertyName("syncExclusions")]
+    public List<string> SyncExclusions { get; set; } = new();
 }
 
 /// <summary>
