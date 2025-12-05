@@ -548,25 +548,61 @@
             {
                 <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
                     <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
-                        <span class="mr-3"><MudChip T="string" Color="Color.Success" Variant="Variant.Outlined" Size="Size.Small">Overwrite</MudChip></span>
-                        <span><MudChip T="string" Color="Color.Default" Variant="Variant.Filled" Size="Size.Small">Ignore</MudChip></span>
+                        ✓ Checked = overwrite (default) &nbsp;|&nbsp; ☐ Unchecked = ignore (keep existing)
                     </div>
                     @foreach (var item in GetFlattenedTree())
                     {
                         var node = item.Node;
                         var depth = item.Depth;
                         var state = GetNodeState(node);
-                        <div class="d-flex align-center" style="padding-left:@(depth * 14)px; margin-bottom:4px;">
-                            <MudChip T="string" 
-                                     Color="@(state == FileRuleState.Ignore ? Color.Default : state == FileRuleState.Mixed ? Color.Info : Color.Success)"
-                                     Variant="@(state == FileRuleState.Ignore ? Variant.Filled : Variant.Outlined)"
-                                     Size="Size.Small"
-                                     OnClick="@(() => ToggleNode(node))">
-                                @(state == FileRuleState.Ignore ? "Ignore" : state == FileRuleState.Mixed ? "Mixed" : "Overwrite")
-                            </MudChip>
-                            <span class="ml-2 mono" style="color: var(--text-primary);">
-                                @(node.IsDirectory ? "📁" : "📄") @node.Name
-                            </span>
+                        var capturedNode = node;
+                        var isExpanded = node.IsDirectory && _fileRulesExpandedDirs.Contains(node.RelativePath);
+                        var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                        <div class="d-flex align-center" style="padding-left:@(depth * 18)px; margin-bottom:2px;">
+                            @* Expand/collapse button for directories *@
+                            @if (hasChildren)
+                            {
+                                <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                               Size="Size.Small"
+                                               Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                               OnClick="() => ToggleFileRulesExpand(capturedNode)" />
+                            }
+                            else
+                            {
+                                <div style="width: 28px;"></div>
+                            }
+                            @* Checkbox for state *@
+                            @{
+                                var checkIcon = state switch
+                                {
+                                    FileRuleState.Overwrite => Icons.Material.Filled.CheckBox,
+                                    FileRuleState.Ignore => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                    _ => Icons.Material.Filled.IndeterminateCheckBox
+                                };
+                                var iconColor = state switch
+                                {
+                                    FileRuleState.Overwrite => "var(--accent-green)",
+                                    FileRuleState.Ignore => "var(--text-secondary)",
+                                    _ => "var(--accent-orange)"
+                                };
+                            }
+                            <MudIconButton Icon="@checkIcon"
+                                           Size="Size.Small"
+                                           Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                           OnClick="() => ToggleNode(capturedNode)" />
+                            @* Directory/file name (click to expand/collapse for directories) *@
+                            @if (node.IsDirectory && hasChildren)
+                            {
+                                <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleFileRulesExpand(capturedNode)">
+                                    📁 @(node.Name)
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="ml-1 mono" style="color: var(--text-primary);">
+                                    @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                                </span>
+                            }
                         </div>
                     }
                 </MudPaper>
@@ -727,6 +763,7 @@
 
     // File rules for install (overwrite/ignore)
     private enum FileRuleState { Overwrite, Ignore, Mixed }
+    private HashSet<string> _fileRulesExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
     private class FileNode
     {
@@ -1248,6 +1285,7 @@
                 rules.Where(r => r != null && r.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
                      .Select(r => NormalizeRulePath(r.Path)),
                 StringComparer.OrdinalIgnoreCase);
+            _fileRulesExpandedDirs.Clear();
             _fileRulesError = null;
             _fileTreeRoot = null;
             _fileRulesLoading = true;
@@ -1551,6 +1589,19 @@
             norm.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
     }
 
+    private void ToggleFileRulesExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        
+        var path = node.RelativePath;
+        if (_fileRulesExpandedDirs.Contains(path))
+            _fileRulesExpandedDirs.Remove(path);
+        else
+            _fileRulesExpandedDirs.Add(path);
+        
+        StateHasChanged();
+    }
+
     private void ToggleNode(FileNode? node)
     {
         if (node == null) return;
@@ -1615,6 +1666,10 @@
         {
             if (node == null) return;
             result.Add((node, depth));
+            
+            // Only recurse into children if this directory is expanded
+            if (node.IsDirectory && !_fileRulesExpandedDirs.Contains(node.RelativePath))
+                return;
             
             var children = node.Children;
             if (children != null)
