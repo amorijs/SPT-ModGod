@@ -125,7 +125,7 @@
     <MudTabs ActivePanelIndex="@_activeTabIndex"
              ActivePanelIndexChanged="OnTabChanged"
              Class="mb-4">
-        <MudTabPanel Text="Mods">
+        <MudTabPanel Text="Mods" class="mt-4">
             <!-- Mod Cards -->
             @if (ConfigService.Config.ModList.Count == 0)
             {
@@ -187,6 +187,19 @@
                                     <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
                                     @mod.InstallPaths.Count install path(s)
                                 </MudText>
+                                
+                                @{
+                                    var overwriteCount = GetOverwriteCountForMod(mod);
+                                }
+                                @if (overwriteCount > 0 && mod.Status == ModStatus.Pending)
+                                {
+                                    <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
+                                        <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                            @overwriteCount existing file(s) will be overwritten
+                                        </MudText>
+                                    </div>
+                                }
                             </MudPaper>
                         </MudItem>
                     }
@@ -194,7 +207,7 @@
             }
         </MudTabPanel>
 
-        <MudTabPanel Text="Sync Exclusions">
+        <MudTabPanel Text="Sync Exclusions" class="mt-4">
             <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
                 <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">Sync Exclusions</MudText>
                 <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
@@ -522,13 +535,20 @@
             <MudDivider Class="my-4" />
 
             <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
-                File Copy Rules (per-file overwrite/ignore)
+                Files to be Overwritten
             </MudText>
             <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
-                Default is overwrite. Mark specific files as "Ignore" to keep your server-side edits when installing/reinstalling.  
-                This is useful for config files that you want to keep your server-side edits for.
-                This only affects the files that are installed on the server.  
-                If you're unsure, leave it as overwrite.  
+                Any files <b>that will be overwritten</b> will appear below.
+                <br />
+                <span>
+                    <b>Uncheck</b> any files you <b>do not want to overwrite</b>.
+                </span>
+                <br />
+                <span style="color: var(--accent-orange);">
+                    <i>
+                        Example: Updating a server mod but want to keep your existing <code>config.json</code>? Simply uncheck that item.
+                    </i>
+                </span>
             </MudText>
 
             @if (_fileRulesLoading)
@@ -1379,14 +1399,11 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("console.log", "[BewasModSync] LoadFileTreeAsync started");
-            
             // Safety checks
             var downloadUrl = mod?.DownloadUrl;
             if (string.IsNullOrEmpty(downloadUrl))
             {
                 _fileRulesError = "No download URL for this mod.";
-                await JS.InvokeVoidAsync("console.log", "[BewasModSync] No download URL");
                 return;
             }
 
@@ -1394,66 +1411,124 @@
             if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
             {
                 _fileRulesError = "Staging not found. Reinstall this mod to view files.";
-                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Staging not found");
                 return;
             }
 
             if (string.IsNullOrEmpty(stagingPath))
             {
                 _fileRulesError = "Staging path is empty. Reinstall this mod.";
-                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Staging path empty");
                 return;
             }
 
             var extractedPath = Path.Combine(stagingPath, "extracted");
-            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Checking extracted path: {extractedPath}");
             
             if (!Directory.Exists(extractedPath))
             {
                 _fileRulesError = "Staging extraction not found. Reinstall this mod to view files.";
-                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Extracted path not found");
                 return;
             }
 
-            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Building file tree...");
             var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
-
             var installPaths = _editInstallPaths ?? new List<InstallPathItem>();
-            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Install paths count: {installPaths.Count}");
+            var sptRoot = ConfigService.SptRoot;
+            var filesFound = 0;
             
             foreach (var install in installPaths
-                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Source))
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Source) && !string.IsNullOrWhiteSpace(p.Target))
                 .DistinctBy(p => p.Source, StringComparer.OrdinalIgnoreCase))
             {
                 var sourcePath = Path.Combine(extractedPath, install.Source);
-                await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Processing: {sourcePath}");
+                // Replace <SPT_ROOT> placeholder with actual path
+                var targetBasePath = install.Target
+                    .Replace("<SPT_ROOT>", sptRoot)
+                    .Replace("/", Path.DirectorySeparatorChar.ToString());
                 
                 if (Directory.Exists(sourcePath))
                 {
-                    var node = BuildNodeRecursive(sourcePath, NormalizeRulePath(install.Source));
-                    MergeNode(root, node);
+                    // Build tree only for files that would overwrite existing files
+                    var node = BuildNodeRecursiveWithOverwriteCheck(sourcePath, NormalizeRulePath(install.Source), targetBasePath, ref filesFound);
+                    if (node != null && (node.Children?.Count > 0 || !node.IsDirectory))
+                    {
+                        MergeNode(root, node);
+                    }
                 }
                 else if (File.Exists(sourcePath))
                 {
-                    AddFileNode(root, NormalizeRulePath(install.Source));
+                    // Single file - check if target exists
+                    var targetFile = Path.Combine(targetBasePath);
+                    if (File.Exists(targetFile))
+                    {
+                        AddFileNode(root, NormalizeRulePath(install.Source));
+                        filesFound++;
+                    }
                 }
             }
 
-            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Tree built, children: {root.Children?.Count ?? 0}");
             _fileTreeRoot = root;
-            _fileRulesError = null;
+            
+            if (filesFound == 0)
+            {
+                _fileRulesError = "No existing files would be overwritten by this mod. All files are new.";
+            }
+            else
+            {
+                _fileRulesError = null;
+            }
         }
         catch (Exception ex)
         {
             _fileRulesError = $"Failed to load file tree: {ex.Message}";
-            try { await JS.InvokeVoidAsync("console.error", $"[BewasModSync] LoadFileTreeAsync error: {ex}"); } catch { }
         }
         finally
         {
             _fileRulesLoading = false;
-            await JS.InvokeVoidAsync("console.log", "[BewasModSync] LoadFileTreeAsync complete, calling StateHasChanged");
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private FileNode? BuildNodeRecursiveWithOverwriteCheck(string fullSourcePath, string relativePath, string fullTargetPath, ref int filesFound)
+    {
+        var node = new FileNode
+        {
+            Name = Path.GetFileName(fullSourcePath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullSourcePath))
+        {
+            var dirName = Path.GetFileName(dir);
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, dirName));
+            var childTargetPath = Path.Combine(fullTargetPath, dirName);
+            
+            var childNode = BuildNodeRecursiveWithOverwriteCheck(dir, childRel, childTargetPath, ref filesFound);
+            if (childNode != null && (childNode.Children?.Count > 0 || !childNode.IsDirectory))
+            {
+                node.Children.Add(childNode);
+            }
+        }
+
+        foreach (var file in Directory.GetFiles(fullSourcePath))
+        {
+            var fileName = Path.GetFileName(file);
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, fileName));
+            var targetFilePath = Path.Combine(fullTargetPath, fileName);
+            
+            // Only include if the target file already exists (would be overwritten)
+            if (File.Exists(targetFilePath))
+            {
+                node.Children.Add(new FileNode
+                {
+                    Name = fileName,
+                    RelativePath = childRel,
+                    IsDirectory = false
+                });
+                filesFound++;
+            }
+        }
+
+        // Return null if this directory has no children (nothing to overwrite)
+        return node.Children.Count > 0 ? node : null;
     }
 
     private FileNode BuildNodeRecursive(string fullPath, string relativePath)
@@ -1615,20 +1690,68 @@
         }
         else
         {
-            var rel = NormalizeRulePath(node.RelativePath);
-            if (next == FileRuleState.Ignore)
-                _fileRulesIgnore.Add(rel);
-            else
-                _fileRulesIgnore.Remove(rel);
+            ApplyFileState(node, next);
         }
 
         StateHasChanged();
+    }
+
+    private void ApplyFileState(FileNode? node, FileRuleState state)
+    {
+        if (node == null) return;
+        var rel = NormalizeRulePath(node.RelativePath);
+
+        if (state == FileRuleState.Ignore)
+        {
+            _fileRulesIgnore.Add(rel);
+        }
+        else
+        {
+            // Check if ignored via a parent directory
+            var ancestorIgnore = _fileRulesIgnore
+                .FirstOrDefault(r => rel.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorIgnore != null)
+            {
+                // Lift ancestor and add ignores for all sibling leaves
+                _fileRulesIgnore.Remove(ancestorIgnore);
+                var ancestorNode = FindFileRulesNodeByPath(_fileTreeRoot, ancestorIgnore);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in GetLeafNodes(ancestorNode))
+                    {
+                        var leafRel = NormalizeRulePath(leaf.RelativePath);
+                        if (!leafRel.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _fileRulesIgnore.Add(leafRel);
+                        }
+                    }
+                }
+            }
+            _fileRulesIgnore.Remove(rel);
+        }
+    }
+
+    private FileNode? FindFileRulesNodeByPath(FileNode? node, string relativePath)
+    {
+        if (node == null) return null;
+        var norm = NormalizeRulePath(relativePath);
+        if (NormalizeRulePath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
+            return node;
+
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+        {
+            var found = FindFileRulesNodeByPath(child, relativePath);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private void ApplyDirectoryState(FileNode? node, FileRuleState state)
     {
         if (node == null) return;
         
+        // Clear this directory and all descendants from ignores
         foreach (var path in EnumeratePaths(node).ToList())
         {
             _fileRulesIgnore.Remove(path);
@@ -1637,6 +1760,32 @@
         if (state == FileRuleState.Ignore && !string.IsNullOrEmpty(node.RelativePath))
         {
             _fileRulesIgnore.Add(NormalizeRulePath(node.RelativePath));
+        }
+        else if (state == FileRuleState.Overwrite && !string.IsNullOrEmpty(node.RelativePath))
+        {
+            // Check if ignored via a parent directory - need to lift it
+            var rel = NormalizeRulePath(node.RelativePath);
+            var ancestorIgnore = _fileRulesIgnore
+                .FirstOrDefault(r => rel.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorIgnore != null)
+            {
+                _fileRulesIgnore.Remove(ancestorIgnore);
+                var ancestorNode = FindFileRulesNodeByPath(_fileTreeRoot, ancestorIgnore);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in GetLeafNodes(ancestorNode))
+                    {
+                        var leafRel = NormalizeRulePath(leaf.RelativePath);
+                        // Don't ignore leaves under the directory being set to Overwrite
+                        if (!leafRel.StartsWith(rel + "/", StringComparison.OrdinalIgnoreCase) &&
+                            !leafRel.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _fileRulesIgnore.Add(leafRel);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1774,5 +1923,73 @@
             ModStatus.PendingRemoval => "Pending Removal",
             _ => "Unknown"
         };
+    }
+
+    private int GetOverwriteCountForMod(ModEntry mod)
+    {
+        try
+        {
+            var downloadUrl = mod?.DownloadUrl;
+            if (string.IsNullOrEmpty(downloadUrl)) return 0;
+
+            var staging = ConfigService?.Staging;
+            if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
+                return 0;
+
+            if (string.IsNullOrEmpty(stagingPath)) return 0;
+
+            var extractedPath = Path.Combine(stagingPath, "extracted");
+            if (!Directory.Exists(extractedPath)) return 0;
+
+            var installPaths = mod.InstallPaths ?? new List<string[]>();
+            var sptRoot = ConfigService.SptRoot;
+            var count = 0;
+
+            foreach (var pathPair in installPaths.Where(p => p != null && p.Length >= 2))
+            {
+                var source = pathPair[0];
+                var target = pathPair[1];
+                if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(target)) continue;
+
+                var sourcePath = Path.Combine(extractedPath, source);
+                var targetBasePath = target
+                    .Replace("<SPT_ROOT>", sptRoot)
+                    .Replace("/", Path.DirectorySeparatorChar.ToString());
+
+                if (Directory.Exists(sourcePath))
+                {
+                    count += CountOverwriteFiles(sourcePath, targetBasePath);
+                }
+                else if (File.Exists(sourcePath) && File.Exists(targetBasePath))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private int CountOverwriteFiles(string sourceDir, string targetDir)
+    {
+        var count = 0;
+        
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            var targetFile = Path.Combine(targetDir, Path.GetFileName(file));
+            if (File.Exists(targetFile)) count++;
+        }
+
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+        {
+            var targetSubDir = Path.Combine(targetDir, Path.GetFileName(dir));
+            count += CountOverwriteFiles(dir, targetSubDir);
+        }
+
+        return count;
     }
 }
