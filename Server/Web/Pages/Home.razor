@@ -763,17 +763,29 @@
                     @mod.InstallPaths.Count install path(s)
                 </MudText>
                 
-                @{
-                    var overwriteCount = GetOverwriteCountForMod(mod);
-                }
-                @if (overwriteCount > 0 && mod.Status == ModStatus.Pending)
+                @if (mod.Status == ModStatus.Pending)
                 {
-                    <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
-                        <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
-                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                            @overwriteCount existing file(s) will be overwritten
-                        </MudText>
-                    </div>
+                    var (overwriteCount, skippedCount) = GetOverwriteStatsForMod(mod);
+                    
+                    @if (overwriteCount > 0)
+                    {
+                        <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
+                            <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                @overwriteCount existing file(s) will be overwritten
+                            </MudText>
+                        </div>
+                    }
+                    
+                    @if (skippedCount > 0)
+                    {
+                        <div class="@(overwriteCount > 0 ? "mt-1" : "mt-2") pa-2" style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-cyan); border-radius: 6px;">
+                            <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
+                                <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                @skippedCount file(s) preserved (won't overwrite)
+                            </MudText>
+                        </div>
+                    }
                 }
             </MudPaper>
         </MudItem>
@@ -1972,25 +1984,34 @@
         };
     }
 
-    private int GetOverwriteCountForMod(ModEntry mod)
+    private (int OverwriteCount, int SkippedCount) GetOverwriteStatsForMod(ModEntry mod)
     {
         try
         {
             var downloadUrl = mod?.DownloadUrl;
-            if (string.IsNullOrEmpty(downloadUrl)) return 0;
+            if (string.IsNullOrEmpty(downloadUrl)) return (0, 0);
 
             var staging = ConfigService?.Staging;
             if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
-                return 0;
+                return (0, 0);
 
-            if (string.IsNullOrEmpty(stagingPath)) return 0;
+            if (string.IsNullOrEmpty(stagingPath)) return (0, 0);
 
             var extractedPath = Path.Combine(stagingPath, "extracted");
-            if (!Directory.Exists(extractedPath)) return 0;
+            if (!Directory.Exists(extractedPath)) return (0, 0);
 
             var installPaths = mod?.InstallPaths ?? new List<string[]>();
             var sptRoot = ConfigService?.SptRoot ?? string.Empty;
-            var count = 0;
+            
+            // Build set of ignored paths from FileRules
+            var ignoredPaths = new HashSet<string>(
+                (mod?.FileRules ?? new List<FileCopyRule>())
+                    .Where(r => r?.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
+                    .Select(r => NormalizeRulePath(r.Path)),
+                StringComparer.OrdinalIgnoreCase);
+            
+            var overwriteCount = 0;
+            var skippedCount = 0;
 
             foreach (var pathPair in installPaths.Where(p => p != null && p.Length >= 2))
             {
@@ -2005,38 +2026,64 @@
 
                 if (Directory.Exists(sourcePath))
                 {
-                    count += CountOverwriteFiles(sourcePath, targetBasePath);
+                    var (ow, sk) = CountOverwriteFilesWithRules(sourcePath, targetBasePath, NormalizeRulePath(source), ignoredPaths);
+                    overwriteCount += ow;
+                    skippedCount += sk;
                 }
                 else if (File.Exists(sourcePath) && File.Exists(targetBasePath))
                 {
-                    count++;
+                    var relPath = NormalizeRulePath(source);
+                    if (IsPathInIgnoreSet(relPath, ignoredPaths))
+                        skippedCount++;
+                    else
+                        overwriteCount++;
                 }
             }
 
-            return count;
+            return (overwriteCount, skippedCount);
         }
         catch
         {
-            return 0;
+            return (0, 0);
         }
     }
 
-    private int CountOverwriteFiles(string sourceDir, string targetDir)
+    private (int OverwriteCount, int SkippedCount) CountOverwriteFilesWithRules(string sourceDir, string targetDir, string relativeBase, HashSet<string> ignoredPaths)
     {
-        var count = 0;
+        var overwriteCount = 0;
+        var skippedCount = 0;
         
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var targetFile = Path.Combine(targetDir, Path.GetFileName(file));
-            if (File.Exists(targetFile)) count++;
+            if (File.Exists(targetFile))
+            {
+                var relPath = NormalizeRulePath(Path.Combine(relativeBase, Path.GetFileName(file)));
+                if (IsPathInIgnoreSet(relPath, ignoredPaths))
+                    skippedCount++;
+                else
+                    overwriteCount++;
+            }
         }
 
         foreach (var dir in Directory.GetDirectories(sourceDir))
         {
-            var targetSubDir = Path.Combine(targetDir, Path.GetFileName(dir));
-            count += CountOverwriteFiles(dir, targetSubDir);
+            var dirName = Path.GetFileName(dir);
+            var targetSubDir = Path.Combine(targetDir, dirName);
+            var childRelBase = NormalizeRulePath(Path.Combine(relativeBase, dirName));
+            var (ow, sk) = CountOverwriteFilesWithRules(dir, targetSubDir, childRelBase, ignoredPaths);
+            overwriteCount += ow;
+            skippedCount += sk;
         }
 
-        return count;
+        return (overwriteCount, skippedCount);
+    }
+
+    private bool IsPathInIgnoreSet(string path, HashSet<string> ignoredPaths)
+    {
+        var norm = NormalizeRulePath(path);
+        return ignoredPaths.Any(r =>
+            norm.Equals(r, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
     }
 }
