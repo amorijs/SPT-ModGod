@@ -352,51 +352,7 @@
         @if (_addDialogStep == AddDialogStep.Input)
         {
             <MudTabs @bind-ActivePanelIndex="_addDialogTabIndex" Class="mb-4" Rounded="true" ApplyEffectsToContainer="true">
-                <!-- Tab 1: Direct URLs -->
-                <MudTabPanel Text="Direct URLs" Icon="@Icons.Material.Filled.Link">
-                    <div class="pa-2">
-                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                            <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary);">
-                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-1" />
-                                Add Mods by Direct Download URL
-                            </MudText>
-                            <MudDivider Class="my-2" />
-                            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                                Paste <b>direct download links</b> for mod archives.<br />
-                                <span style="color:var(--accent-red)">Do <u>NOT</u> paste Forge page URLs here!</span> <br />
-                                You can find your URL on GitHub/Forge/etc – the link should end with <code>.zip</code>, <code>.7z</code> or similar.<br />
-                                <span style="color: var(--text-secondary); font-size: 0.90em;">
-                                    Mod name will be <span style="font-style: italic;">auto-detected from the file name.</span>
-                                </span>
-                                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mt-3">
-                                    <b>Examples:</b><br />
-                                    <span class="mono" style="display: block; color: var(--accent-green); margin-left: .5em;">
-                                       https://github.com/example/mod/releases/download/v1.0/ModName.zip<br />
-                                       https://forge.sp-tarkov.com/mod/download/861/morecheckmarks/2.0.0
-                                    </span>
-                                    <b class="d-block mt-2" style="color: var(--accent-red);">Do NOT use:</b>
-                                    <span class="mono" style="color: var(--accent-red); margin-left:.5em;">
-                                        https://forge.sp-tarkov.com/mod/861/morecheckmarks
-                                    </span>
-                                </MudAlert>
-                            </MudText>
-                        </MudPaper>
-                        
-                        <MudTextField @bind-Value="_bulkUrls" 
-                                      Label="Download URLs" 
-                                      Variant="Variant.Outlined"
-                                      Lines="8"
-                                      Immediate="true"
-                                      Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip&#10;https://github.com/another/mod.7z"
-                                      Class="mb-4 mono" />
-                        
-                        <MudCheckBox @bind-Value="_bulkOptional" 
-                                     Label="Mark all as optional (not enforced on clients)"
-                                     Color="Color.Primary" />
-                    </div>
-                </MudTabPanel>
-                
-                <!-- Tab 2: From Forge -->
+                <!-- Tab 1: From Forge -->
                 <MudTabPanel Text="From Forge" Icon="@Icons.Material.Filled.Store">
                     <div class="pa-2">
                         @* API Key Section *@
@@ -594,6 +550,49 @@
                         }
                     </div>
                 </MudTabPanel>
+
+                <!-- Tab 2: Direct URLs -->
+                <MudTabPanel Text="Direct URLs" Icon="@Icons.Material.Filled.Link">
+                    <div class="pa-2">
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary);">
+                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-1" />
+                                Add Mods by Direct Download URL
+                            </MudText>
+                            <MudDivider Class="my-2" />
+                            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                Paste <b>direct download links</b> for mod archives.<br />
+                                <span style="color:var(--accent-red)">Do <u>NOT</u> paste Forge mod page URLs here!</span> <br />
+                                You can find your URL on GitHub/Forge/etc – the link will usually end with <code>.zip</code>, <code>.7z</code> or similar.<br />
+                                <span style="color: var(--text-secondary); font-size: 0.90em;">
+                                    Mod name will be <span style="font-style: italic;">auto-detected from the file name.</span>
+                                </span>
+                                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mt-3">
+                                    <b>Examples:</b><br />
+                                    <span class="mono" style="display: block; color: var(--accent-green); margin-left: .5em;">
+                                       https://github.com/example/mod/releases/download/v1.0/ModName.zip<br />
+                                    </span>
+                                    <b class="d-block mt-2" style="color: var(--accent-red);">Do NOT use:</b>
+                                    <span class="mono" style="color: var(--accent-red); margin-left:.5em;">
+                                        https://forge.sp-tarkov.com/mod/861/morecheckmarks
+                                    </span>
+                                </MudAlert>
+                            </MudText>
+                        </MudPaper>
+                        
+                        <MudTextField @bind-Value="_bulkUrls" 
+                                      Label="Download URLs" 
+                                      Variant="Variant.Outlined"
+                                      Lines="8"
+                                      Immediate="true"
+                                      Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip&#10;https://github.com/another/mod.7z"
+                                      Class="mb-4 mono" />
+                        
+                        <MudCheckBox @bind-Value="_bulkOptional" 
+                                     Label="Mark all as optional (not enforced on clients)"
+                                     Color="Color.Primary" />
+                    </div>
+                </MudTabPanel>
             </MudTabs>
         }
         else if (_addDialogStep == AddDialogStep.Downloading)
@@ -715,22 +714,22 @@
             <MudButton OnClick="CloseAddDialog" Variant="Variant.Text">Cancel</MudButton>
             @if (_addDialogTabIndex == 0)
             {
-                @* Direct URLs tab *@
+                @* Forge tab (Tab 0) *@
                 <MudButton Color="Color.Primary" 
                            Variant="Variant.Filled"
-                           Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
-                           OnClick="ProcessBulkDownload">
+                           Disabled="@(_forgeMod == null || string.IsNullOrEmpty(_forgeSelectedVersion))"
+                           OnClick="ProcessForgeDownload">
                     Download & Stage
                 </MudButton>
             }
             else
             {
-                @* Forge tab *@
+                @* Direct URLs tab (Tab 1) *@
                 <MudButton Color="Color.Primary" 
                            Variant="Variant.Filled"
-                           Disabled="@(_forgeMod == null || string.IsNullOrEmpty(_forgeSelectedVersion))"
-                           OnClick="ProcessForgeDownload">
-                    Add from Forge
+                           Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
+                           OnClick="ProcessBulkDownload">
+                    Download & Stage
                 </MudButton>
             }
         }
