@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Reflection;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -271,6 +272,141 @@ public class FileDownloadHttpListener : IHttpListener
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Internal error\"}"));
             await context.Response.StartAsync();
             await context.Response.CompleteAsync();
+        }
+    }
+}
+
+/// <summary>
+/// HTTP listener to serve ModGod itself as a download
+/// This allows clients to download the exact version of ModGod running on the server
+/// URL: /modgod/api/self-download
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class SelfDownloadHttpListener : IHttpListener
+{
+    private readonly ConfigService _configService;
+    private readonly ISptLogger<SelfDownloadHttpListener> _logger;
+
+    // Cache the zip in memory to avoid regenerating on every request
+    private byte[]? _cachedZip;
+    private DateTime _cacheTime;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    public SelfDownloadHttpListener(
+        ConfigService configService,
+        ISptLogger<SelfDownloadHttpListener> logger)
+    {
+        _configService = configService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/modgod/api/self-download", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        _logger.Info("Client requested ModGod self-download");
+
+        try
+        {
+            // Check cache validity
+            if (_cachedZip == null || DateTime.UtcNow - _cacheTime > CacheDuration)
+            {
+                _cachedZip = GenerateModGodZip();
+                _cacheTime = DateTime.UtcNow;
+                _logger.Info($"Generated ModGod zip: {_cachedZip.Length / 1024}KB");
+            }
+
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/zip";
+            context.Response.Headers.Append("Content-Disposition", "attachment; filename=\"ModGod.zip\"");
+            context.Response.Headers.Append("Content-Length", _cachedZip.Length.ToString());
+            
+            await context.Response.Body.WriteAsync(_cachedZip);
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error generating ModGod zip: {ex.Message}");
+            context.Response.StatusCode = 500;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Failed to generate download\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+    }
+
+    private byte[] GenerateModGodZip()
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
+        {
+            var sptRoot = _configService.SptRoot;
+
+            // Add client plugin (BepInEx/plugins/ModGodClientEnforcer/)
+            var clientPluginPath = Path.Combine(sptRoot, "BepInEx", "plugins", "ModGodClientEnforcer");
+            if (Directory.Exists(clientPluginPath))
+            {
+                AddDirectoryToZip(archive, clientPluginPath, "BepInEx/plugins/ModGodClientEnforcer");
+            }
+
+            // Add updater (ModGodUpdater.exe at SPT root)
+            var updaterPath = Path.Combine(sptRoot, "ModGodUpdater.exe");
+            if (File.Exists(updaterPath))
+            {
+                AddFileToZip(archive, updaterPath, "ModGodUpdater.exe");
+            }
+
+            // Add server mod (SPT/user/mods/ModGodServer/)
+            // This is the current running mod, get it from ModPath
+            var serverModPath = _configService.ModPath;
+            if (Directory.Exists(serverModPath))
+            {
+                var serverModName = Path.GetFileName(serverModPath.TrimEnd(Path.DirectorySeparatorChar));
+                AddDirectoryToZip(archive, serverModPath, $"SPT/user/mods/{serverModName}");
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private void AddDirectoryToZip(ZipArchive archive, string sourceDir, string archivePath)
+    {
+        foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+            var entryName = $"{archivePath}/{relativePath}";
+            
+            try
+            {
+                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                using var entryStream = entry.Open();
+                using var fileStream = File.OpenRead(file);
+                fileStream.CopyTo(entryStream);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to add file to zip: {file} - {ex.Message}");
+            }
+        }
+    }
+
+    private void AddFileToZip(ZipArchive archive, string filePath, string entryName)
+    {
+        try
+        {
+            var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            using var fileStream = File.OpenRead(filePath);
+            fileStream.CopyTo(entryStream);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed to add file to zip: {filePath} - {ex.Message}");
         }
     }
 }

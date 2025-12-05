@@ -24,6 +24,7 @@ namespace ModGod.ClientEnforcer.Models
         public string LastUpdated { get; set; } = string.Empty;
         public List<string[]> InstallPaths { get; set; } = new List<string[]>();
         public string Status { get; set; } = "Pending"; // "Pending", "Installed", "PendingRemoval"
+        public bool IsProtected { get; set; } = false;
     }
 
     public class ClientConfig

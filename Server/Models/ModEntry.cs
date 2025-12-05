@@ -51,6 +51,12 @@ public class ModEntry
     /// </summary>
     [JsonPropertyName("fileRules")]
     public List<FileCopyRule> FileRules { get; set; } = new();
+
+    /// <summary>
+    /// If true, this mod cannot be edited or removed (e.g., ModGod itself)
+    /// </summary>
+    [JsonPropertyName("isProtected")]
+    public bool IsProtected { get; set; } = false;
 }
 
 /// <summary>

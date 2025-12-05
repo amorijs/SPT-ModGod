@@ -777,7 +777,7 @@
     private RenderFragment RenderModCard(ModEntry mod) => __builder =>
     {
         <MudItem xs="12" md="6" lg="4">
-            <MudPaper Class="pa-4" Style="@(GetModCardStyle(mod) + " cursor: pointer;")" @onclick="() => EditMod(mod)">
+            <MudPaper Class="pa-4" Style="@(GetModCardStyle(mod) + (mod.IsProtected ? "" : " cursor: pointer;"))" @onclick="() => { if (!mod.IsProtected) EditMod(mod); }">
                 <div class="d-flex justify-space-between align-start mb-3">
                     <div>
                         <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
@@ -785,30 +785,43 @@
                             <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyle(mod.Status)">
                                 @GetStatusText(mod.Status)
                             </MudChip>
-                            <MudChip T="string" Size="Size.Small" 
-                                     Style="@(mod.Optional ? "background: var(--accent-green); color: #000; cursor: pointer;" : "background: var(--accent-orange); color: #000; cursor: pointer;")"
-                                     OnClick="@(() => ToggleModOptional(mod))">
-                                @(mod.Optional ? "Optional" : "Required")
-                            </MudChip>
+                            @if (mod.IsProtected)
+                            {
+                                <MudChip T="string" Size="Size.Small" 
+                                         Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff;">
+                                    <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" /> Built-in
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" 
+                                         Style="@(mod.Optional ? "background: var(--accent-green); color: #000; cursor: pointer;" : "background: var(--accent-orange); color: #000; cursor: pointer;")"
+                                         OnClick="@(() => ToggleModOptional(mod))">
+                                    @(mod.Optional ? "Optional" : "Required")
+                                </MudChip>
+                            }
                         </div>
                     </div>
-                    <div @onclick:stopPropagation="true">
-                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
-                            <MudMenuItem OnClick="@(() => EditMod(mod))">
-                                <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
-                            </MudMenuItem>
-                            @if (mod.Status == ModStatus.Installed)
-                            {
-                                <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
-                                    <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                    @if (!mod.IsProtected)
+                    {
+                        <div @onclick:stopPropagation="true">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
+                                <MudMenuItem OnClick="@(() => EditMod(mod))">
+                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
                                 </MudMenuItem>
-                            }
-                            <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
-                                <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
-                                @(mod.Status == ModStatus.Pending ? "Remove" : "Uninstall")
-                            </MudMenuItem>
-                        </MudMenu>
-                    </div>
+                                @if (mod.Status == ModStatus.Installed)
+                                {
+                                    <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
+                                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                                    </MudMenuItem>
+                                }
+                                <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
+                                    @(mod.Status == ModStatus.Pending ? "Remove" : "Uninstall")
+                                </MudMenuItem>
+                            </MudMenu>
+                        </div>
+                    }
                 </div>
 
                 <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
@@ -1423,6 +1436,13 @@
     // Edit Mod Dialog Methods
     private void EditMod(ModEntry mod)
     {
+        // Prevent editing protected mods (like ModGod itself)
+        if (mod.IsProtected)
+        {
+            Snackbar.Add($"'{mod.ModName}' is a built-in mod and cannot be edited.", Severity.Info);
+            return;
+        }
+        
         try
         {
             _editingMod = mod;
@@ -1996,6 +2016,13 @@
     // Delete Mod
     private async Task DeleteMod(ModEntry mod)
     {
+        // Prevent deletion of protected mods (like ModGod itself)
+        if (mod.IsProtected)
+        {
+            Snackbar.Add($"'{mod.ModName}' is a protected mod and cannot be removed.", Severity.Warning);
+            return;
+        }
+        
         if (mod.Status == ModStatus.Pending)
         {
             // Not yet installed - just remove from config

@@ -26,6 +26,7 @@ public class ModEntry
     public string LastUpdated { get; set; } = string.Empty;
     public List<string[]> InstallPaths { get; set; } = new();
     public string Status { get; set; } = "Pending";
+    public bool IsProtected { get; set; } = false;
 }
 
 // File manifest models for file sync

@@ -78,12 +78,80 @@ public class ConfigService : IOnLoad
         await LoadStagingIndexAsync();
         await LoadPendingOpsAsync();
         
+        // Ensure ModGod is in the mod list as a protected entry
+        await EnsureModGodEntryAsync();
+        
         // Apply any pending operations from previous session
         await ApplyPendingOperationsOnStartupAsync();
 
         _logger.Success($"ModGod ConfigService loaded!");
         _logger.Info($"  SPT Root: {_sptRoot}");
         _logger.Info($"  Data Path: {_dataPath}");
+    }
+
+    /// <summary>
+    /// Ensure ModGod itself is in the mod list as a protected entry.
+    /// This allows clients to download ModGod from the server.
+    /// </summary>
+    private async Task EnsureModGodEntryAsync()
+    {
+        const string modGodUrl = "{SERVER_URL}/modgod/api/self-download";
+        
+        var existingModGod = Config.ModList.Find(m => m.IsProtected && m.ModName == "ModGod");
+        
+        if (existingModGod == null)
+        {
+            // Create the ModGod entry
+            var modGodEntry = new ModEntry
+            {
+                ModName = "ModGod",
+                DownloadUrl = modGodUrl,
+                Optional = false,
+                IsProtected = true,
+                Status = ModStatus.Installed, // Already installed since the server is running
+                LastUpdated = DateTime.UtcNow.ToString("o"),
+                InstallPaths = new List<string[]>
+                {
+                    new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
+                    new[] { "ModGodUpdater.exe", "<SPT_ROOT>/ModGodUpdater.exe" },
+                    new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
+                }
+            };
+            
+            // Insert at the beginning of the list
+            Config.ModList.Insert(0, modGodEntry);
+            await SaveConfigAsync();
+            
+            _logger.Info("Added ModGod as protected mod entry");
+        }
+        else
+        {
+            // Ensure existing entry has correct properties
+            bool needsSave = false;
+            
+            if (!existingModGod.IsProtected)
+            {
+                existingModGod.IsProtected = true;
+                needsSave = true;
+            }
+            
+            if (existingModGod.Status != ModStatus.Installed)
+            {
+                existingModGod.Status = ModStatus.Installed;
+                needsSave = true;
+            }
+            
+            if (existingModGod.DownloadUrl != modGodUrl)
+            {
+                existingModGod.DownloadUrl = modGodUrl;
+                needsSave = true;
+            }
+            
+            if (needsSave)
+            {
+                await SaveConfigAsync();
+            }
+        }
     }
 
     #region Config Management
