@@ -1,4 +1,4 @@
-namespace BewasModSync.Models;
+namespace ModGod.Models;
 
 /// <summary>
 /// Manifest of all files that should exist for synced mods

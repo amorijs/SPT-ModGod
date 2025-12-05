@@ -2,14 +2,14 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using BewasModSync.Models;
+using ModGod.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 
-namespace BewasModSync.Services;
+namespace ModGod.Services;
 
 [Injectable(InjectionType = InjectionType.Singleton, TypePriority = OnLoadOrder.PreSptModLoader)]
 public class ConfigService : IOnLoad
@@ -62,13 +62,13 @@ public class ConfigService : IOnLoad
     {
         _modPath = _modHelper.GetAbsolutePathToModFolder(Assembly.GetExecutingAssembly());
         
-        // SPT root is 4 levels up from mod folder: <SPT_ROOT>/SPT/user/mods/BewasModSyncServer
-        // Example: C:\SPT\SPT\user\mods\BewasModSyncServer -> C:\SPT
+        // SPT root is 4 levels up from mod folder: <SPT_ROOT>/SPT/user/mods/ModGodServer
+        // Example: C:\SPT\SPT\user\mods\ModGodServer -> C:\SPT
         _sptRoot = Path.GetFullPath(Path.Combine(_modPath, "..", "..", "..", ".."));
         
         // IMPORTANT: Data folder must be OUTSIDE of SPT/user/mods/ to prevent SPT from
         // scanning extracted DLLs in staging as server mods!
-        _dataPath = Path.Combine(_sptRoot, "BewasModSyncInternalData");
+        _dataPath = Path.Combine(_sptRoot, "ModGodData");
 
         // Ensure data directory exists
         Directory.CreateDirectory(_dataPath);
@@ -81,7 +81,7 @@ public class ConfigService : IOnLoad
         // Apply any pending operations from previous session
         await ApplyPendingOperationsOnStartupAsync();
 
-        _logger.Success($"BewasModSync ConfigService loaded!");
+        _logger.Success($"ModGod ConfigService loaded!");
         _logger.Info($"  SPT Root: {_sptRoot}");
         _logger.Info($"  Data Path: {_dataPath}");
     }
@@ -208,7 +208,7 @@ public class ConfigService : IOnLoad
         if (pendingDeletions > 0 || pendingRemovals.Count > 0)
         {
             _logger.Info("========================================");
-            _logger.Info("BewasModSync: Processing pending removals...");
+            _logger.Info("ModGod: Processing pending removals...");
             _logger.Info("========================================");
             await ApplyPendingDeletionsAsync();
         }
@@ -226,7 +226,7 @@ public class ConfigService : IOnLoad
             var scriptPath = await GenerateInstallScriptAsync();
             
             _logger.Warning("========================================");
-            _logger.Warning($"BewasModSync: {pendingInstalls.Count} mod(s) pending installation:");
+            _logger.Warning($"ModGod: {pendingInstalls.Count} mod(s) pending installation:");
             foreach (var mod in pendingInstalls)
             {
                 _logger.Warning($"  • {mod.ModName}");
@@ -284,7 +284,7 @@ public class ConfigService : IOnLoad
             }
 
             _logger.Info("========================================");
-            _logger.Info("BewasModSync: Processing completed operations...");
+            _logger.Info("ModGod: Processing completed operations...");
             _logger.Info("========================================");
 
             var installedCount = 0;
@@ -453,7 +453,7 @@ public class ConfigService : IOnLoad
         var sb = new System.Text.StringBuilder();
 
         // Header
-        sb.AppendLine("# BewasModSync - Auto-Install Pending Mods");
+        sb.AppendLine("# ModGod - Auto-Install Pending Mods");
         sb.AppendLine("# This script polls the SPT server and installs/removes mods when it shuts down");
         sb.AppendLine("# Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         sb.AppendLine("# Close this window to cancel");
@@ -463,7 +463,7 @@ public class ConfigService : IOnLoad
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine("$script:HasCriticalError = $false");
         sb.AppendLine($"$ServerUrl = '{serverUrl}'");
-        sb.AppendLine("$StatusEndpoint = \"$ServerUrl/bewasmodsync/api/status\"");
+        sb.AppendLine("$StatusEndpoint = \"$ServerUrl/modgod/api/status\"");
         sb.AppendLine("$PollIntervalSeconds = 2");
         sb.AppendLine($"$SptRoot = '{_sptRoot}'");
         sb.AppendLine("");
@@ -504,10 +504,10 @@ public class ConfigService : IOnLoad
         sb.AppendLine("");
 
         // Title and info
-        sb.AppendLine("$Host.UI.RawUI.WindowTitle = 'BewasModSync - Waiting for Server Shutdown'");
+        sb.AppendLine("$Host.UI.RawUI.WindowTitle = 'ModGod - Waiting for Server Shutdown'");
         sb.AppendLine("Clear-Host");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Cyan");
-        sb.AppendLine("Write-Host '  BewasModSync - Auto Mod Manager     ' -ForegroundColor Cyan");
+        sb.AppendLine("Write-Host '  ModGod - Auto Mod Manager     ' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host '======================================' -ForegroundColor Cyan");
         sb.AppendLine("Write-Host ''");
 
@@ -767,7 +767,7 @@ public class ConfigService : IOnLoad
         sbSh.AppendLine("log() { echo \"[$(date '+%Y-%m-%d %H:%M:%S')] $*\"; }");
         sbSh.AppendLine("");
         sbSh.AppendLine($"SERVER_URL=\"{serverUrl}\"");
-        sbSh.AppendLine("STATUS_ENDPOINT=\"$SERVER_URL/bewasmodsync/api/status\"");
+        sbSh.AppendLine("STATUS_ENDPOINT=\"$SERVER_URL/modgod/api/status\"");
         sbSh.AppendLine("POLL_INTERVAL=2");
         sbSh.AppendLine($"SPT_ROOT=\"{sptRootUnix}\"");
         sbSh.AppendLine($"COMPLETION_FILE=\"{completionPathUnix}\"");
@@ -783,7 +783,7 @@ public class ConfigService : IOnLoad
         sbSh.AppendLine("' ERR");
         sbSh.AppendLine("");
         sbSh.AppendLine("log \"======================================\"");
-        sbSh.AppendLine("log \"  BewasModSync - Auto Mod Manager\"");
+        sbSh.AppendLine("log \"  ModGod - Auto Mod Manager\"");
         sbSh.AppendLine("log \"======================================\"");
         sbSh.AppendLine("log \"\"");
 

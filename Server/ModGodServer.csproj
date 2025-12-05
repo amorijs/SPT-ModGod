@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
     <PropertyGroup>
         <TargetFramework>net9.0-windows</TargetFramework>
-        <RootNamespace>BewasModSync</RootNamespace>
+        <RootNamespace>ModGod</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <OutputType>Library</OutputType>
@@ -17,7 +17,7 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <OutputPath>..\dist\SPT\user\mods\BewasModSyncServer\</OutputPath>
+        <OutputPath>..\dist\SPT\user\mods\ModGodServer\</OutputPath>
     </PropertyGroup>
 
     <!-- Update this to your SPT installation path -->
@@ -53,11 +53,11 @@
 
     <!-- Optional: Copy to SPT for testing -->
     <Target Name="CopyToSPT" AfterTargets="CopyWwwroot" Condition="Exists('$(SPTPath)')">
-        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SPTPath)\SPT\user\mods\BewasModSyncServer" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer" />
         <ItemGroup>
             <WwwrootFiles Include="$(OutputPath)wwwroot\**\*.*" />
         </ItemGroup>
-        <Copy SourceFiles="@(WwwrootFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\BewasModSyncServer\wwwroot\%(RecursiveDir)" />
+        <Copy SourceFiles="@(WwwrootFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer\wwwroot\%(RecursiveDir)" />
     </Target>
 </Project>
 

@@ -2,10 +2,10 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net9.0-windows</TargetFramework>
-        <RootNamespace>BewasModSync.Updater</RootNamespace>
+        <RootNamespace>ModGod.Updater</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AssemblyName>BewasModUpdater</AssemblyName>
+        <AssemblyName>ModGodUpdater</AssemblyName>
         <Version>1.0.0</Version>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
@@ -33,5 +33,9 @@
         <PackageReference Include="SharpCompress" Version="0.38.0" />
         <PackageReference Include="Spectre.Console" Version="0.49.1" />
     </ItemGroup>
-</Project>
 
+    <!-- Auto-publish to dist after build -->
+    <Target Name="PublishAfterBuild" AfterTargets="Build">
+        <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c $(Configuration) -o &quot;$(MSBuildProjectDirectory)\..\dist&quot; --no-build" />
+    </Target>
+</Project>

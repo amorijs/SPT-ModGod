@@ -1,8 +1,8 @@
-@page "/bewasmodsync"
+@page "/modgod"
 @layout MainLayout
 
-@using BewasModSync.Models
-@using BewasModSync.Services
+@using ModGod.Models
+@using ModGod.Services
 @using Color = MudBlazor.Color
 @using System.Linq
 @using Microsoft.JSInterop
@@ -706,7 +706,7 @@
         if (firstRender && !_hasLoggedInit)
         {
             _hasLoggedInit = true;
-            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Frontend loaded!");
+            await JS.InvokeVoidAsync("console.log", "[ModGod] Frontend loaded!");
         }
     }
 

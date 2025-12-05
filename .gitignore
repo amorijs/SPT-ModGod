@@ -53,5 +53,4 @@ logs/
 # Reference directories (not part of the mod - for development only)
 reference_*/
 
-# Cursor/AI assistant files (optional - you may want to keep .cursorrules)
-# .cursorrules
+docs/**

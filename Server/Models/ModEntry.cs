@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace BewasModSync.Models;
+namespace ModGod.Models;
 
 /// <summary>
 /// Status of a mod in the configuration

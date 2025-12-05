@@ -10,28 +10,28 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using BepInEx;
 using BepInEx.Logging;
-using BewasModSync.ClientEnforcer.Models;
+using ModGod.ClientEnforcer.Models;
 using Comfort.Common;
 using EFT.UI;
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace BewasModSync.ClientEnforcer
+namespace ModGod.ClientEnforcer
 {
-    [BepInPlugin("com.bewas.modsync.clientenforcer", "BewasModSync Client Enforcer", "1.0.0")]
-    public class BewasModSyncClientEnforcerPlugin : BaseUnityPlugin
+    [BepInPlugin("com.modgod.clientenforcer", "ModGod Client Enforcer", "1.0.0")]
+    public class ModGodClientEnforcerPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
 
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
         
-        // Config files are stored in BewasModSyncInternalData folder
-        private static readonly string InternalDataFolder = Path.Combine(SptRoot, "BewasModSyncInternalData");
-        private static readonly string ConfigPath = Path.Combine(InternalDataFolder, "BewasModSyncClient.json");
+        // Config files are stored in ModGodData folder
+        private static readonly string InternalDataFolder = Path.Combine(SptRoot, "ModGodData");
+        private static readonly string ConfigPath = Path.Combine(InternalDataFolder, "ModGodClient.json");
         private static readonly string ModsDownloadedPath = Path.Combine(InternalDataFolder, "modsDownloaded.json");
         
         // Mod updater exe is at SPT root
-        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
 
         // Directories to scan for extra files
         private static readonly string BepInExPluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
@@ -40,7 +40,7 @@ namespace BewasModSync.ClientEnforcer
         private void Awake()
         {
             LogSource = Logger;
-            LogSource.LogInfo("BewasModSync Client Enforcer loaded!");
+            LogSource.LogInfo("ModGod Client Enforcer loaded!");
 
             // Accept self-signed SSL certificates (SPT 4.0 uses HTTPS)
             ServicePointManager.ServerCertificateValidationCallback = AcceptAllCertificates;
@@ -59,7 +59,7 @@ namespace BewasModSync.ClientEnforcer
 
         private IEnumerator VerifyModsCoroutine()
         {
-            LogSource.LogInfo("BewasModSync: Starting mod verification...");
+            LogSource.LogInfo("ModGod: Starting mod verification...");
 
             // Run verification
             bool setupRequired;
@@ -69,10 +69,10 @@ namespace BewasModSync.ClientEnforcer
             if (setupRequired)
             {
                 LogSource.LogError("========================================");
-                LogSource.LogError("BewasModSync: SETUP REQUIRED!");
+                LogSource.LogError("ModGod: SETUP REQUIRED!");
                 LogSource.LogError("========================================");
-                LogSource.LogError("BewasModSync has not been set up yet.");
-                LogSource.LogError("Please run BewasModUpdater.exe to sync your mods.");
+                LogSource.LogError("ModGod has not been set up yet.");
+                LogSource.LogError("Please run ModGodUpdater.exe to sync your mods.");
                 LogSource.LogError("========================================");
 
                 // Wait for UI to be ready
@@ -83,7 +83,7 @@ namespace BewasModSync.ClientEnforcer
 
             if (issues.Count == 0)
             {
-                LogSource.LogInfo("BewasModSync: All required mods verified successfully!");
+                LogSource.LogInfo("ModGod: All required mods verified successfully!");
                 yield break;
             }
 
@@ -93,7 +93,7 @@ namespace BewasModSync.ClientEnforcer
             var extraFiles = issues.Where(i => i.Type == FileIssueType.ExtraFile).ToList();
 
             LogSource.LogError("========================================");
-            LogSource.LogError("BewasModSync: FILE VERIFICATION ISSUES DETECTED!");
+            LogSource.LogError("ModGod: FILE VERIFICATION ISSUES DETECTED!");
             LogSource.LogError("========================================");
 
             if (missingFiles.Any())
@@ -126,9 +126,9 @@ namespace BewasModSync.ClientEnforcer
             LogSource.LogError("========================================");
 
             // Wait for UI to be ready before showing warning
-            LogSource.LogInfo("BewasModSync: Waiting for game UI to initialize...");
+            LogSource.LogInfo("ModGod: Waiting for game UI to initialize...");
             yield return new WaitUntil(() => Singleton<CommonUI>.Instantiated);
-            LogSource.LogInfo("BewasModSync: UI ready, showing warning...");
+            LogSource.LogInfo("ModGod: UI ready, showing warning...");
 
             // Show popup to user - includes extra files warning
             ShowSyncWarning(issues);
@@ -144,7 +144,7 @@ namespace BewasModSync.ClientEnforcer
                 // Check if internal data folder exists
                 if (!Directory.Exists(InternalDataFolder))
                 {
-                    LogSource.LogWarning($"BewasModSync: Internal data folder not found at {InternalDataFolder}. Run BewasModUpdater.exe first.");
+                    LogSource.LogWarning($"ModGod: Internal data folder not found at {InternalDataFolder}. Run ModGodUpdater.exe first.");
                     setupRequired = true;
                     return issues;
                 }
@@ -152,7 +152,7 @@ namespace BewasModSync.ClientEnforcer
                 // Check if we have client config
                 if (!File.Exists(ConfigPath))
                 {
-                    LogSource.LogWarning("BewasModSync: No client config found. Run BewasModUpdater.exe first.");
+                    LogSource.LogWarning("ModGod: No client config found. Run ModGodUpdater.exe first.");
                     setupRequired = true;
                     return issues;
                 }
@@ -160,7 +160,7 @@ namespace BewasModSync.ClientEnforcer
                 var clientConfig = JsonConvert.DeserializeObject<ClientConfig>(File.ReadAllText(ConfigPath));
                 if (clientConfig == null || string.IsNullOrWhiteSpace(clientConfig.ServerUrl))
                 {
-                    LogSource.LogWarning("BewasModSync: Invalid client config.");
+                    LogSource.LogWarning("ModGod: Invalid client config.");
                     return issues;
                 }
 
@@ -169,11 +169,11 @@ namespace BewasModSync.ClientEnforcer
                 try
                 {
                     manifest = FetchManifest(clientConfig.ServerUrl);
-                    LogSource.LogInfo($"BewasModSync: Fetched manifest with {manifest.Files.Count} files (generated in {manifest.GenerationTimeMs}ms)");
+                    LogSource.LogInfo($"ModGod: Fetched manifest with {manifest.Files.Count} files (generated in {manifest.GenerationTimeMs}ms)");
                 }
                 catch (Exception ex)
                 {
-                    LogSource.LogWarning($"BewasModSync: Could not fetch manifest from server: {ex.Message}");
+                    LogSource.LogWarning($"ModGod: Could not fetch manifest from server: {ex.Message}");
                     // Fall back to legacy verification
                     return LegacyVerifyMods(clientConfig);
                 }
@@ -188,7 +188,7 @@ namespace BewasModSync.ClientEnforcer
             }
             catch (Exception ex)
             {
-                LogSource.LogError($"BewasModSync: Error during verification: {ex.Message}");
+                LogSource.LogError($"ModGod: Error during verification: {ex.Message}");
             }
 
             return issues;
@@ -197,11 +197,11 @@ namespace BewasModSync.ClientEnforcer
         private FileManifest FetchManifest(string serverUrl)
         {
             serverUrl = serverUrl.TrimEnd('/');
-            var url = $"{serverUrl}/bewasmodsync/api/manifest";
+            var url = $"{serverUrl}/modgod/api/manifest";
 
             using (var client = new WebClient())
             {
-                client.Headers.Add("User-Agent", "BewasModSync/1.0");
+                client.Headers.Add("User-Agent", "ModGod/1.0");
                 var json = client.DownloadString(url);
                 return JsonConvert.DeserializeObject<FileManifest>(json);
             }
@@ -256,7 +256,7 @@ namespace BewasModSync.ClientEnforcer
                 }
                 catch (Exception ex)
                 {
-                    LogSource.LogWarning($"BewasModSync: Failed to hash file '{relativePath}': {ex.Message}");
+                    LogSource.LogWarning($"ModGod: Failed to hash file '{relativePath}': {ex.Message}");
                 }
             }
 
@@ -305,8 +305,8 @@ namespace BewasModSync.ClientEnforcer
                     if (expectedFiles.Contains(normalizedPath))
                         continue;
 
-                    // Skip BewasModSync's own files
-                    if (normalizedPath.IndexOf("BewasModSync", StringComparison.OrdinalIgnoreCase) >= 0)
+                    // Skip ModGod's own files
+                    if (normalizedPath.IndexOf("ModGod", StringComparison.OrdinalIgnoreCase) >= 0)
                         continue;
 
                     // Skip SPT core files (spt-common, spt-core, etc.)
@@ -329,7 +329,7 @@ namespace BewasModSync.ClientEnforcer
             }
             catch (Exception ex)
             {
-                LogSource.LogWarning($"BewasModSync: Error scanning {displayPrefix}: {ex.Message}");
+                LogSource.LogWarning($"ModGod: Error scanning {displayPrefix}: {ex.Message}");
             }
         }
 
@@ -370,7 +370,7 @@ namespace BewasModSync.ClientEnforcer
             // Check if we have mods downloaded list
             if (!File.Exists(ModsDownloadedPath))
             {
-                LogSource.LogWarning("BewasModSync: No mods downloaded list found.");
+                LogSource.LogWarning("ModGod: No mods downloaded list found.");
                 return issues;
             }
 
@@ -388,7 +388,7 @@ namespace BewasModSync.ClientEnforcer
             }
             catch (Exception ex)
             {
-                LogSource.LogWarning($"BewasModSync: Could not connect to server: {ex.Message}");
+                LogSource.LogWarning($"ModGod: Could not connect to server: {ex.Message}");
                 return issues;
             }
 
@@ -448,11 +448,11 @@ namespace BewasModSync.ClientEnforcer
         private ServerConfig FetchServerConfig(string serverUrl)
         {
             serverUrl = serverUrl.TrimEnd('/');
-            var url = $"{serverUrl}/bewasmodsync/api/config";
+            var url = $"{serverUrl}/modgod/api/config";
 
             using (var client = new WebClient())
             {
-                client.Headers.Add("User-Agent", "BewasModSync/1.0");
+                client.Headers.Add("User-Agent", "ModGod/1.0");
                 var json = client.DownloadString(url);
                 return JsonConvert.DeserializeObject<ServerConfig>(json);
             }
@@ -460,7 +460,7 @@ namespace BewasModSync.ClientEnforcer
 
         private void ShowSyncWarning(List<FileIssue> issues)
         {
-            var warningObject = new GameObject("BewasModSyncWarning");
+            var warningObject = new GameObject("ModGodWarning");
             var warning = warningObject.AddComponent<SyncWarningGui>();
             warning.Issues = issues;
             DontDestroyOnLoad(warningObject);
@@ -468,7 +468,7 @@ namespace BewasModSync.ClientEnforcer
 
         private void ShowSetupRequiredWarning()
         {
-            var warningObject = new GameObject("BewasModSyncSetup");
+            var warningObject = new GameObject("ModGodSetup");
             warningObject.AddComponent<SetupRequiredGui>();
             DontDestroyOnLoad(warningObject);
         }
@@ -477,7 +477,7 @@ namespace BewasModSync.ClientEnforcer
     public class SyncWarningGui : MonoBehaviour
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
         private static readonly string PluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
         private static readonly string ServerModsPath = Path.Combine(SptRoot, "SPT", "user", "mods");
         
@@ -570,11 +570,11 @@ namespace BewasModSync.ClientEnforcer
             if (hasOnlyExtras)
             {
                 var extraTitleStyle = new GUIStyle(titleStyle) { normal = { textColor = new Color(0.6f, 0.8f, 1f) } };
-                GUILayout.Label("⚠ BewasModSync - Extra Mods Detected", extraTitleStyle);
+                GUILayout.Label("⚠ ModGod - Extra Mods Detected", extraTitleStyle);
             }
             else
             {
-                GUILayout.Label("⚠ BewasModSync - File Verification Issues", titleStyle);
+                GUILayout.Label("⚠ ModGod - File Verification Issues", titleStyle);
             }
             GUILayout.Space(10);
 
@@ -638,7 +638,7 @@ namespace BewasModSync.ClientEnforcer
             }
             else if (missingFiles.Any() || hashMismatches.Any())
             {
-                GUILayout.Label("Run BewasModUpdater.exe to download/update missing mods.", bodyStyle);
+                GUILayout.Label("Run ModGodUpdater.exe to download/update missing mods.", bodyStyle);
             }
 
             GUILayout.FlexibleSpace();
@@ -709,12 +709,12 @@ namespace BewasModSync.ClientEnforcer
         {
             try
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Opening folder: {path}");
+                ModGodClientEnforcerPlugin.LogSource.LogInfo($"Opening folder: {path}");
                 Process.Start("explorer.exe", path);
             }
             catch (Exception ex)
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to open folder: {ex.Message}");
+                ModGodClientEnforcerPlugin.LogSource.LogError($"Failed to open folder: {ex.Message}");
             }
         }
 
@@ -728,7 +728,7 @@ namespace BewasModSync.ClientEnforcer
         {
             try
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
+                ModGodClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
                 
                 var startInfo = new ProcessStartInfo
                 {
@@ -742,7 +742,7 @@ namespace BewasModSync.ClientEnforcer
             }
             catch (Exception ex)
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
+                ModGodClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
             }
         }
 
@@ -769,7 +769,7 @@ namespace BewasModSync.ClientEnforcer
     public class SetupRequiredGui : MonoBehaviour
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "BewasModUpdater.exe");
+        private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
         
         private Rect _windowRect;
         private bool _updaterExists;
@@ -830,18 +830,18 @@ namespace BewasModSync.ClientEnforcer
             };
 
             GUILayout.Space(20);
-            GUILayout.Label("⚠ BewasModSync - Setup Required", titleStyle);
+            GUILayout.Label("⚠ ModGod - Setup Required", titleStyle);
             GUILayout.Space(20);
 
-            GUILayout.Label("This server requires BewasModSync", headerStyle);
+            GUILayout.Label("This server requires ModGod", headerStyle);
             GUILayout.Space(15);
 
             GUILayout.Label("Before you can play, you need to run the updater\nto download the required mods.", bodyStyle);
             GUILayout.Space(15);
 
-            GUILayout.Label("Run BewasModUpdater.exe in your SPT root folder.", bodyStyle);
+            GUILayout.Label("Run ModGodUpdater.exe in your SPT root folder.", bodyStyle);
             GUILayout.Space(5);
-            GUILayout.Label("<SPT_ROOT>\\BewasModUpdater.exe", pathStyle);
+            GUILayout.Label("<SPT_ROOT>\\ModGodUpdater.exe", pathStyle);
 
             GUILayout.FlexibleSpace();
 
@@ -878,7 +878,7 @@ namespace BewasModSync.ClientEnforcer
         {
             try
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
+                ModGodClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
                 
                 var startInfo = new ProcessStartInfo
                 {
@@ -892,7 +892,7 @@ namespace BewasModSync.ClientEnforcer
             }
             catch (Exception ex)
             {
-                BewasModSyncClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
+                ModGodClientEnforcerPlugin.LogSource.LogError($"Failed to launch updater: {ex.Message}");
             }
         }
 

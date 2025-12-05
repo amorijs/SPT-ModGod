@@ -1,17 +1,17 @@
 using System.Net.Security;
 using System.Text.Json;
-using BewasModSync.Updater.Models;
+using ModGod.Updater.Models;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using Spectre.Console;
 
-namespace BewasModSync.Updater;
+namespace ModGod.Updater;
 
 class Program
 {
     // Internal data folder for config files
-    private static readonly string InternalDataFolderName = "BewasModSyncInternalData";
-    private static readonly string TempDownloadPath = Path.Combine(Path.GetTempPath(), "BewasModSync");
+    private static readonly string InternalDataFolderName = "ModGodInternalData";
+    private static readonly string TempDownloadPath = Path.Combine(Path.GetTempPath(), "ModGod");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,10 +26,10 @@ class Program
 
     static async Task Main(string[] args)
     {
-        Console.Title = "BewasModSync Updater";
+        Console.Title = "ModGod Updater";
 
         AnsiConsole.Write(
-            new FigletText("BewasModUpdater")
+            new FigletText("ModGodUpdater")
                 .Color(Color.Cyan1));
 
         AnsiConsole.MarkupLine("[grey]SPT Mod Synchronization Tool[/]");
@@ -44,13 +44,13 @@ class Program
         }
         else
         {
-            AnsiConsole.MarkupLine("[red]Error:[/] BewasModUpdater.exe must be in your SPT root directory.");
+            AnsiConsole.MarkupLine("[red]Error:[/] ModGodUpdater.exe must be in your SPT root directory.");
             AnsiConsole.MarkupLine("[grey]Expected structure:[/]");
             AnsiConsole.MarkupLine("[grey]  SPT/[/]");
             AnsiConsole.MarkupLine("[grey]  ├── BepInEx/[/]");
             AnsiConsole.MarkupLine("[grey]  ├── SPT/[/]");
-            AnsiConsole.MarkupLine("[grey]  ├── BewasModSyncInternalData/[/]");
-            AnsiConsole.MarkupLine("[grey]  └── [cyan]BewasModUpdater.exe[/][/]");
+            AnsiConsole.MarkupLine("[grey]  ├── ModGodInternalData/[/]");
+            AnsiConsole.MarkupLine("[grey]  └── [cyan]ModGodUpdater.exe[/][/]");
             WaitForExit();
             return;
         }
@@ -92,7 +92,7 @@ class Program
         return Directory.Exists(bepInExPath) || Directory.Exists(sptPath);
     }
 
-    static string GetConfigPath() => Path.Combine(_internalDataPath, "BewasModSyncClient.json");
+    static string GetConfigPath() => Path.Combine(_internalDataPath, "ModGodClient.json");
     static string GetModsDownloadedPath() => Path.Combine(_internalDataPath, "modsDownloaded.json");
 
     static async Task LoadOrCreateConfigAsync()
@@ -158,14 +158,14 @@ class Program
         };
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("BewasModUpdater/1.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ModGodUpdater/1.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         return client;
     }
 
     static async Task<ServerConfig?> FetchServerConfigAsync()
     {
-        var url = $"{_clientConfig.ServerUrl}/bewasmodsync/api/config";
+        var url = $"{_clientConfig.ServerUrl}/modgod/api/config";
 
         return await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)

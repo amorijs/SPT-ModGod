@@ -1,4 +1,4 @@
-namespace BewasModSync.Updater.Models;
+namespace ModGod.Updater.Models;
 
 public class ClientConfig
 {

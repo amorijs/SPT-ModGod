@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Linq;
-using BewasModSync.Models;
+using ModGod.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace BewasModSync.Services;
+namespace ModGod.Services;
 
 /// <summary>
 /// Service for generating file manifests from the actual installed mods

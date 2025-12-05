@@ -1,8 +1,8 @@
-using BewasModSync.Models;
+using ModGod.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace BewasModSync.Services;
+namespace ModGod.Services;
 
 /// <summary>
 /// Service for installing and removing mods from the actual SPT installation

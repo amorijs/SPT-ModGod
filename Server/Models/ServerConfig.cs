@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace BewasModSync.Models;
+namespace ModGod.Models;
 
 public class ServerConfig
 {

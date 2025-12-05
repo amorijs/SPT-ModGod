@@ -1,10 +1,10 @@
-using BewasModSync.Models;
+using ModGod.Models;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace BewasModSync.Services;
+namespace ModGod.Services;
 
 [Injectable(InjectionType = InjectionType.Singleton)]
 public class ModDownloadService
@@ -20,7 +20,7 @@ public class ModDownloadService
         _configService = configService;
         _logger = logger;
         _httpClient = new HttpClient();
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("BewasModSync/1.0");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("ModGod/1.0");
         _httpClient.Timeout = TimeSpan.FromMinutes(30); // Allow 30 min for large files
     }
 

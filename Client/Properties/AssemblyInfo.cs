@@ -1,11 +1,11 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("BewasModSyncClientEnforcer")]
+[assembly: AssemblyTitle("ModGodClientEnforcer")]
 [assembly: AssemblyDescription("SPT Mod Sync Client Enforcer Plugin")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("BewasModSyncClientEnforcer")]
+[assembly: AssemblyProduct("ModGodClientEnforcer")]
 [assembly: AssemblyCopyright("")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

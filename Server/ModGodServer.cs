@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using BewasModSync.Models;
-using BewasModSync.Services;
+using ModGod.Models;
+using ModGod.Services;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Helpers;
@@ -12,16 +12,16 @@ using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Servers.Http;
 using SPTarkov.Server.Web;
 
-namespace BewasModSync;
+namespace ModGod;
 
 /// <summary>
 /// Mod metadata - required for all SPT server mods
 /// </summary>
 public record ModMetadata : AbstractModMetadata, IModWebMetadata
 {
-    public override string ModGuid { get; init; } = "com.bewas.modsync";
-    public override string Name { get; init; } = "BewasModSync";
-    public override string Author { get; init; } = "Bewas";
+    public override string ModGuid { get; init; } = "com.modgod.server";
+    public override string Name { get; init; } = "ModGod";
+    public override string Author { get; init; } = "Bewa";
     public override List<string>? Contributors { get; init; }
     public override SemanticVersioning.Version Version { get; init; } = new("1.0.0");
     public override SemanticVersioning.Range SptVersion { get; init; } = new("~4.0.0");
@@ -36,8 +36,8 @@ public record ModMetadata : AbstractModMetadata, IModWebMetadata
 /// Main server mod entry point
 /// </summary>
 [Injectable(InjectionType = InjectionType.Singleton, TypePriority = OnLoadOrder.PostSptModLoader)]
-public class BewasModSyncServer(
-    ISptLogger<BewasModSyncServer> logger,
+public class ModGodServer(
+    ISptLogger<ModGodServer> logger,
     ModHelper modHelper)
     : IOnLoad
 {
@@ -48,10 +48,9 @@ public class BewasModSyncServer(
         ModPath = modHelper.GetAbsolutePathToModFolder(Assembly.GetExecutingAssembly());
         
         logger.Success("========================================");
-        logger.Success("  BewasModSync Server loaded!");
-        logger.Success($"  Build: 2024-12-05-E (Ignore rules in scripts)");
-        logger.Success($"  Web UI: http://localhost:6969/bewasmodsync");
-        logger.Success($"  Config API: http://localhost:6969/bewasmodsync/api/config");
+        logger.Success("  ModGod Server loaded!");
+        logger.Success($"  Web UI: http://localhost:6969/modgod");
+        logger.Success($"  Config API: http://localhost:6969/modgod/api/config");
         logger.Success("========================================");
 
         return Task.CompletedTask;
@@ -86,7 +85,7 @@ public class ModConfigHttpListener : IHttpListener
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
         return context.Request.Method == "GET" && 
-               path.Equals("/bewasmodsync/api/config", StringComparison.OrdinalIgnoreCase);
+               path.Equals("/modgod/api/config", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)
@@ -131,7 +130,7 @@ public class ManifestHttpListener : IHttpListener
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
         return context.Request.Method == "GET" && 
-               path.Equals("/bewasmodsync/api/manifest", StringComparison.OrdinalIgnoreCase);
+               path.Equals("/modgod/api/manifest", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)
@@ -161,7 +160,7 @@ public class StatusHttpListener : IHttpListener
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
         return context.Request.Method == "GET" && 
-               path.Equals("/bewasmodsync/api/status", StringComparison.OrdinalIgnoreCase);
+               path.Equals("/modgod/api/status", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)
