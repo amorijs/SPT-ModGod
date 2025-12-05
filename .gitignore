@@ -53,4 +53,4 @@ logs/
 # Reference directories (not part of the mod - for development only)
 reference_*/
 
-docs/**
+docs_old
