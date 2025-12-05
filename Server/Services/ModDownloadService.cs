@@ -91,11 +91,32 @@ public class ModDownloadService
                     
                     foreach (var entry in entries)
                     {
-                        entry.WriteToDirectory(extractPath, new ExtractionOptions
+                        // Get the entry key (path within archive)
+                        var entryPath = entry.Key?.Replace('\\', '/') ?? "";
+                        
+                        if (!string.IsNullOrEmpty(entryPath))
                         {
-                            ExtractFullPath = true,
-                            Overwrite = true
-                        });
+                            // Create directory structure manually to handle edge cases
+                            var targetPath = Path.Combine(extractPath, entryPath.Replace('/', Path.DirectorySeparatorChar));
+                            var targetDir = Path.GetDirectoryName(targetPath);
+                            
+                            if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
+                            {
+                                Directory.CreateDirectory(targetDir);
+                            }
+                            
+                            // Extract the file
+                            entry.WriteToFile(targetPath, new ExtractionOptions { Overwrite = true });
+                        }
+                        else
+                        {
+                            // Fallback to original method
+                            entry.WriteToDirectory(extractPath, new ExtractionOptions
+                            {
+                                ExtractFullPath = true,
+                                Overwrite = true
+                            });
+                        }
                     }
                 }
                 _logger.Info("Extraction complete!");

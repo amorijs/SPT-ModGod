@@ -489,7 +489,8 @@ namespace ModGod.ClientEnforcer
 
         private void Start()
         {
-            _windowRect = new Rect(Screen.width / 2 - 375, Screen.height / 2 - 250, 750, 500);
+            // Wider window to show full paths
+            _windowRect = new Rect(Screen.width / 2 - 450, Screen.height / 2 - 275, 900, 550);
             _updaterExists = File.Exists(UpdaterExePath);
         }
 
@@ -590,26 +591,36 @@ namespace ModGod.ClientEnforcer
             }
             GUILayout.Space(5);
 
-            _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, GUILayout.Height(200));
+            _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, GUILayout.Height(250));
 
-            // Missing files
+            // Missing files - grouped by folder (derive mod name from path)
             if (missingFiles.Any())
             {
                 GUILayout.Label($"Missing Files ({missingFiles.Count}):", bodyStyle);
-                foreach (var issue in missingFiles)
+                var groupedMissing = missingFiles.GroupBy(f => GetModFolderFromPath(f.FilePath));
+                foreach (var group in groupedMissing.OrderBy(g => g.Key))
                 {
-                    GUILayout.Label($"  • [{issue.ModName}] {TruncatePath(issue.FilePath, 50)}", missingStyle);
+                    GUILayout.Label($"  [{group.Key}]:", missingStyle);
+                    foreach (var issue in group)
+                    {
+                        GUILayout.Label($"    • {issue.FilePath}", missingStyle);
+                    }
                 }
                 GUILayout.Space(10);
             }
 
-            // Hash mismatches
+            // Hash mismatches - grouped by folder (derive mod name from path)
             if (hashMismatches.Any())
             {
                 GUILayout.Label($"Modified Files ({hashMismatches.Count}):", bodyStyle);
-                foreach (var issue in hashMismatches)
+                var groupedModified = hashMismatches.GroupBy(f => GetModFolderFromPath(f.FilePath));
+                foreach (var group in groupedModified.OrderBy(g => g.Key))
                 {
-                    GUILayout.Label($"  • [{issue.ModName}] {TruncatePath(issue.FilePath, 50)}", modifiedStyle);
+                    GUILayout.Label($"  [{group.Key}]:", modifiedStyle);
+                    foreach (var issue in group)
+                    {
+                        GUILayout.Label($"    • {issue.FilePath}", modifiedStyle);
+                    }
                 }
                 GUILayout.Space(10);
             }
@@ -623,7 +634,7 @@ namespace ModGod.ClientEnforcer
                 }
                 foreach (var issue in extraFiles)
                 {
-                    GUILayout.Label($"  • {TruncatePath(issue.FilePath, 60)}", extraStyle);
+                    GUILayout.Label($"  • {issue.FilePath}", extraStyle);
                 }
             }
 
@@ -722,6 +733,39 @@ namespace ModGod.ClientEnforcer
         {
             if (path.Length <= maxLength) return path;
             return "..." + path.Substring(path.Length - maxLength + 3);
+        }
+
+        /// <summary>
+        /// Extract mod folder name from file path for grouping purposes.
+        /// e.g., "BepInEx/plugins/acidphantasm-stattrack/file.dll" -> "acidphantasm-stattrack"
+        /// e.g., "SPT/user/mods/mymod/src/file.js" -> "mymod"
+        /// </summary>
+        private static string GetModFolderFromPath(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return "Unknown";
+            
+            var normalized = filePath.Replace('\\', '/');
+            var parts = normalized.Split('/');
+            
+            // For "BepInEx/plugins/{mod-folder}/..." pattern
+            if (parts.Length >= 3 && 
+                parts[0].Equals("BepInEx", StringComparison.OrdinalIgnoreCase) &&
+                parts[1].Equals("plugins", StringComparison.OrdinalIgnoreCase))
+            {
+                return parts[2];
+            }
+            
+            // For "SPT/user/mods/{mod-folder}/..." pattern
+            if (parts.Length >= 4 && 
+                parts[0].Equals("SPT", StringComparison.OrdinalIgnoreCase) &&
+                parts[1].Equals("user", StringComparison.OrdinalIgnoreCase) &&
+                parts[2].Equals("mods", StringComparison.OrdinalIgnoreCase))
+            {
+                return parts[3];
+            }
+            
+            // Fallback: return the first directory after a known root, or "Unknown"
+            return parts.Length > 1 ? parts[1] : "Unknown";
         }
 
         private void LaunchUpdaterAndQuit()

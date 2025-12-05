@@ -173,3 +173,104 @@ public class StatusHttpListener : IHttpListener
         await context.Response.CompleteAsync();
     }
 }
+
+/// <summary>
+/// HTTP listener to serve individual files for client sync
+/// URL format: /modgod/api/file/{relativePath}
+/// e.g., /modgod/api/file/BepInEx/plugins/ModName/ModName.dll
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class FileDownloadHttpListener : IHttpListener
+{
+    private readonly ConfigService _configService;
+    private readonly ISptLogger<FileDownloadHttpListener> _logger;
+
+    // Only serve files from these directories for security
+    private static readonly string[] AllowedRoots = { "BepInEx/plugins", "SPT/user/mods" };
+
+    public FileDownloadHttpListener(
+        ConfigService configService,
+        ISptLogger<FileDownloadHttpListener> logger)
+    {
+        _configService = configService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? "";
+        return context.Request.Method == "GET" && 
+               path.StartsWith("/modgod/api/file/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        var requestPath = context.Request.Path.Value ?? "";
+        
+        // Extract relative file path from URL (after /modgod/api/file/)
+        var relativePath = requestPath.Substring("/modgod/api/file/".Length);
+        relativePath = Uri.UnescapeDataString(relativePath).Replace('/', Path.DirectorySeparatorChar);
+
+        // Security: Only allow files under approved directories
+        var normalizedPath = relativePath.Replace('\\', '/');
+        if (!AllowedRoots.Any(root => normalizedPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.Warning($"Blocked file request outside allowed roots: {relativePath}");
+            context.Response.StatusCode = 403;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Access denied\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        // Build full path
+        var fullPath = Path.Combine(_configService.SptRoot, relativePath);
+
+        // Security: Prevent path traversal
+        var resolvedPath = Path.GetFullPath(fullPath);
+        var sptRootFull = Path.GetFullPath(_configService.SptRoot);
+        if (!resolvedPath.StartsWith(sptRootFull))
+        {
+            _logger.Warning($"Blocked path traversal attempt: {relativePath}");
+            context.Response.StatusCode = 403;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Access denied\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            _logger.Warning($"File not found: {relativePath}");
+            context.Response.StatusCode = 404;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"File not found\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        _logger.Info($"Serving file: {relativePath}");
+
+        try
+        {
+            var fileBytes = await File.ReadAllBytesAsync(fullPath);
+            
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/octet-stream";
+            context.Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{Path.GetFileName(fullPath)}\"");
+            context.Response.Headers.Append("Content-Length", fileBytes.Length.ToString());
+            
+            await context.Response.Body.WriteAsync(fileBytes);
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error serving file {relativePath}: {ex.Message}");
+            context.Response.StatusCode = 500;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Internal error\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+    }
+}

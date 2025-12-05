@@ -27,22 +27,28 @@
             <div class="d-flex gap-2">
                 @if (ConfigService.HasPendingChanges())
                 {
-                    <MudButton Variant="Variant.Filled" 
-                               StartIcon="@Icons.Material.Filled.PlayArrow" 
-                               Color="Color.Success"
-                               Style="font-weight: 600;"
-                               OnClick="ApplyChanges"
-                               Disabled="_isApplying">
-                        @if (_isApplying)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                            <span>Applying...</span>
-                        }
-                        else
-                        {
-                            <span>Apply Changes</span>
-                        }
-                    </MudButton>
+                    <MudTooltip Text="@(AnyModsNeedConfiguration() ? "Configure all mods before applying" : "")" Disabled="@(!AnyModsNeedConfiguration())">
+                        <MudButton Variant="Variant.Filled" 
+                                   StartIcon="@Icons.Material.Filled.PlayArrow" 
+                                   Color="Color.Success"
+                                   Style="font-weight: 600;"
+                                   OnClick="ApplyChanges"
+                                   Disabled="@(_isApplying || AnyModsNeedConfiguration())">
+                            @if (_isApplying)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <span>Applying...</span>
+                            }
+                            else if (AnyModsNeedConfiguration())
+                            {
+                                <span>Mods Need Config</span>
+                            }
+                            else
+                            {
+                                <span>Apply Changes</span>
+                            }
+                        </MudButton>
+                    </MudTooltip>
                 }
                 <MudButton Variant="Variant.Filled" 
                            StartIcon="@Icons.Material.Filled.Add" 
@@ -137,9 +143,11 @@
             }
             else
             {
+                // Sort pending mods: needs-config first, then alphabetically
                 var pendingMods = ConfigService.Config.ModList
                     .Where(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval)
-                    .OrderBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(m => ModNeedsConfiguration(m)) // Needs config first
+                    .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var installedMods = ConfigService.Config.ModList
                     .Where(m => m.Status == ModStatus.Installed)
@@ -352,30 +360,12 @@
             <div class="pa-2">
                 @{ 
                     var successes = _downloadResults.Where(r => r.Success).ToList();
+                    var autoConfigured = successes.Where(r => r.SuggestedInstallPaths.Count > 0).ToList();
+                    var needsConfig = successes.Where(r => r.SuggestedInstallPaths.Count == 0).ToList();
                     var failures = _downloadResults.Where(r => !r.Success).ToList();
                 }
                 
-                @if (successes.Count > 0)
-                {
-                    <MudAlert Severity="Severity.Success" Class="mb-4">
-                        Successfully staged @successes.Count mod(s) for installation
-                    </MudAlert>
-                    
-                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
-                        ✓ Staged Mods (click "Apply Changes" to install)
-                    </MudText>
-                    <MudList T="string" Dense="true" Class="mb-4">
-                        @foreach (var result in successes)
-                        {
-                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
-                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
-                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
-                                    @result.SuggestedInstallPaths.Count install path(s) configured
-                                </MudText>
-                            </MudListItem>
-                        }
-                    </MudList>
-                }
+                @* Order: Errors → Warnings → Success *@
                 
                 @if (failures.Count > 0)
                 {
@@ -384,9 +374,9 @@
                     </MudAlert>
                     
                     <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-red);">
-                        ✗ Failed Downloads
+                        ✗ Failed Downloads (@failures.Count)
                     </MudText>
-                    <MudList T="string" Dense="true">
+                    <MudList T="string" Dense="true" Class="mb-4">
                         @foreach (var result in failures)
                         {
                             <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
@@ -395,6 +385,56 @@
                                 </MudText>
                                 <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
                                     @result.Error
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                @if (needsConfig.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Class="mb-4">
+                        @needsConfig.Count mod(s) need manual install path configuration
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-orange);">
+                        ⚠ Needs Configuration (@needsConfig.Count)
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                        These mods don't have the standard folder structure (BepInEx/SPT). Click on them to configure install paths.
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in needsConfig)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Settings" IconColor="Color.Warning">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                    Non-standard structure: @string.Join(", ", result.TopLevelDirectories.Take(3))@(result.TopLevelDirectories.Count > 3 ? "..." : "")
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                @if (successes.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">
+                        Successfully staged @successes.Count mod(s) for installation
+                    </MudAlert>
+                }
+                
+                @if (autoConfigured.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
+                        ✓ Auto-Configured (@autoConfigured.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in autoConfigured)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    @result.SuggestedInstallPaths.Count install path(s) detected
                                 </MudText>
                             </MudListItem>
                         }
@@ -454,6 +494,30 @@
                          Label="Optional mod (not enforced on clients)"
                          Color="Color.Primary"
                          Class="mb-4" />
+
+            @* Archive Contents Viewer *@
+            @if (_archiveContents != null && _archiveContents.Count > 0)
+            {
+                <MudExpansionPanels Class="mb-4">
+                    <MudExpansionPanel Text="📦 Archive Contents" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                        <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                            Use these paths to configure the install paths below. Top-level directories are shown first.
+                        </MudText>
+                        <MudPaper Class="pa-2" Style="background: var(--card-bg); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                            @foreach (var item in _archiveContents)
+                            {
+                                var isDir = item.StartsWith("[DIR]");
+                                var displayText = isDir ? item.Substring(6) : item;
+                                var icon = isDir ? "📁" : "📄";
+                                var indent = displayText.Count(c => c == '/') * 12;
+                                <div style="padding-left: @(indent)px; color: @(isDir ? "var(--accent-cyan)" : "var(--text-primary)");">
+                                    @icon @displayText
+                                </div>
+                            }
+                        </MudPaper>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
 
             <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
                 Install Paths
@@ -765,26 +829,38 @@
                 
                 @if (mod.Status == ModStatus.Pending)
                 {
-                    var (overwriteCount, skippedCount) = GetOverwriteStatsForMod(mod);
-                    
-                    @if (overwriteCount > 0)
+                    @if (ModNeedsConfiguration(mod))
                     {
-                        <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
-                            <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
-                                <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                                @overwriteCount existing file(s) will be overwritten
+                        <div class="mt-2 pa-2" style="background: rgba(255, 82, 82, 0.15); border: 1px solid var(--accent-red); border-radius: 6px;">
+                            <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                Needs configuration — click to set install paths
                             </MudText>
                         </div>
                     }
-                    
-                    @if (skippedCount > 0)
+                    else
                     {
-                        <div class="@(overwriteCount > 0 ? "mt-1" : "mt-2") pa-2" style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-cyan); border-radius: 6px;">
-                            <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
-                                <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                                @skippedCount file(s) preserved (won't overwrite)
-                            </MudText>
-                        </div>
+                        var (overwriteCount, skippedCount) = GetOverwriteStatsForMod(mod);
+                        
+                        @if (overwriteCount > 0)
+                        {
+                            <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    @overwriteCount existing file(s) will be overwritten
+                                </MudText>
+                            </div>
+                        }
+                        
+                        @if (skippedCount > 0)
+                        {
+                            <div class="@(overwriteCount > 0 ? "mt-1" : "mt-2") pa-2" style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-cyan); border-radius: 6px;">
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    @skippedCount file(s) preserved (won't overwrite)
+                                </MudText>
+                            </div>
+                        }
                     }
                 }
             </MudPaper>
@@ -823,6 +899,7 @@
     private string _editDownloadUrl = "";
     private bool _editIsOptional = false;
     private List<InstallPathItem> _editInstallPaths = new();
+    private List<string>? _archiveContents;
 
     private class InstallPathItem
     {
@@ -928,15 +1005,22 @@
 
                 _downloadResults.Add(result);
 
-                if (result.Success && result.SuggestedInstallPaths.Count > 0)
+                if (result.Success)
                 {
+                    // For non-standard mods, generate install paths from top-level directories
+                    var installPaths = result.SuggestedInstallPaths.Count > 0 
+                        ? result.SuggestedInstallPaths 
+                        : result.TopLevelDirectories.Count > 0
+                            ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
+                            : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                    
                     var mod = new ModEntry
                     {
                         ModName = result.ModName ?? ExtractModNameFromUrl(url),
                         DownloadUrl = url,
                         Optional = _bulkOptional,
                         LastUpdated = DateTime.UtcNow.ToString("o"),
-                        InstallPaths = result.SuggestedInstallPaths,
+                        InstallPaths = installPaths,
                         Status = ModStatus.Pending // New mods start as pending
                     };
                     await ConfigService.AddModAsync(mod);
@@ -1358,6 +1442,15 @@
             }
             _editDialogVisible = true;
 
+            // Load archive contents for reference
+            _archiveContents = null;
+            if (!string.IsNullOrEmpty(mod.DownloadUrl) && 
+                ConfigService.Staging?.UrlToPath != null &&
+                ConfigService.Staging.UrlToPath.TryGetValue(mod.DownloadUrl, out var stagingPath))
+            {
+                _archiveContents = ModDownloadService.GetExtractedContents(stagingPath);
+            }
+
             // File rule state - safe handling of FileRules
             var rules = mod.FileRules ?? new List<FileCopyRule>();
             _fileRulesIgnore = new HashSet<string>(
@@ -1415,6 +1508,7 @@
         _editingMod = null;
         _fileTreeRoot = null;
         _fileRulesIgnore.Clear();
+        _archiveContents = null;
     }
 
     // Reinstall Mod
@@ -1941,6 +2035,18 @@
         return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
     }
 
+    private bool ModNeedsConfiguration(ModEntry mod)
+    {
+        return mod.Status == ModStatus.Pending && 
+            (mod.InstallPaths.Count == 0 || 
+             mod.InstallPaths.All(p => p == null || p.Length < 2 || string.IsNullOrWhiteSpace(p[0])));
+    }
+
+    private bool AnyModsNeedConfiguration()
+    {
+        return ConfigService.Config.ModList.Any(ModNeedsConfiguration);
+    }
+
     private string FormatTimestamp(string timestamp)
     {
         if (DateTime.TryParse(timestamp, out var dt))
@@ -1953,6 +2059,11 @@
     private string GetModCardStyle(ModEntry mod)
     {
         var baseStyle = "background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; height: 100%;";
+        
+        if (ModNeedsConfiguration(mod))
+        {
+            return baseStyle + " border-left: 4px solid var(--accent-red);";
+        }
         
         return mod.Status switch
         {
