@@ -49,6 +49,7 @@ public class BewasModSyncServer(
         
         logger.Success("========================================");
         logger.Success("  BewasModSync Server loaded!");
+        logger.Success($"  Build: 2024-12-05-E (Ignore rules in scripts)");
         logger.Success($"  Web UI: http://localhost:6969/bewasmodsync");
         logger.Success($"  Config API: http://localhost:6969/bewasmodsync/api/config");
         logger.Success("========================================");

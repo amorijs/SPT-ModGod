@@ -45,4 +45,31 @@ public class ModEntry
     [JsonPropertyName("status")]
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ModStatus Status { get; set; } = ModStatus.Pending;
+
+    /// <summary>
+    /// Per-file copy rules (overwrite/ignore). Path is relative to the extracted archive root.
+    /// </summary>
+    [JsonPropertyName("fileRules")]
+    public List<FileCopyRule> FileRules { get; set; } = new();
+}
+
+/// <summary>
+/// How a file should be handled during install
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FileCopyRuleState
+{
+    Overwrite,
+    Ignore
+}
+
+public class FileCopyRule
+{
+    /// <summary>Relative path from extracted root (using forward slashes)</summary>
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
+
+    [JsonPropertyName("state")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public FileCopyRuleState State { get; set; } = FileCopyRuleState.Overwrite;
 }

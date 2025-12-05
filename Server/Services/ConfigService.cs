@@ -596,24 +596,116 @@ public class ConfigService : IOnLoad
             sb.AppendLine("Write-Host 'Installing mods...' -ForegroundColor Cyan");
             sb.AppendLine("Write-Host ''");
             sb.AppendLine("");
+            
+            // Helper function for selective copy with ignore rules
+            sb.AppendLine("# Helper function to copy with ignore rules");
+            sb.AppendLine("function Copy-WithIgnoreRules {");
+            sb.AppendLine("    param(");
+            sb.AppendLine("        [string]$Source,");
+            sb.AppendLine("        [string]$Destination,");
+            sb.AppendLine("        [string[]]$IgnorePaths");
+            sb.AppendLine("    )");
+            sb.AppendLine("    ");
+            sb.AppendLine("    if (-not (Test-Path $Source)) { return }");
+            sb.AppendLine("    ");
+            sb.AppendLine("    # If no ignore rules, just do a simple copy");
+            sb.AppendLine("    if ($IgnorePaths.Count -eq 0) {");
+            sb.AppendLine("        Copy-Item -Path \"$Source\\*\" -Destination $Destination -Recurse -Force -ErrorAction Stop");
+            sb.AppendLine("        return");
+            sb.AppendLine("    }");
+            sb.AppendLine("    ");
+            sb.AppendLine("    # Get all items recursively");
+            sb.AppendLine("    $items = Get-ChildItem -Path $Source -Recurse -Force");
+            sb.AppendLine("    ");
+            sb.AppendLine("    foreach ($item in $items) {");
+            sb.AppendLine("        # Get relative path from source");
+            sb.AppendLine("        $relativePath = $item.FullName.Substring($Source.Length).TrimStart('\\', '/').Replace('\\', '/')");
+            sb.AppendLine("        ");
+            sb.AppendLine("        # Check if this path should be ignored");
+            sb.AppendLine("        $shouldIgnore = $false");
+            sb.AppendLine("        foreach ($ignorePath in $IgnorePaths) {");
+            sb.AppendLine("            if ($relativePath -eq $ignorePath -or $relativePath -like \"$ignorePath/*\" -or $relativePath -like \"$ignorePath\\*\") {");
+            sb.AppendLine("                $shouldIgnore = $true");
+            sb.AppendLine("                break");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine("        ");
+            sb.AppendLine("        if ($shouldIgnore) {");
+            sb.AppendLine("            Write-Host \"    [SKIP] $relativePath\" -ForegroundColor DarkGray");
+            sb.AppendLine("            continue");
+            sb.AppendLine("        }");
+            sb.AppendLine("        ");
+            sb.AppendLine("        # Calculate destination path");
+            sb.AppendLine("        $destPath = Join-Path $Destination $relativePath");
+            sb.AppendLine("        ");
+            sb.AppendLine("        if ($item.PSIsContainer) {");
+            sb.AppendLine("            # Create directory if needed");
+            sb.AppendLine("            if (-not (Test-Path $destPath)) {");
+            sb.AppendLine("                New-Item -ItemType Directory -Path $destPath -Force | Out-Null");
+            sb.AppendLine("            }");
+            sb.AppendLine("        } else {");
+            sb.AppendLine("            # Copy file");
+            sb.AppendLine("            $destDir = Split-Path $destPath -Parent");
+            sb.AppendLine("            if (-not (Test-Path $destDir)) {");
+            sb.AppendLine("                New-Item -ItemType Directory -Path $destDir -Force | Out-Null");
+            sb.AppendLine("            }");
+            sb.AppendLine("            Copy-Item -Path $item.FullName -Destination $destPath -Force -ErrorAction Stop");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine("");
 
             foreach (var mod in pendingInstalls)
             {
                 var stagingPath = Staging.UrlToPath[mod.DownloadUrl];
                 var extractedPath = Path.Combine(stagingPath, "extracted");
+                
+                // Get ignore paths for this mod
+                var ignoreRules = mod.FileRules?
+                    .Where(r => r.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
+                    .Select(r => r.Path.Replace("\\", "/"))
+                    .ToList() ?? new List<string>();
 
                 sb.AppendLine($"# {mod.ModName}");
                 sb.AppendLine($"Write-Host 'Installing: {mod.ModName}' -ForegroundColor Yellow");
+                
+                if (ignoreRules.Count > 0)
+                {
+                    sb.AppendLine($"Write-Host '  ({ignoreRules.Count} file(s) will be skipped)' -ForegroundColor DarkGray");
+                }
 
                 foreach (var installPath in mod.InstallPaths)
                 {
                     var sourcePath = installPath[0];
                     var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SptRoot");
                     var fullSourcePath = Path.Combine(extractedPath, sourcePath);
+                    
+                    // Filter ignore rules to only those relevant to this install path
+                    var relevantIgnores = ignoreRules
+                        .Where(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) || 
+                                    r.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
+                        .Select(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) 
+                            ? r.Substring(sourcePath.Length + 1) 
+                            : "")
+                        .Where(r => !string.IsNullOrEmpty(r))
+                        .ToList();
 
                     sb.AppendLine($"if (Test-Path '{fullSourcePath}') {{");
                     sb.AppendLine($"    try {{");
-                    sb.AppendLine($"        Copy-Item -Path '{fullSourcePath}\\*' -Destination \"{targetPath}\" -Recurse -Force -ErrorAction Stop");
+                    
+                    if (relevantIgnores.Count > 0)
+                    {
+                        // Use the helper function with ignore rules
+                        var ignoreArray = string.Join("', '", relevantIgnores.Select(r => r.Replace("'", "''")));
+                        sb.AppendLine($"        $ignoreList = @('{ignoreArray}')");
+                        sb.AppendLine($"        Copy-WithIgnoreRules -Source '{fullSourcePath}' -Destination \"{targetPath}\" -IgnorePaths $ignoreList");
+                    }
+                    else
+                    {
+                        // Simple copy when no ignores
+                        sb.AppendLine($"        Copy-Item -Path '{fullSourcePath}\\*' -Destination \"{targetPath}\" -Recurse -Force -ErrorAction Stop");
+                    }
+                    
                     sb.AppendLine($"        Write-Host '  [OK] Copied {sourcePath}' -ForegroundColor Green");
                     sb.AppendLine($"    }} catch {{");
                     sb.AppendLine($"        Write-Host '  [FAIL] {sourcePath}: ' $_.Exception.Message -ForegroundColor Red");
@@ -668,74 +760,77 @@ public class ConfigService : IOnLoad
         sbSh.AppendLine("#!/usr/bin/env bash");
         sbSh.AppendLine("set -euo pipefail");
         sbSh.AppendLine("");
+        sbSh.AppendLine("# Timestamp function for logging");
+        sbSh.AppendLine("log() { echo \"[$(date '+%Y-%m-%d %H:%M:%S')] $*\"; }");
+        sbSh.AppendLine("");
         sbSh.AppendLine($"SERVER_URL=\"{serverUrl}\"");
         sbSh.AppendLine("STATUS_ENDPOINT=\"$SERVER_URL/bewasmodsync/api/status\"");
         sbSh.AppendLine("POLL_INTERVAL=2");
         sbSh.AppendLine($"SPT_ROOT=\"{sptRootUnix}\"");
         sbSh.AppendLine($"COMPLETION_FILE=\"{completionPathUnix}\"");
         sbSh.AppendLine("");
-        sbSh.AppendLine("# Trap to keep window open on errors");
+        sbSh.AppendLine("# Trap to log errors (no interactive prompts for headless/background use)");
         sbSh.AppendLine("trap '");
-        sbSh.AppendLine("  echo \"\";");
-        sbSh.AppendLine("  echo \"======================================\";");
-        sbSh.AppendLine("  echo \"  CRITICAL ERROR\";");
-        sbSh.AppendLine("  echo \"======================================\";");
-        sbSh.AppendLine("  echo \"Command: $BASH_COMMAND\";");
-        sbSh.AppendLine("  echo \"Status : $?\";");
-        sbSh.AppendLine("  echo \"\";");
-        sbSh.AppendLine("  read -n1 -s -r -p \"Press any key to close...\";");
+        sbSh.AppendLine("  log \"======================================\";");
+        sbSh.AppendLine("  log \"  CRITICAL ERROR\";");
+        sbSh.AppendLine("  log \"======================================\";");
+        sbSh.AppendLine("  log \"Command: $BASH_COMMAND\";");
+        sbSh.AppendLine("  log \"Status : $?\";");
         sbSh.AppendLine("  exit 1;");
         sbSh.AppendLine("' ERR");
         sbSh.AppendLine("");
-        sbSh.AppendLine("clear");
-        sbSh.AppendLine("echo \"======================================\"");
-        sbSh.AppendLine("echo \"  BewasModSync - Auto Mod Manager\"");
-        sbSh.AppendLine("echo \"======================================\"");
-        sbSh.AppendLine("");
+        sbSh.AppendLine("log \"======================================\"");
+        sbSh.AppendLine("log \"  BewasModSync - Auto Mod Manager\"");
+        sbSh.AppendLine("log \"======================================\"");
+        sbSh.AppendLine("log \"\"");
 
         if (pendingInstalls.Count > 0)
         {
-            sbSh.AppendLine($"echo \"Pending mods to install: {pendingInstalls.Count}\"");
+            sbSh.AppendLine($"log \"Pending mods to install: {pendingInstalls.Count}\"");
             foreach (var mod in pendingInstalls)
             {
-                sbSh.AppendLine($"echo \"  + {mod.ModName}\"");
+                sbSh.AppendLine($"log \"  + {mod.ModName}\"");
             }
-            sbSh.AppendLine("echo \"\"");
         }
 
         if (pendingRemovals.Count > 0)
         {
-            sbSh.AppendLine($"echo \"Pending mods to remove: {pendingRemovals.Count}\"");
+            sbSh.AppendLine($"log \"Pending mods to remove: {pendingRemovals.Count}\"");
             foreach (var mod in pendingRemovals)
             {
-                sbSh.AppendLine($"echo \"  - {mod.ModName}\"");
+                sbSh.AppendLine($"log \"  - {mod.ModName}\"");
             }
-            sbSh.AppendLine("echo \"\"");
         }
 
-        sbSh.AppendLine("echo \"Changes will be applied automatically when SPT server shuts down.\"");
-        sbSh.AppendLine("echo \"Close this window to cancel.\"");
-        sbSh.AppendLine("echo \"\"");
+        sbSh.AppendLine("log \"\"");
+        sbSh.AppendLine("log \"Changes will be applied automatically when SPT server shuts down.\"");
+        sbSh.AppendLine("log \"Polling server status every ${POLL_INTERVAL}s...\"");
+        sbSh.AppendLine("log \"\"");
         sbSh.AppendLine("");
 
-        // Polling loop
+        // Polling loop (log-friendly, no spinner)
         sbSh.AppendLine("server_was_up=false");
-        sbSh.AppendLine("spin='|/-\\\\'");
-        sbSh.AppendLine("i=0");
+        sbSh.AppendLine("last_status=\"\"");
         sbSh.AppendLine("while true; do");
         sbSh.AppendLine("  code=$(curl -k -s -o /dev/null -w \"%{http_code}\" \"$STATUS_ENDPOINT\" || true)");
         sbSh.AppendLine("  if [[ \"$code\" == \"200\" ]]; then");
         sbSh.AppendLine("    server_was_up=true");
-        sbSh.AppendLine("    i=$(((i+1)%4))");
-        sbSh.AppendLine("    printf \"\\r[%s] Server is running... waiting for shutdown    \" \"${spin:$i:1}\"");
+        sbSh.AppendLine("    if [[ \"$last_status\" != \"running\" ]]; then");
+        sbSh.AppendLine("      log \"Server is running... waiting for shutdown\"");
+        sbSh.AppendLine("      last_status=\"running\"");
+        sbSh.AppendLine("    fi");
         sbSh.AppendLine("    sleep $POLL_INTERVAL");
         sbSh.AppendLine("  else");
         sbSh.AppendLine("    if $server_was_up; then");
-        sbSh.AppendLine("      echo \"\"; echo \"\"; echo \"Server shutdown detected!\"; echo \"\";");
+        sbSh.AppendLine("      log \"\"");
+        sbSh.AppendLine("      log \"Server shutdown detected!\"");
+        sbSh.AppendLine("      log \"\"");
         sbSh.AppendLine("      break");
         sbSh.AppendLine("    else");
-        sbSh.AppendLine("      i=$(((i+1)%4))");
-        sbSh.AppendLine("      printf \"\\r[%s] Waiting for server to start...            \" \"${spin:$i:1}\"");
+        sbSh.AppendLine("      if [[ \"$last_status\" != \"waiting\" ]]; then");
+        sbSh.AppendLine("        log \"Waiting for server to start...\"");
+        sbSh.AppendLine("        last_status=\"waiting\"");
+        sbSh.AppendLine("      fi");
         sbSh.AppendLine("      sleep $POLL_INTERVAL");
         sbSh.AppendLine("    fi");
         sbSh.AppendLine("  fi");
@@ -745,16 +840,16 @@ public class ConfigService : IOnLoad
         // Removal section
         if (pathsToDelete.Count > 0)
         {
-            sbSh.AppendLine("echo \"Removing mods...\"; echo \"\"");
+            sbSh.AppendLine("log \"Removing mods...\"");
             foreach (var pathToDelete in pathsToDelete)
             {
                 var fullPath = pathToDelete.Replace("<SPT_ROOT>", "$SPT_ROOT").Replace("\\", "/");
                 var name = Path.GetFileName(pathToDelete.TrimEnd('/', '\\'));
                 sbSh.AppendLine($"if [ -e \"{fullPath}\" ]; then");
                 sbSh.AppendLine($"  if rm -rf \"{fullPath}\"; then");
-                sbSh.AppendLine($"    echo \"  [OK] Removed {name}\"");
+                sbSh.AppendLine($"    log \"  [OK] Removed {name}\"");
                 sbSh.AppendLine("  else");
-                sbSh.AppendLine($"    echo \"  [FAIL] {pathToDelete}\"");
+                sbSh.AppendLine($"    log \"  [FAIL] {pathToDelete}\"");
                 sbSh.AppendLine("  fi");
                 sbSh.AppendLine("fi");
                 sbSh.AppendLine("");
@@ -764,20 +859,88 @@ public class ConfigService : IOnLoad
         // Install section
         if (pendingInstalls.Count > 0)
         {
-            sbSh.AppendLine("echo \"Installing mods...\"; echo \"\"");
+            // Helper function for copying with ignore rules
+            sbSh.AppendLine("# Helper function to copy with ignore rules");
+            sbSh.AppendLine("copy_with_ignores() {");
+            sbSh.AppendLine("  local src=\"$1\"");
+            sbSh.AppendLine("  local dest=\"$2\"");
+            sbSh.AppendLine("  shift 2");
+            sbSh.AppendLine("  local ignores=(\"$@\")");
+            sbSh.AppendLine("  ");
+            sbSh.AppendLine("  if [ ${#ignores[@]} -eq 0 ]; then");
+            sbSh.AppendLine("    # No ignores, simple copy");
+            sbSh.AppendLine("    cp -a \"$src/.\" \"$dest/\"");
+            sbSh.AppendLine("    return");
+            sbSh.AppendLine("  fi");
+            sbSh.AppendLine("  ");
+            sbSh.AppendLine("  # Build rsync exclude arguments");
+            sbSh.AppendLine("  local exclude_args=\"\"");
+            sbSh.AppendLine("  for ignore in \"${ignores[@]}\"; do");
+            sbSh.AppendLine("    exclude_args=\"$exclude_args --exclude=$ignore\"");
+            sbSh.AppendLine("  done");
+            sbSh.AppendLine("  ");
+            sbSh.AppendLine("  # Use rsync if available, otherwise fall back to find+cp");
+            sbSh.AppendLine("  if command -v rsync &> /dev/null; then");
+            sbSh.AppendLine("    eval rsync -a $exclude_args \"$src/\" \"$dest/\"");
+            sbSh.AppendLine("  else");
+            sbSh.AppendLine("    # Fallback: copy everything, then delete ignored");
+            sbSh.AppendLine("    cp -a \"$src/.\" \"$dest/\"");
+            sbSh.AppendLine("    for ignore in \"${ignores[@]}\"; do");
+            sbSh.AppendLine("      rm -rf \"$dest/$ignore\" 2>/dev/null || true");
+            sbSh.AppendLine("      log \"    [SKIP] $ignore\"");
+            sbSh.AppendLine("    done");
+            sbSh.AppendLine("  fi");
+            sbSh.AppendLine("}");
+            sbSh.AppendLine("");
+            
+            sbSh.AppendLine("log \"Installing mods...\"");
             foreach (var mod in pendingInstalls)
             {
                 var stagingPath = Staging.UrlToPath[mod.DownloadUrl].Replace("\\", "/");
                 var extractedPath = Path.Combine(stagingPath, "extracted").Replace("\\", "/");
-                sbSh.AppendLine($"echo \"Installing: {mod.ModName}\"");
+                
+                // Get ignore paths for this mod
+                var ignoreRules = mod.FileRules?
+                    .Where(r => r.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
+                    .Select(r => r.Path.Replace("\\", "/"))
+                    .ToList() ?? new List<string>();
+                
+                sbSh.AppendLine($"log \"Installing: {mod.ModName}\"");
+                
+                if (ignoreRules.Count > 0)
+                {
+                    sbSh.AppendLine($"log \"  ({ignoreRules.Count} file(s) will be skipped)\"");
+                }
+                
                 foreach (var installPath in mod.InstallPaths)
                 {
                     var sourcePath = installPath[0];
                     var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SPT_ROOT");
                     var fullSourcePath = Path.Combine(extractedPath, sourcePath).Replace("\\", "/");
+                    
+                    // Filter ignore rules to only those relevant to this install path
+                    var relevantIgnores = ignoreRules
+                        .Where(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) || 
+                                    r.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
+                        .Select(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) 
+                            ? r.Substring(sourcePath.Length + 1) 
+                            : "")
+                        .Where(r => !string.IsNullOrEmpty(r))
+                        .ToList();
+                    
                     sbSh.AppendLine($"if [ -d \"{fullSourcePath}\" ]; then");
                     sbSh.AppendLine($"  mkdir -p \"{targetPath}\"");
-                    sbSh.AppendLine($"  cp -a \"{fullSourcePath}/.\" \"{targetPath}/\" && echo \"  [OK] Copied {sourcePath}\" || echo \"  [FAIL] {sourcePath}\"");
+                    
+                    if (relevantIgnores.Count > 0)
+                    {
+                        var ignoreArray = string.Join("\" \"", relevantIgnores);
+                        sbSh.AppendLine($"  copy_with_ignores \"{fullSourcePath}\" \"{targetPath}\" \"{ignoreArray}\" && log \"  [OK] Copied {sourcePath}\" || log \"  [FAIL] {sourcePath}\"");
+                    }
+                    else
+                    {
+                        sbSh.AppendLine($"  cp -a \"{fullSourcePath}/.\" \"{targetPath}/\" && log \"  [OK] Copied {sourcePath}\" || log \"  [FAIL] {sourcePath}\"");
+                    }
+                    
                     sbSh.AppendLine("fi");
                     sbSh.AppendLine("");
                 }
@@ -785,21 +948,19 @@ public class ConfigService : IOnLoad
         }
 
         // Write completion marker file
-        sbSh.AppendLine("echo \"\";");
-        sbSh.AppendLine("echo \"Writing completion marker...\";");
+        sbSh.AppendLine("log \"\"");
+        sbSh.AppendLine("log \"Writing completion marker...\"");
         sbSh.AppendLine($"cat > \"$COMPLETION_FILE\" <<'EOF'");
         sbSh.AppendLine(urlsJson);
         sbSh.AppendLine("EOF");
-        sbSh.AppendLine("echo \"Done.\"");
+        sbSh.AppendLine("log \"Done.\"");
         sbSh.AppendLine("");
 
-        sbSh.AppendLine("echo \"======================================\"");
-        sbSh.AppendLine("echo \"  Installation Complete!\"");
-        sbSh.AppendLine("echo \"======================================\"");
-        sbSh.AppendLine("echo \"You can now start the SPT server.\"");
-        sbSh.AppendLine("echo \"The server will automatically mark these mods as installed/removed.\"");
-        sbSh.AppendLine("echo \"This window will close in 10 seconds...\"");
-        sbSh.AppendLine("sleep 10");
+        sbSh.AppendLine("log \"======================================\"");
+        sbSh.AppendLine("log \"  Installation Complete!\"");
+        sbSh.AppendLine("log \"======================================\"");
+        sbSh.AppendLine("log \"You can now start the SPT server.\"");
+        sbSh.AppendLine("log \"The server will automatically mark these mods as installed/removed.\"");
 
         await File.WriteAllTextAsync(scriptPathSh, sbSh.ToString());
         try { File.SetAttributes(scriptPathSh, FileAttributes.Normal); } catch { }
@@ -817,6 +978,7 @@ public class ConfigService : IOnLoad
     {
         var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         var scriptPath = Path.Combine(_dataPath, isWindows ? "install-pending-mods.ps1" : "install-pending-mods.sh");
+        var logPath = Path.Combine(_dataPath, "install-script.log");
         
         if (!File.Exists(scriptPath))
         {
@@ -836,20 +998,33 @@ public class ConfigService : IOnLoad
                     UseShellExecute = true,
                     CreateNoWindow = false
                 };
+                System.Diagnostics.Process.Start(startInfo);
+                _logger.Info("Launched install script in new window");
             }
             else
             {
+                // On Linux (likely headless via SSH), run in background with output to log file
+                // Use nohup so it continues even if server restarts
                 startInfo = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "bash",
-                    Arguments = $"\"{scriptPath}\"",
-                    UseShellExecute = true,
-                    CreateNoWindow = false
+                    Arguments = $"-c \"nohup bash '{scriptPath}' > '{logPath}' 2>&1 &\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                    CreateNoWindow = true
                 };
+                System.Diagnostics.Process.Start(startInfo);
+                
+                _logger.Info("========================================");
+                _logger.Info("Install script started in background!");
+                _logger.Info($"Script: {scriptPath}");
+                _logger.Info($"Log:    {logPath}");
+                _logger.Info("");
+                _logger.Info("To watch progress, run:");
+                _logger.Info($"  tail -f \"{logPath}\"");
+                _logger.Info("========================================");
             }
-            
-            System.Diagnostics.Process.Start(startInfo);
-            _logger.Info("Launched install script in new window");
         }
         catch (Exception ex)
         {

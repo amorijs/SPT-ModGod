@@ -134,6 +134,12 @@ public class ModInstallService
 
             _logger.Info($"Installing mod: {mod.ModName}");
 
+            // Prepare ignore rules (relative paths from extracted root)
+            var ignoreRules = mod.FileRules
+                .Where(r => r.State == FileCopyRuleState.Ignore)
+                .Select(r => NormalizeRelativePath(r.Path))
+                .ToList();
+
             // Copy files for each install path
             foreach (var installPath in mod.InstallPaths)
             {
@@ -145,21 +151,13 @@ public class ModInstallService
 
                 if (Directory.Exists(fullSourcePath))
                 {
-                    _logger.Info($"  Copying {sourcePath} -> {fullTargetPath}");
-                    CopyDirectory(fullSourcePath, fullTargetPath, lockedFiles);
+                    _logger.Info($"  Copying {sourcePath} -> {fullTargetPath} (with rules)");
+                    CopyWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles);
                 }
                 else if (File.Exists(fullSourcePath))
                 {
-                    _logger.Info($"  Copying file {sourcePath} -> {fullTargetPath}");
-                    Directory.CreateDirectory(Path.GetDirectoryName(fullTargetPath)!);
-                    try
-                    {
-                        File.Copy(fullSourcePath, fullTargetPath, true);
-                    }
-                    catch (IOException ex) when (IsFileLockedException(ex))
-                    {
-                        lockedFiles.Add(fullTargetPath);
-                    }
+                    _logger.Info($"  Copying file {sourcePath} -> {fullTargetPath} (with rules)");
+                    CopyFileWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles);
                 }
                 else
                 {
@@ -192,6 +190,65 @@ public class ModInstallService
         }
 
         return Task.FromResult(result);
+    }
+
+    private void CopyWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles)
+    {
+        Directory.CreateDirectory(fullTargetPath);
+
+        var files = Directory.GetFiles(fullSourcePath, "*", SearchOption.AllDirectories);
+        foreach (var file in files)
+        {
+            var relative = Path.GetRelativePath(extractedRoot, file);
+            if (IsIgnored(relative, ignoreRules))
+                continue;
+
+            var relativeFromSource = Path.GetRelativePath(fullSourcePath, file);
+            var targetFile = Path.Combine(fullTargetPath, relativeFromSource);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
+
+            try
+            {
+                File.Copy(file, targetFile, true);
+            }
+            catch (IOException ex) when (IsFileLockedException(ex))
+            {
+                lockedFiles.Add(targetFile);
+            }
+        }
+    }
+
+    private void CopyFileWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles)
+    {
+        var relative = Path.GetRelativePath(extractedRoot, fullSourcePath);
+        if (IsIgnored(relative, ignoreRules))
+            return;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(fullTargetPath)!);
+        try
+        {
+            File.Copy(fullSourcePath, fullTargetPath, true);
+        }
+        catch (IOException ex) when (IsFileLockedException(ex))
+        {
+            lockedFiles.Add(fullTargetPath);
+        }
+    }
+
+    private static string NormalizeRelativePath(string path)
+    {
+        return path.Replace("\\", "/").TrimStart('/');
+    }
+
+    private static bool IsIgnored(string relativePath, List<string> ignoreRules)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        foreach (var rule in ignoreRules)
+        {
+            if (normalized.StartsWith(rule, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

@@ -4,12 +4,15 @@
 @using BewasModSync.Models
 @using BewasModSync.Services
 @using Color = MudBlazor.Color
+@using System.Linq
+@using Microsoft.JSInterop
 
 @inject ConfigService ConfigService
 @inject ModDownloadService ModDownloadService
 @inject ModInstallService ModInstallService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge">
     <!-- Header Section -->
@@ -335,81 +338,143 @@
 
 <!-- Edit Mod Dialog -->
 <MudDialog @bind-Visible="_editDialogVisible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent>
-        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudTextField @bind-Value="_editModName" 
-                      Label="Mod Name" 
-                      Variant="Variant.Outlined"
-                      Class="mb-4"
-                      Required="true" />
-        
-        <MudTextField Value="@_editDownloadUrl" 
-                      Label="Download URL" 
-                      Variant="Variant.Outlined"
-                      Class="mb-4 mono"
-                      ReadOnly="true"
-                      HelperText="URL cannot be changed. Delete and re-add to use a different URL." />
-        
-        <MudCheckBox @bind-Value="_editIsOptional" 
-                     Label="Optional mod (not enforced on clients)"
-                     Color="Color.Primary"
-                     Class="mb-4" />
+        <TitleContent>
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
+        </TitleContent>
+        <DialogContent>
+            <MudTextField @bind-Value="_editModName" 
+                          Label="Mod Name" 
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudTextField Value="@_editDownloadUrl" 
+                          Label="Download URL" 
+                          Variant="Variant.Outlined"
+                          Class="mb-4 mono"
+                          ReadOnly="true"
+                          HelperText="URL cannot be changed. Delete and re-add to use a different URL." />
+            
+            <MudCheckBox @bind-Value="_editIsOptional" 
+                         Label="Optional mod (not enforced on clients)"
+                         Color="Color.Primary"
+                         Class="mb-4" />
 
-        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
-            Install Paths
-        </MudText>
-        
-        @for (int i = 0; i < _editInstallPaths.Count; i++)
-        {
-            var index = i;
-            <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
-                <MudGrid>
-                    <MudItem xs="5">
-                        <MudTextField @bind-Value="_editInstallPaths[index].Source" 
-                                      Label="Source Path" 
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      Class="mono" />
-                    </MudItem>
-                    <MudItem xs="1" Class="d-flex align-center justify-center">
-                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                    </MudItem>
-                    <MudItem xs="5">
-                        <MudTextField @bind-Value="_editInstallPaths[index].Target" 
-                                      Label="Target Path" 
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      Class="mono" />
-                    </MudItem>
-                    <MudItem xs="1" Class="d-flex align-center justify-center">
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete" 
-                                       Color="Color.Error" 
-                                       Size="Size.Small"
-                                       OnClick="@(() => RemoveEditInstallPath(index))" />
-                    </MudItem>
-                </MudGrid>
-            </MudPaper>
-        }
+            <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                Install Paths
+            </MudText>
+            
+            @if (_editInstallPaths != null)
+            {
+                @for (int i = 0; i < _editInstallPaths.Count; i++)
+                {
+                    var index = i;
+                    <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                        <MudGrid>
+                            <MudItem xs="5">
+                                <MudTextField @bind-Value="_editInstallPaths[index].Source" 
+                                              Label="Source Path" 
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Class="mono" />
+                            </MudItem>
+                            <MudItem xs="1" Class="d-flex align-center justify-center">
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                            </MudItem>
+                            <MudItem xs="5">
+                                <MudTextField @bind-Value="_editInstallPaths[index].Target" 
+                                              Label="Target Path" 
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Class="mono" />
+                            </MudItem>
+                            <MudItem xs="1" Class="d-flex align-center justify-center">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                               Color="Color.Error" 
+                                               Size="Size.Small"
+                                               OnClick="@(() => RemoveEditInstallPath(index))" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudPaper>
+                }
+            }
 
-        <MudButton Variant="Variant.Text" 
-                   StartIcon="@Icons.Material.Filled.Add" 
-                   Color="Color.Primary"
-                   OnClick="AddEditInstallPath"
-                   Class="mt-2">
-            Add Install Path
-        </MudButton>
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="CloseEditDialog" Variant="Variant.Text">Cancel</MudButton>
-        <MudButton Color="Color.Primary" 
-                   Variant="Variant.Filled"
-                   Disabled="@(string.IsNullOrWhiteSpace(_editModName) || _editInstallPaths.Count == 0)"
-                   OnClick="SaveEditMod">
-            Save Changes
-        </MudButton>
-    </DialogActions>
+            <MudButton Variant="Variant.Text" 
+                       StartIcon="@Icons.Material.Filled.Add" 
+                       Color="Color.Primary"
+                       OnClick="AddEditInstallPath"
+                       Class="mt-2">
+                Add Install Path
+            </MudButton>
+
+            <MudDivider Class="my-4" />
+
+            <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
+                File Copy Rules (per-file overwrite/ignore)
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                Default is overwrite. Mark specific files as "Ignore" to keep your server-side edits when installing/reinstalling.  
+                This is useful for config files that you want to keep your server-side edits for.
+                This only affects the files that are installed on the server.  
+                If you're unsure, leave it as overwrite.  
+            </MudText>
+
+            @if (_fileRulesLoading)
+            {
+                <div class="d-flex align-center mb-3">
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <MudText Typo="Typo.body2">Loading file tree...</MudText>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_fileRulesError))
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-3">
+                    @_fileRulesError
+                </MudAlert>
+            }
+            else if (_fileTreeRoot != null && _fileTreeRoot.Children != null && _fileTreeRoot.Children.Any())
+            {
+                <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
+                    <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
+                        <span class="mr-3"><MudChip T="string" Color="Color.Success" Variant="Variant.Outlined" Size="Size.Small">Overwrite</MudChip></span>
+                        <span><MudChip T="string" Color="Color.Default" Variant="Variant.Filled" Size="Size.Small">Ignore</MudChip></span>
+                    </div>
+                    @foreach (var item in GetFlattenedTree())
+                    {
+                        var node = item.Node;
+                        var depth = item.Depth;
+                        var state = GetNodeState(node);
+                        <div class="d-flex align-center" style="padding-left:@(depth * 14)px; margin-bottom:4px;">
+                            <MudChip T="string" 
+                                     Color="@(state == FileRuleState.Ignore ? Color.Default : state == FileRuleState.Mixed ? Color.Info : Color.Success)"
+                                     Variant="@(state == FileRuleState.Ignore ? Variant.Filled : Variant.Outlined)"
+                                     Size="Size.Small"
+                                     OnClick="@(() => ToggleNode(node))">
+                                @(state == FileRuleState.Ignore ? "Ignore" : state == FileRuleState.Mixed ? "Mixed" : "Overwrite")
+                            </MudChip>
+                            <span class="ml-2 mono" style="color: var(--text-primary);">
+                                @(node.IsDirectory ? "📁" : "📄") @node.Name
+                            </span>
+                        </div>
+                    }
+                </MudPaper>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info">
+                    No files found in staging for this mod. Reinstall to refresh the file list.
+                </MudAlert>
+            }
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="CloseEditDialog" Variant="Variant.Text">Cancel</MudButton>
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       Disabled="@(string.IsNullOrWhiteSpace(_editModName) || (_editInstallPaths?.Count ?? 0) == 0)"
+                       OnClick="SaveEditMod">
+                Save Changes
+            </MudButton>
+        </DialogActions>
 </MudDialog>
 
 <!-- Apply Changes Result Dialog -->
@@ -495,6 +560,17 @@
 </MudDialog>
 
 @code {
+    private bool _hasLoggedInit = false;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasLoggedInit)
+        {
+            _hasLoggedInit = true;
+            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Build: 2024-12-05-G (Remove if wrapper) - Frontend loaded!");
+        }
+    }
+    
     // State
     private bool _isApplying = false;
     private ApplyChangesResult? _applyResult;
@@ -525,6 +601,22 @@
         public string Source { get; set; } = "";
         public string Target { get; set; } = "";
     }
+
+    // File rules for install (overwrite/ignore)
+    private enum FileRuleState { Overwrite, Ignore, Mixed }
+
+    private class FileNode
+    {
+        public string Name { get; set; } = "";
+        public string RelativePath { get; set; } = "";
+        public bool IsDirectory { get; set; }
+        public List<FileNode> Children { get; set; } = new();
+    }
+
+    private FileNode? _fileTreeRoot;
+    private HashSet<string> _fileRulesIgnore = new(StringComparer.OrdinalIgnoreCase);
+    private bool _fileRulesLoading = false;
+    private string? _fileRulesError;
 
     // Apply Changes
     private async Task ApplyChanges()
@@ -664,12 +756,43 @@
     // Edit Mod Dialog Methods
     private void EditMod(ModEntry mod)
     {
-        _editingMod = mod;
-        _editModName = mod.ModName;
-        _editDownloadUrl = mod.DownloadUrl;
-        _editIsOptional = mod.Optional;
-        _editInstallPaths = mod.InstallPaths.Select(p => new InstallPathItem { Source = p[0], Target = p[1] }).ToList();
-        _editDialogVisible = true;
+        try
+        {
+            _editingMod = mod;
+            _editModName = mod.ModName ?? string.Empty;
+            _editDownloadUrl = mod.DownloadUrl ?? string.Empty;
+            _editIsOptional = mod.Optional;
+            
+            // Safe handling of InstallPaths which may be null from JSON deserialization
+            var installPaths = mod.InstallPaths ?? new List<string[]>();
+            _editInstallPaths = installPaths
+                .Where(p => p != null && p.Length >= 2)
+                .Select(p => new InstallPathItem { Source = p[0] ?? string.Empty, Target = p[1] ?? string.Empty })
+                .ToList();
+            if (_editInstallPaths.Count == 0)
+            {
+                _editInstallPaths.Add(new InstallPathItem());
+            }
+            _editDialogVisible = true;
+
+            // File rule state - safe handling of FileRules
+            var rules = mod.FileRules ?? new List<FileCopyRule>();
+            _fileRulesIgnore = new HashSet<string>(
+                rules.Where(r => r != null && r.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
+                     .Select(r => NormalizeRulePath(r.Path)),
+                StringComparer.OrdinalIgnoreCase);
+            _fileRulesError = null;
+            _fileTreeRoot = null;
+            _fileRulesLoading = true;
+            
+            // Load file tree asynchronously
+            _ = LoadFileTreeAsync(mod);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error opening edit dialog: {ex.Message}", Severity.Error);
+            _editDialogVisible = false;
+        }
     }
 
     private void AddEditInstallPath()
@@ -692,9 +815,13 @@
         _editingMod.ModName = _editModName;
         _editingMod.Optional = _editIsOptional;
         _editingMod.InstallPaths = _editInstallPaths.Select(p => new[] { p.Source, p.Target }).ToList();
+        _editingMod.FileRules = _fileRulesIgnore
+            .Select(p => new FileCopyRule { Path = p, State = FileCopyRuleState.Ignore })
+            .ToList();
         
         await ConfigService.SaveConfigAsync();
         Snackbar.Add($"Mod '{_editModName}' updated!", Severity.Success);
+        
         CloseEditDialog();
     }
 
@@ -702,7 +829,8 @@
     {
         _editDialogVisible = false;
         _editingMod = null;
-        StateHasChanged();
+        _fileTreeRoot = null;
+        _fileRulesIgnore.Clear();
     }
 
     // Reinstall Mod
@@ -733,6 +861,313 @@
             StateHasChanged();
         }
     }
+
+    #region File rules helpers
+
+    private string NormalizeRulePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace("\\", "/").TrimStart('/');
+    }
+
+    private async Task LoadFileTreeAsync(ModEntry mod)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", "[BewasModSync] LoadFileTreeAsync started");
+            
+            // Safety checks
+            var downloadUrl = mod?.DownloadUrl;
+            if (string.IsNullOrEmpty(downloadUrl))
+            {
+                _fileRulesError = "No download URL for this mod.";
+                await JS.InvokeVoidAsync("console.log", "[BewasModSync] No download URL");
+                return;
+            }
+
+            var staging = ConfigService?.Staging;
+            if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
+            {
+                _fileRulesError = "Staging not found. Reinstall this mod to view files.";
+                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Staging not found");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(stagingPath))
+            {
+                _fileRulesError = "Staging path is empty. Reinstall this mod.";
+                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Staging path empty");
+                return;
+            }
+
+            var extractedPath = Path.Combine(stagingPath, "extracted");
+            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Checking extracted path: {extractedPath}");
+            
+            if (!Directory.Exists(extractedPath))
+            {
+                _fileRulesError = "Staging extraction not found. Reinstall this mod to view files.";
+                await JS.InvokeVoidAsync("console.log", "[BewasModSync] Extracted path not found");
+                return;
+            }
+
+            await JS.InvokeVoidAsync("console.log", "[BewasModSync] Building file tree...");
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+            var installPaths = _editInstallPaths ?? new List<InstallPathItem>();
+            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Install paths count: {installPaths.Count}");
+            
+            foreach (var install in installPaths
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Source))
+                .DistinctBy(p => p.Source, StringComparer.OrdinalIgnoreCase))
+            {
+                var sourcePath = Path.Combine(extractedPath, install.Source);
+                await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Processing: {sourcePath}");
+                
+                if (Directory.Exists(sourcePath))
+                {
+                    var node = BuildNodeRecursive(sourcePath, NormalizeRulePath(install.Source));
+                    MergeNode(root, node);
+                }
+                else if (File.Exists(sourcePath))
+                {
+                    AddFileNode(root, NormalizeRulePath(install.Source));
+                }
+            }
+
+            await JS.InvokeVoidAsync("console.log", $"[BewasModSync] Tree built, children: {root.Children?.Count ?? 0}");
+            _fileTreeRoot = root;
+            _fileRulesError = null;
+        }
+        catch (Exception ex)
+        {
+            _fileRulesError = $"Failed to load file tree: {ex.Message}";
+            try { await JS.InvokeVoidAsync("console.error", $"[BewasModSync] LoadFileTreeAsync error: {ex}"); } catch { }
+        }
+        finally
+        {
+            _fileRulesLoading = false;
+            await JS.InvokeVoidAsync("console.log", "[BewasModSync] LoadFileTreeAsync complete, calling StateHasChanged");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private FileNode BuildNodeRecursive(string fullPath, string relativePath)
+    {
+        var node = new FileNode
+        {
+            Name = Path.GetFileName(fullPath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullPath))
+        {
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, Path.GetFileName(dir)));
+            node.Children.Add(BuildNodeRecursive(dir, childRel));
+        }
+
+        foreach (var file in Directory.GetFiles(fullPath))
+        {
+            var childRel = NormalizeRulePath(Path.Combine(relativePath, Path.GetFileName(file)));
+            node.Children.Add(new FileNode
+            {
+                Name = Path.GetFileName(file),
+                RelativePath = childRel,
+                IsDirectory = false
+            });
+        }
+
+        return node;
+    }
+
+    private void MergeNode(FileNode parent, FileNode child)
+    {
+        var existing = parent.Children.FirstOrDefault(c =>
+            c.IsDirectory &&
+            c.Name.Equals(child.Name, StringComparison.OrdinalIgnoreCase) &&
+            c.RelativePath.Equals(child.RelativePath, StringComparison.OrdinalIgnoreCase));
+
+        if (existing == null)
+        {
+            parent.Children.Add(child);
+            return;
+        }
+
+        foreach (var grand in child.Children)
+        {
+            if (grand.IsDirectory)
+            {
+                MergeNode(existing, grand);
+            }
+            else if (!existing.Children.Any(c => !c.IsDirectory && c.RelativePath.Equals(grand.RelativePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                existing.Children.Add(grand);
+            }
+        }
+    }
+
+    private void AddFileNode(FileNode root, string relativePath)
+    {
+        var parts = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        var accumulated = "";
+        for (int i = 0; i < parts.Length; i++)
+        {
+            accumulated = string.IsNullOrEmpty(accumulated) ? parts[i] : $"{accumulated}/{parts[i]}";
+            var part = parts[i];
+            var isLast = i == parts.Length - 1;
+            if (isLast)
+            {
+                if (!current.Children.Any(c => !c.IsDirectory && c.Name.Equals(part, StringComparison.OrdinalIgnoreCase)))
+                {
+                    current.Children.Add(new FileNode
+                    {
+                        Name = part,
+                        RelativePath = accumulated,
+                        IsDirectory = false
+                    });
+                }
+            }
+            else
+            {
+                var dir = current.Children.FirstOrDefault(c => c.IsDirectory && c.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
+                if (dir == null)
+                {
+                    dir = new FileNode { Name = part, RelativePath = accumulated, IsDirectory = true };
+                    current.Children.Add(dir);
+                }
+                current = dir;
+            }
+        }
+    }
+
+    private FileRuleState GetNodeState(FileNode? node)
+    {
+        if (node == null) return FileRuleState.Overwrite;
+        
+        if (!node.IsDirectory)
+        {
+            return IsPathIgnored(node.RelativePath) ? FileRuleState.Ignore : FileRuleState.Overwrite;
+        }
+
+        var leafStates = GetLeafNodes(node).Select(GetNodeState).Distinct().ToList();
+        if (leafStates.Count == 0) return FileRuleState.Overwrite;
+        if (leafStates.Count == 1) return leafStates[0];
+        return FileRuleState.Mixed;
+    }
+
+    private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+        
+        if (!node.IsDirectory)
+        {
+            yield return node;
+            yield break;
+        }
+
+        var children = node.Children;
+        if (children == null) yield break;
+        
+        foreach (var child in children)
+        {
+            foreach (var leaf in GetLeafNodes(child))
+                yield return leaf;
+        }
+    }
+
+    private bool IsPathIgnored(string relativePath)
+    {
+        var norm = NormalizeRulePath(relativePath);
+        return _fileRulesIgnore.Any(r =>
+            norm.Equals(r, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ToggleNode(FileNode? node)
+    {
+        if (node == null) return;
+        
+        var current = GetNodeState(node);
+        var next = current == FileRuleState.Ignore ? FileRuleState.Overwrite : FileRuleState.Ignore;
+
+        if (node.IsDirectory)
+        {
+            ApplyDirectoryState(node, next);
+        }
+        else
+        {
+            var rel = NormalizeRulePath(node.RelativePath);
+            if (next == FileRuleState.Ignore)
+                _fileRulesIgnore.Add(rel);
+            else
+                _fileRulesIgnore.Remove(rel);
+        }
+
+        StateHasChanged();
+    }
+
+    private void ApplyDirectoryState(FileNode? node, FileRuleState state)
+    {
+        if (node == null) return;
+        
+        foreach (var path in EnumeratePaths(node).ToList())
+        {
+            _fileRulesIgnore.Remove(path);
+        }
+
+        if (state == FileRuleState.Ignore && !string.IsNullOrEmpty(node.RelativePath))
+        {
+            _fileRulesIgnore.Add(NormalizeRulePath(node.RelativePath));
+        }
+    }
+
+    private IEnumerable<string> EnumeratePaths(FileNode? node)
+    {
+        if (node == null) yield break;
+        
+        if (!string.IsNullOrEmpty(node.RelativePath))
+            yield return NormalizeRulePath(node.RelativePath);
+
+        var children = node.Children;
+        if (children == null) yield break;
+        
+        foreach (var child in children)
+        {
+            foreach (var p in EnumeratePaths(child))
+                yield return p;
+        }
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_fileTreeRoot?.Children == null) return result;
+        
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+            
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+        
+        foreach (var child in _fileTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+        
+        return result;
+    }
+
+    #endregion
 
     // Delete Mod
     private async Task DeleteMod(ModEntry mod)
