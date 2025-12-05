@@ -410,3 +410,290 @@ public class SelfDownloadHttpListener : IHttpListener
         }
     }
 }
+
+/// <summary>
+/// HTTP listener for Forge API key validation
+/// POST /modgod/api/forge/validate-key
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeValidateKeyHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeValidateKeyHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public ForgeValidateKeyHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeValidateKeyHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "POST" && 
+               path.Equals("/modgod/api/forge/validate-key", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var body = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<ValidateKeyRequest>(body, JsonOptions);
+
+            if (string.IsNullOrWhiteSpace(request?.ApiKey))
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "API key is required" });
+                return;
+            }
+
+            _logger.Info("Validating Forge API key...");
+            var (isValid, error) = await _forgeService.ValidateApiKeyAsync(request.ApiKey);
+
+            if (isValid)
+            {
+                // Save the valid API key
+                await _forgeService.SaveApiKeyAsync(request.ApiKey);
+                _logger.Success("Forge API key validated and saved");
+                await SendJsonResponse(context, 200, new { success = true });
+            }
+            else
+            {
+                _logger.Warning($"Forge API key validation failed: {error}");
+                await SendJsonResponse(context, 200, new { success = false, error });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error validating Forge API key: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = "Internal error" });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+
+    private class ValidateKeyRequest
+    {
+        public string? ApiKey { get; set; }
+    }
+}
+
+/// <summary>
+/// HTTP listener for fetching mod details from Forge
+/// GET /modgod/api/forge/mod/{modId}
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeModDetailsHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeModDetailsHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public ForgeModDetailsHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeModDetailsHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? "";
+        return context.Request.Method == "GET" && 
+               path.StartsWith("/modgod/api/forge/mod/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            var path = context.Request.Path.Value ?? "";
+            var modIdStr = path.Substring("/modgod/api/forge/mod/".Length).TrimEnd('/');
+
+            if (!int.TryParse(modIdStr, out var modId))
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "Invalid mod ID" });
+                return;
+            }
+
+            if (!_forgeService.HasApiKey)
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "No Forge API key configured" });
+                return;
+            }
+
+            _logger.Info($"Fetching mod details for mod ID: {modId}");
+            var result = await _forgeService.GetModDetailsAsync(modId);
+
+            if (result?.Success == true && result.Mod != null)
+            {
+                // Build download URLs for each version
+                var versionsWithUrls = result.Mod.Versions?.Select(v => new
+                {
+                    v.Id,
+                    v.Version,
+                    v.SptVersionConstraint,
+                    v.Downloads,
+                    v.PublishedAt,
+                    DownloadUrl = ForgeService.BuildDownloadUrl(result.Mod.Id, result.Mod.Slug, v.Version)
+                }).ToList();
+
+                await SendJsonResponse(context, 200, new
+                {
+                    success = true,
+                    mod = new
+                    {
+                        result.Mod.Id,
+                        result.Mod.Guid,
+                        result.Mod.Name,
+                        result.Mod.Slug,
+                        result.Mod.Teaser,
+                        result.Mod.Thumbnail,
+                        result.Mod.Downloads,
+                        result.Mod.DetailUrl,
+                        Owner = result.Mod.Owner?.Name,
+                        Category = result.Mod.Category?.Name,
+                        CategoryColor = result.Mod.Category?.ColorClass,
+                        License = result.Mod.License?.ShortName ?? result.Mod.License?.Name,
+                        result.Mod.UpdatedAt,
+                        Versions = versionsWithUrls
+                    }
+                });
+            }
+            else
+            {
+                await SendJsonResponse(context, 404, new { success = false, error = result?.Error ?? "Mod not found" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching mod details: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = "Internal error" });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener to check Forge API key status
+/// GET /modgod/api/forge/status
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeStatusHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public ForgeStatusHttpListener(ForgeService forgeService)
+    {
+        _forgeService = forgeService;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/modgod/api/forge/status", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        var json = JsonSerializer.Serialize(new { hasApiKey = _forgeService.HasApiKey }, JsonOptions);
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener to delete Forge API key
+/// DELETE /modgod/api/forge/key
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeDeleteKeyHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeDeleteKeyHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public ForgeDeleteKeyHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeDeleteKeyHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "DELETE" && 
+               path.Equals("/modgod/api/forge/key", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            await _forgeService.SaveApiKeyAsync(null!);
+            _logger.Info("Forge API key removed");
+            
+            var json = JsonSerializer.Serialize(new { success = true }, JsonOptions);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error removing Forge API key: {ex.Message}");
+            var json = JsonSerializer.Serialize(new { success = false, error = ex.Message }, JsonOptions);
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        }
+        
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}

@@ -351,22 +351,250 @@
     <DialogContent>
         @if (_addDialogStep == AddDialogStep.Input)
         {
-            <MudText Typo="Typo.body2" Class="mb-4" Style="color: var(--text-secondary);">
-                Enter direct download links (one per line or separated by whitespace). 
-                Mod names will be auto-generated from filenames.
-            </MudText>
-            
-            <MudTextField @bind-Value="_bulkUrls" 
-                          Label="Download URLs" 
-                          Variant="Variant.Outlined"
-                          Lines="8"
-                          Immediate="true"
-                          Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip&#10;https://github.com/another/mod.7z"
-                          Class="mb-4 mono" />
-            
-            <MudCheckBox @bind-Value="_bulkOptional" 
-                         Label="Mark all as optional (not enforced on clients)"
-                         Color="Color.Primary" />
+            <MudTabs @bind-ActivePanelIndex="_addDialogTabIndex" Class="mb-4" Rounded="true" ApplyEffectsToContainer="true">
+                <!-- Tab 1: Direct URLs -->
+                <MudTabPanel Text="Direct URLs" Icon="@Icons.Material.Filled.Link">
+                    <div class="pa-2">
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary);">
+                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-1" />
+                                Add Mods by Direct Download URL
+                            </MudText>
+                            <MudDivider Class="my-2" />
+                            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                Paste <b>direct download links</b> for mod archives.<br />
+                                <span style="color:var(--accent-red)">Do <u>NOT</u> paste Forge page URLs here!</span> <br />
+                                You can find your URL on GitHub/Forge/etc – the link should end with <code>.zip</code>, <code>.7z</code> or similar.<br />
+                                <span style="color: var(--text-secondary); font-size: 0.90em;">
+                                    Mod name will be <span style="font-style: italic;">auto-detected from the file name.</span>
+                                </span>
+                                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mt-3">
+                                    <b>Examples:</b><br />
+                                    <span class="mono" style="display: block; color: var(--accent-green); margin-left: .5em;">
+                                       https://github.com/example/mod/releases/download/v1.0/ModName.zip<br />
+                                       https://forge.sp-tarkov.com/mod/download/861/morecheckmarks/2.0.0
+                                    </span>
+                                    <b class="d-block mt-2" style="color: var(--accent-red);">Do NOT use:</b>
+                                    <span class="mono" style="color: var(--accent-red); margin-left:.5em;">
+                                        https://forge.sp-tarkov.com/mod/861/morecheckmarks
+                                    </span>
+                                </MudAlert>
+                            </MudText>
+                        </MudPaper>
+                        
+                        <MudTextField @bind-Value="_bulkUrls" 
+                                      Label="Download URLs" 
+                                      Variant="Variant.Outlined"
+                                      Lines="8"
+                                      Immediate="true"
+                                      Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip&#10;https://github.com/another/mod.7z"
+                                      Class="mb-4 mono" />
+                        
+                        <MudCheckBox @bind-Value="_bulkOptional" 
+                                     Label="Mark all as optional (not enforced on clients)"
+                                     Color="Color.Primary" />
+                    </div>
+                </MudTabPanel>
+                
+                <!-- Tab 2: From Forge -->
+                <MudTabPanel Text="From Forge" Icon="@Icons.Material.Filled.Store">
+                    <div class="pa-2">
+                        @* API Key Section *@
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.subtitle2" Style="color: var(--text-primary);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    Forge API Key
+                                </MudText>
+                                @if (_forgeHasApiKey && !_forgeApiKeyValidating)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Style="background: var(--accent-green); color: #000;">
+                                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="mr-1" /> Configured
+                                    </MudChip>
+                                }
+                            </div>
+                            
+                            @if (!_forgeHasApiKey)
+                            {
+                                <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                                    Enter your Forge API key to search mods directly from SP-Tarkov Forge.
+                                </MudText>
+                                
+                                <div class="d-flex gap-2 align-end">
+                                    <MudTextField @bind-Value="_forgeApiKeyInput"
+                                                  Label="API Key"
+                                                  Variant="Variant.Outlined"
+                                                  InputType="InputType.Password"
+                                                  Immediate="true"
+                                                  Disabled="_forgeApiKeyValidating"
+                                                  Style="flex: 1;"
+                                                  HelperText="@(_forgeApiKeyError ?? "")"
+                                                  Error="@(_forgeApiKeyError != null)" />
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               Disabled="@(string.IsNullOrWhiteSpace(_forgeApiKeyInput) || _forgeApiKeyValidating)"
+                                               OnClick="ValidateForgeApiKey"
+                                               Style="height: 56px;">
+                                        @if (_forgeApiKeyValidating)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                        }
+                                        else
+                                        {
+                                            <span>Validate</span>
+                                        }
+                                    </MudButton>
+                                </div>
+                                
+                                <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank" Class="mt-2 d-block" Style="font-size: 0.85rem;">
+                                    <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    Get your API key here
+                                </MudLink>
+                            }
+                            else
+                            {
+                                <div class="d-flex justify-space-between align-center">
+                                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                        API key is saved. Paste a Forge mod page URL below.
+                                    </MudText>
+                                    <MudButton Variant="Variant.Text" 
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Delete"
+                                               OnClick="RemoveForgeApiKey"
+                                               Style="color: var(--accent-red);">
+                                        Remove Key
+                                    </MudButton>
+                                </div>
+                            }
+                        </MudPaper>
+                        
+                        @* Forge URL Input *@
+                        @if (_forgeHasApiKey)
+                        {
+                            <MudTextField @bind-Value="_forgeUrlInput"
+                                          Label="Forge Mod Page URL"
+                                          Variant="Variant.Outlined"
+                                          Immediate="true"
+                                          Disabled="_forgeModLoading"
+                                          Placeholder="eg: https://forge.sp-tarkov.com/mod/861/morecheckmarks"
+                                          Adornment="Adornment.End"
+                                          AdornmentIcon="@Icons.Material.Filled.Search"
+                                          OnAdornmentClick="FetchForgeModDetails"
+                                          OnKeyDown="OnForgeUrlKeyDown"
+                                          HelperText="Press Enter or click 🔍 to search"
+                                          Class="mb-4 mono" />
+                            
+                            @if (_forgeModLoading)
+                            {
+                                <div class="d-flex justify-center pa-4">
+                                    <MudProgressCircular Indeterminate="true" />
+                                </div>
+                            }
+                            else if (_forgeModError != null)
+                            {
+                                <MudAlert Severity="Severity.Error" Class="mb-4">@_forgeModError</MudAlert>
+                            }
+                            else if (_forgeMod != null)
+                            {
+                                @* Mod Preview Card *@
+                                <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                                    <div class="d-flex gap-3">
+                                        @if (!string.IsNullOrEmpty(_forgeMod.Thumbnail))
+                                        {
+                                            <MudImage Src="@_forgeMod.Thumbnail" Width="80" Height="80" ObjectFit="ObjectFit.Cover" Style="border-radius: 8px;" />
+                                        }
+                                        else
+                                        {
+                                            <div style="width: 80px; height: 80px; background: var(--secondary-bg); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                                <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Large" Style="color: var(--text-secondary);" />
+                                            </div>
+                                        }
+                                        <div style="flex: 1;">
+                                            <div class="d-flex align-center gap-2">
+                                                <MudText Typo="Typo.h6" Style="color: var(--text-primary);">@_forgeMod.Name</MudText>
+                                                @if (!string.IsNullOrEmpty(_forgeMod.DetailUrl))
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" 
+                                                                   Size="Size.Small" 
+                                                                   Href="@_forgeMod.DetailUrl"
+                                                                   Target="_blank"
+                                                                   Style="color: var(--accent-cyan);" />
+                                                }
+                                            </div>
+                                            <div class="d-flex gap-2 align-center mt-1">
+                                                @if (!string.IsNullOrEmpty(_forgeMod.Owner))
+                                                {
+                                                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                                        by @_forgeMod.Owner
+                                                    </MudText>
+                                                }
+                                                @if (!string.IsNullOrEmpty(_forgeMod.Category))
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Style="@GetForgeCategoryStyle(_forgeMod.CategoryColor)">
+                                                        @_forgeMod.Category
+                                                    </MudChip>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(_forgeMod.Teaser))
+                                            {
+                                                <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--text-secondary);">
+                                                    @_forgeMod.Teaser
+                                                </MudText>
+                                            }
+                                            <MudText Typo="Typo.caption" Class="mt-1" Style="color: var(--text-secondary);">
+                                                <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Style="vertical-align: middle;" />
+                                                @FormatDownloadCount(_forgeMod.Downloads) downloads
+                                            </MudText>
+                                        </div>
+                                    </div>
+                                    
+                                    <MudDivider Class="my-3" />
+                                    
+                                    @* Version Selector *@
+                                    @if (_forgeMod.Versions.Any())
+                                    {
+                                        <MudSelect T="string" 
+                                                   @bind-Value="_forgeSelectedVersion"
+                                                   Label="Version"
+                                                   Variant="Variant.Outlined"
+                                                   Class="mb-3">
+                                            @foreach (var version in _forgeMod.Versions)
+                                            {
+                                                <MudSelectItem T="string" Value="@version.Version">
+                                                    <div class="d-flex justify-space-between align-center" style="width: 100%;">
+                                                        <span>v@(version.Version)</span>
+                                                        <span style="color: var(--text-secondary); font-size: 0.85rem;">
+                                                            @(version.SptVersionConstraint ?? "Any SPT")
+                                                        </span>
+                                                    </div>
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        
+                                        @if (_forgeMod.Versions.FirstOrDefault(v => v.Version == _forgeSelectedVersion) is { } selectedVer)
+                                        {
+                                            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
+                                                SPT Version: @(selectedVer.SptVersionConstraint ?? "Any") • 
+                                                @FormatDownloadCount(selectedVer.Downloads) version downloads
+                                            </MudText>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <MudAlert Severity="Severity.Warning">No versions available for this mod.</MudAlert>
+                                    }
+                                    
+                                    <MudCheckBox @bind-Value="_forgeOptional" 
+                                                 Label="Mark as optional (not enforced on clients)"
+                                                 Color="Color.Primary"
+                                                 Class="mt-3" />
+                                </MudPaper>
+                            }
+                        }
+                    </div>
+                </MudTabPanel>
+            </MudTabs>
         }
         else if (_addDialogStep == AddDialogStep.Downloading)
         {
@@ -485,12 +713,26 @@
         @if (_addDialogStep == AddDialogStep.Input)
         {
             <MudButton OnClick="CloseAddDialog" Variant="Variant.Text">Cancel</MudButton>
-            <MudButton Color="Color.Primary" 
-                       Variant="Variant.Filled"
-                       Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
-                       OnClick="ProcessBulkDownload">
-                Download & Stage
-            </MudButton>
+            @if (_addDialogTabIndex == 0)
+            {
+                @* Direct URLs tab *@
+                <MudButton Color="Color.Primary" 
+                           Variant="Variant.Filled"
+                           Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
+                           OnClick="ProcessBulkDownload">
+                    Download & Stage
+                </MudButton>
+            }
+            else
+            {
+                @* Forge tab *@
+                <MudButton Color="Color.Primary" 
+                           Variant="Variant.Filled"
+                           Disabled="@(_forgeMod == null || string.IsNullOrEmpty(_forgeSelectedVersion))"
+                           OnClick="ProcessForgeDownload">
+                    Add from Forge
+                </MudButton>
+            }
         }
         else if (_addDialogStep == AddDialogStep.Downloading)
         {
@@ -940,6 +1182,7 @@
     // Add Mods Dialog (Bulk)
     private bool _addDialogVisible = false;
     private AddDialogStep _addDialogStep = AddDialogStep.Input;
+    private int _addDialogTabIndex = 0; // 0 = Direct URLs, 1 = From Forge
     private string _bulkUrls = "";
     private bool _bulkOptional = false;
     private List<string> _urlsToProcess = new();
@@ -948,6 +1191,44 @@
     private List<ModDownloadResult> _downloadResults = new();
 
     private enum AddDialogStep { Input, Downloading, Results }
+
+    // Forge Integration
+    private bool _forgeHasApiKey = false;
+    private string _forgeApiKeyInput = "";
+    private bool _forgeApiKeyValidating = false;
+    private string? _forgeApiKeyError;
+    private string _forgeUrlInput = "";
+    private bool _forgeModLoading = false;
+    private ForgeModInfo? _forgeMod = null;
+    private string? _forgeModError;
+    private string? _forgeSelectedVersion;
+    private bool _forgeOptional = false;
+
+    private class ForgeModInfo
+    {
+        public int Id { get; set; }
+        public string Guid { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Teaser { get; set; }
+        public string? Thumbnail { get; set; }
+        public long Downloads { get; set; }
+        public string? Owner { get; set; }
+        public string? Category { get; set; }
+        public string? CategoryColor { get; set; }
+        public string? License { get; set; }
+        public string? DetailUrl { get; set; }
+        public List<ForgeVersionInfo> Versions { get; set; } = new();
+    }
+
+    private class ForgeVersionInfo
+    {
+        public int Id { get; set; }
+        public string Version { get; set; } = "";
+        public string? SptVersionConstraint { get; set; }
+        public long Downloads { get; set; }
+        public string? PublishedAt { get; set; }
+        public string DownloadUrl { get; set; } = "";
+    }
 
     // Edit Mod Dialog
     private bool _editDialogVisible = false;
@@ -1014,7 +1295,7 @@
     }
 
     // Add Mods Dialog Methods
-    private void OpenAddModsDialog()
+    private async Task OpenAddModsDialog()
     {
         _bulkUrls = "";
         _bulkOptional = false;
@@ -1023,7 +1304,51 @@
         _currentDownloadIndex = 0;
         _currentDownloadUrl = null;
         _addDialogStep = AddDialogStep.Input;
+        _addDialogTabIndex = 0;
+        
+        // Reset Forge state
+        _forgeApiKeyInput = "";
+        _forgeApiKeyValidating = false;
+        _forgeApiKeyError = null;
+        _forgeUrlInput = "";
+        _forgeModLoading = false;
+        _forgeMod = null;
+        _forgeModError = null;
+        _forgeSelectedVersion = null;
+        _forgeOptional = false;
+        
+        // Check if Forge API key is already configured
+        await CheckForgeApiKeyStatus();
+        
         _addDialogVisible = true;
+    }
+    
+    private async Task CheckForgeApiKeyStatus()
+    {
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            var response = await client.GetAsync("https://127.0.0.1:6969/modgod/api/forge/status");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeStatusResponse>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                _forgeHasApiKey = result?.HasApiKey ?? false;
+            }
+        }
+        catch
+        {
+            _forgeHasApiKey = false;
+        }
+    }
+    
+    private class ForgeStatusResponse
+    {
+        public bool HasApiKey { get; set; }
     }
 
     private async Task ProcessBulkDownload()
@@ -1131,6 +1456,350 @@
         _addDialogVisible = false;
         _addDialogStep = AddDialogStep.Input;
         StateHasChanged();
+    }
+
+    // Forge Integration Methods
+    private async Task ValidateForgeApiKey()
+    {
+        if (string.IsNullOrWhiteSpace(_forgeApiKeyInput))
+            return;
+
+        _forgeApiKeyValidating = true;
+        _forgeApiKeyError = null;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { apiKey = _forgeApiKeyInput }),
+                System.Text.Encoding.UTF8,
+                "application/json");
+            
+            var response = await client.PostAsync("https://127.0.0.1:6969/modgod/api/forge/validate-key", content);
+            var json = await response.Content.ReadAsStringAsync();
+            var result = System.Text.Json.JsonSerializer.Deserialize<ForgeValidateResponse>(json, 
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (result?.Success == true)
+            {
+                _forgeHasApiKey = true;
+                Snackbar.Add("Forge API key validated and saved!", Severity.Success);
+            }
+            else
+            {
+                _forgeApiKeyError = result?.Error ?? "Failed to validate API key";
+            }
+        }
+        catch (Exception ex)
+        {
+            _forgeApiKeyError = $"Connection error: {ex.Message}";
+        }
+        finally
+        {
+            _forgeApiKeyValidating = false;
+            StateHasChanged();
+        }
+    }
+
+    private class ForgeValidateResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private async Task RemoveForgeApiKey()
+    {
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var response = await client.DeleteAsync("https://127.0.0.1:6969/modgod/api/forge/key");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _forgeHasApiKey = false;
+                _forgeMod = null;
+                _forgeSelectedVersion = null;
+                _forgeUrlInput = "";
+                Snackbar.Add("Forge API key removed", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("Failed to remove API key", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task OnForgeUrlKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await FetchForgeModDetails();
+        }
+    }
+
+    private async Task FetchForgeModDetails()
+    {
+        if (string.IsNullOrWhiteSpace(_forgeUrlInput))
+            return;
+
+        // Extract mod ID from URL
+        var modId = ExtractModIdFromForgeUrl(_forgeUrlInput);
+        if (modId == null)
+        {
+            _forgeModError = "Invalid Forge URL. Expected format: https://forge.sp-tarkov.com/mod/{id}/...";
+            return;
+        }
+
+        _forgeModLoading = true;
+        _forgeModError = null;
+        _forgeMod = null;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/mod/{modId}");
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeModApiResponse>(json, 
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Success == true && result.Mod != null)
+                {
+                    _forgeMod = new ForgeModInfo
+                    {
+                        Id = result.Mod.Id,
+                        Guid = result.Mod.Guid ?? "",
+                        Name = result.Mod.Name ?? "Unknown",
+                        Teaser = result.Mod.Teaser,
+                        Thumbnail = result.Mod.Thumbnail,
+                        Downloads = result.Mod.Downloads,
+                        Owner = result.Mod.Owner,
+                        Category = result.Mod.Category,
+                        CategoryColor = result.Mod.CategoryColor,
+                        License = result.Mod.License,
+                        DetailUrl = result.Mod.DetailUrl,
+                        Versions = result.Mod.Versions?.Select(v => new ForgeVersionInfo
+                        {
+                            Id = v.Id,
+                            Version = v.Version ?? "",
+                            SptVersionConstraint = v.SptVersionConstraint,
+                            Downloads = v.Downloads,
+                            PublishedAt = v.PublishedAt,
+                            DownloadUrl = v.DownloadUrl ?? ""
+                        }).ToList() ?? new()
+                    };
+
+                    // Auto-select latest version
+                    _forgeSelectedVersion = _forgeMod.Versions.FirstOrDefault()?.Version;
+                }
+                else
+                {
+                    _forgeModError = "Mod not found or API error";
+                }
+            }
+            else
+            {
+                var errorResult = System.Text.Json.JsonSerializer.Deserialize<ForgeValidateResponse>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                _forgeModError = errorResult?.Error ?? $"API error: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _forgeModError = $"Error fetching mod details: {ex.Message}";
+        }
+        finally
+        {
+            _forgeModLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private class ForgeModApiResponse
+    {
+        public bool Success { get; set; }
+        public ForgeModApiData? Mod { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private class ForgeModApiData
+    {
+        public int Id { get; set; }
+        public string? Guid { get; set; }
+        public string? Name { get; set; }
+        public string? Teaser { get; set; }
+        public string? Thumbnail { get; set; }
+        public long Downloads { get; set; }
+        public string? Owner { get; set; }
+        public string? Category { get; set; }
+        public string? CategoryColor { get; set; }
+        public string? License { get; set; }
+        public string? DetailUrl { get; set; }
+        public List<ForgeVersionApiData>? Versions { get; set; }
+    }
+
+    private class ForgeVersionApiData
+    {
+        public int Id { get; set; }
+        public string? Version { get; set; }
+        public string? SptVersionConstraint { get; set; }
+        public long Downloads { get; set; }
+        public string? PublishedAt { get; set; }
+        public string? DownloadUrl { get; set; }
+    }
+
+    private static int? ExtractModIdFromForgeUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        try
+        {
+            var uri = new Uri(url);
+            if (!uri.Host.Contains("forge.sp-tarkov.com"))
+                return null;
+
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                if (segments[i].Equals("mod", StringComparison.OrdinalIgnoreCase) ||
+                    segments[i].Equals("mods", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(segments[i + 1], out var modId))
+                    {
+                        return modId;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Invalid URL
+        }
+
+        return null;
+    }
+
+    private async Task ProcessForgeDownload()
+    {
+        if (_forgeMod == null || string.IsNullOrEmpty(_forgeSelectedVersion))
+            return;
+
+        var selectedVersion = _forgeMod.Versions.FirstOrDefault(v => v.Version == _forgeSelectedVersion);
+        if (selectedVersion == null || string.IsNullOrEmpty(selectedVersion.DownloadUrl))
+        {
+            Snackbar.Add("Invalid version selection", Severity.Error);
+            return;
+        }
+
+        // Switch to downloading state
+        _urlsToProcess = new List<string> { selectedVersion.DownloadUrl };
+        _downloadResults = new();
+        _currentDownloadIndex = 0;
+        _addDialogStep = AddDialogStep.Downloading;
+        await InvokeAsync(StateHasChanged);
+
+        // Process the download
+        _currentDownloadUrl = selectedVersion.DownloadUrl;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var result = await ModDownloadService.DownloadAndAnalyzeModAsync(selectedVersion.DownloadUrl);
+            
+            // Use Forge mod name if available
+            if (result.Success)
+            {
+                result.ModName = _forgeMod.Name;
+            }
+
+            _downloadResults.Add(result);
+
+            if (result.Success)
+            {
+                var installPaths = result.SuggestedInstallPaths.Count > 0 
+                    ? result.SuggestedInstallPaths 
+                    : result.TopLevelDirectories.Count > 0
+                        ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
+                        : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                
+                var mod = new ModEntry
+                {
+                    ModName = _forgeMod.Name,
+                    DownloadUrl = selectedVersion.DownloadUrl,
+                    Optional = _forgeOptional,
+                    LastUpdated = DateTime.UtcNow.ToString("o"),
+                    InstallPaths = installPaths,
+                    Status = ModStatus.Pending
+                };
+                await ConfigService.AddModAsync(mod);
+            }
+        }
+        catch (Exception ex)
+        {
+            _downloadResults.Add(new ModDownloadResult
+            {
+                Url = selectedVersion.DownloadUrl,
+                Success = false,
+                Error = ex.Message
+            });
+        }
+
+        _currentDownloadIndex++;
+        _addDialogStep = AddDialogStep.Results;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string GetForgeCategoryStyle(string? colorClass)
+    {
+        var color = colorClass?.ToLowerInvariant() switch
+        {
+            "red" => "#ef4444",
+            "orange" => "#f97316",
+            "yellow" => "#eab308",
+            "green" => "#22c55e",
+            "teal" => "#14b8a6",
+            "cyan" => "#06b6d4",
+            "blue" => "#3b82f6",
+            "indigo" => "#6366f1",
+            "purple" => "#a855f7",
+            "pink" => "#ec4899",
+            _ => "#6b7280"
+        };
+        return $"background: {color}; color: #fff;";
+    }
+
+    private static string FormatDownloadCount(long count)
+    {
+        return count switch
+        {
+            >= 1_000_000 => $"{count / 1_000_000.0:F1}M",
+            >= 1_000 => $"{count / 1_000.0:F1}K",
+            _ => count.ToString("N0")
+        };
     }
 
     #region Sync Exclusions (manifest opt-out)

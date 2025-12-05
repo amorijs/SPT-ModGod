@@ -13,6 +13,13 @@ public class ServerConfig
     /// </summary>
     [JsonPropertyName("syncExclusions")]
     public List<string> SyncExclusions { get; set; } = new();
+
+    /// <summary>
+    /// API key for SP-Tarkov Forge integration.
+    /// Get yours at: https://forge.sp-tarkov.com/user/api-tokens
+    /// </summary>
+    [JsonPropertyName("forgeApiKey")]
+    public string? ForgeApiKey { get; set; }
 }
 
 /// <summary>
