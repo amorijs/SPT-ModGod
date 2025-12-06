@@ -22,22 +22,38 @@ public class ModInstallService
     }
 
     /// <summary>
-    /// Apply all pending changes (installs and removals)
+    /// Apply all pending changes from staged config (installs and removals)
     /// </summary>
     /// <returns>Result with details about what was done</returns>
     public async Task<ApplyChangesResult> ApplyPendingChangesAsync()
     {
         var result = new ApplyChangesResult();
 
-        _logger.Info("Applying pending mod changes...");
+        _logger.Info("Applying staged config changes...");
+
+        // Calculate what changes need to be made
+        var stagedChanges = _configService.CalculateStagedChanges();
+        
+        if (!stagedChanges.HasChanges)
+        {
+            _logger.Info("No changes to apply");
+            result.Success = true;
+            return result;
+        }
+        
+        _logger.Info($"Changes to apply: {stagedChanges.ModsToInstall.Count} installs, " +
+                    $"{stagedChanges.ModsToRemove.Count} removals, {stagedChanges.ModsToUpdate.Count} updates");
 
         // First, handle removals (queue them for next startup since DLLs may be locked)
-        var modsToRemove = _configService.Config.ModList
-            .Where(m => m.Status == ModStatus.PendingRemoval)
-            .ToList();
-
-        foreach (var mod in modsToRemove)
+        foreach (var mod in stagedChanges.ModsToRemove)
         {
+            // Skip protected mods
+            if (mod.IsProtected)
+            {
+                _logger.Warning($"Cannot remove protected mod: {mod.ModName}");
+                continue;
+            }
+            
             var removalResult = await QueueModForRemovalAsync(mod);
             if (removalResult.Success)
             {
@@ -49,19 +65,14 @@ public class ModInstallService
             }
         }
 
-        // Then, handle installations
-        var modsToInstall = _configService.Config.ModList
-            .Where(m => m.Status == ModStatus.Pending)
-            .ToList();
-
-        foreach (var mod in modsToInstall)
+        // Then, handle new installations
+        foreach (var mod in stagedChanges.ModsToInstall)
         {
             var installResult = await InstallModAsync(mod);
             
             if (installResult.Success)
             {
                 result.InstalledMods.Add(mod.ModName);
-                mod.Status = ModStatus.Installed;
                 mod.LastUpdated = DateTime.UtcNow.ToString("o");
                 
                 // Clear staging after successful install
@@ -71,18 +82,38 @@ public class ModInstallService
             {
                 // Files are locked - queue for restart
                 result.QueuedForInstall.Add(mod.ModName);
-                // Keep status as Pending - will be installed on restart
             }
             else
             {
                 result.Errors.Add($"Failed to install {mod.ModName}: {installResult.Error}");
             }
         }
+        
+        // Handle updates (reinstalls with different config)
+        foreach (var mod in stagedChanges.ModsToUpdate)
+        {
+            var installResult = await InstallModAsync(mod);
+            
+            if (installResult.Success)
+            {
+                result.InstalledMods.Add($"{mod.ModName} (updated)");
+                mod.LastUpdated = DateTime.UtcNow.ToString("o");
+            }
+            else if (installResult.NeedsRestart)
+            {
+                result.QueuedForInstall.Add($"{mod.ModName} (update)");
+            }
+            else
+            {
+                result.Errors.Add($"Failed to update {mod.ModName}: {installResult.Error}");
+            }
+        }
 
+        // Apply staged config to live config
+        await _configService.ApplyStagedToLiveAsync();
         await _configService.SaveStagingIndexAsync();
-        await _configService.SaveConfigAsync();
 
-        // Generate and launch install script if there are pending installs OR removals
+        // Generate and launch install script if there are queued operations
         if (result.QueuedForInstall.Count > 0 || result.QueuedForRemoval.Count > 0)
         {
             result.InstallScriptPath = await _configService.GenerateInstallScriptAsync();

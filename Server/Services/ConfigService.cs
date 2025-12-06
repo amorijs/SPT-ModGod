@@ -23,7 +23,18 @@ public class ConfigService : IOnLoad
     private string _dataPath = string.Empty;
     private string _sptRoot = string.Empty;
 
+    /// <summary>
+    /// The live/active configuration. This is what clients see and what represents
+    /// the current installed state. Only modified when changes are applied.
+    /// </summary>
     public ServerConfig Config { get; private set; } = new();
+    
+    /// <summary>
+    /// The staged configuration with pending edits. UI changes write here.
+    /// When Apply is clicked, this replaces Config.
+    /// </summary>
+    public ServerConfig StagedConfig { get; private set; } = new();
+    
     public StagingIndex Staging { get; private set; } = new();
     public PendingOperations PendingOps { get; private set; } = new();
 
@@ -51,6 +62,7 @@ public class ConfigService : IOnLoad
     public string SptRoot => _sptRoot;
     public string StagingPath => Path.Combine(_dataPath, "staging");
     public string ConfigPath => Path.Combine(_dataPath, "serverConfig.json");
+    public string StagedConfigPath => Path.Combine(_dataPath, "serverConfig.staged.json");
     public string StagingIndexPath => Path.Combine(_dataPath, "stagingIndex.json");
     public string PendingOpsPath => Path.Combine(_dataPath, "pendingOperations.json");
 
@@ -75,10 +87,11 @@ public class ConfigService : IOnLoad
         Directory.CreateDirectory(StagingPath);
 
         await LoadConfigAsync();
+        await LoadStagedConfigAsync();
         await LoadStagingIndexAsync();
         await LoadPendingOpsAsync();
         
-        // Ensure ModGod is in the mod list as a protected entry
+        // Ensure ModGod is in both live and staged config as a protected entry
         await EnsureModGodEntryAsync();
         
         // Apply any pending operations from previous session
@@ -90,67 +103,91 @@ public class ConfigService : IOnLoad
     }
 
     /// <summary>
-    /// Ensure ModGod itself is in the mod list as a protected entry.
+    /// Ensure ModGod itself is in both live and staged config as a protected entry.
     /// This allows clients to download ModGod from the server.
+    /// Note: Only saves to live config file. Staged config is updated in-memory only
+    /// to avoid creating a staged file just for ModGod initialization.
     /// </summary>
     private async Task EnsureModGodEntryAsync()
     {
         const string modGodUrl = "{SERVER_URL}/modgod/api/self-download";
         
-        var existingModGod = Config.ModList.Find(m => m.IsProtected && m.ModName == "ModGod");
+        var modGodEntry = new ModEntry
+        {
+            ModName = "ModGod",
+            DownloadUrl = modGodUrl,
+            Optional = false,
+            IsProtected = true,
+            Status = ModStatus.Installed,
+            LastUpdated = DateTime.UtcNow.ToString("o"),
+            InstallPaths = new List<string[]>
+            {
+                new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
+                new[] { "ModGodUpdater.exe", "<SPT_ROOT>/ModGodUpdater.exe" },
+                new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
+            }
+        };
+        
+        bool liveNeedsSave = EnsureModGodInConfig(Config, modGodEntry, modGodUrl);
+        bool stagedNeedsUpdate = EnsureModGodInConfig(StagedConfig, modGodEntry, modGodUrl);
+        
+        if (liveNeedsSave)
+        {
+            await SaveConfigAsync();
+            _logger.Info("Added/updated ModGod in live config");
+        }
+        
+        // Note: We update staged config in-memory but DON'T save to file
+        // This avoids creating serverConfig.staged.json just for ModGod initialization
+        if (stagedNeedsUpdate)
+        {
+            _logger.Info("Updated ModGod in staged config (in-memory only)");
+        }
+    }
+    
+    private bool EnsureModGodInConfig(ServerConfig config, ModEntry template, string expectedUrl)
+    {
+        var existingModGod = config.ModList.Find(m => m.IsProtected && m.ModName == "ModGod");
         
         if (existingModGod == null)
         {
-            // Create the ModGod entry
-            var modGodEntry = new ModEntry
+            // Clone the template for this config
+            var entry = new ModEntry
             {
-                ModName = "ModGod",
-                DownloadUrl = modGodUrl,
-                Optional = false,
-                IsProtected = true,
-                Status = ModStatus.Installed, // Already installed since the server is running
-                LastUpdated = DateTime.UtcNow.ToString("o"),
-                InstallPaths = new List<string[]>
-                {
-                    new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
-                    new[] { "ModGodUpdater.exe", "<SPT_ROOT>/ModGodUpdater.exe" },
-                    new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
-                }
+                ModName = template.ModName,
+                DownloadUrl = template.DownloadUrl,
+                Optional = template.Optional,
+                IsProtected = template.IsProtected,
+                Status = template.Status,
+                LastUpdated = template.LastUpdated,
+                InstallPaths = template.InstallPaths.Select(p => new[] { p[0], p[1] }).ToList()
             };
-            
-            // Insert at the beginning of the list
-            Config.ModList.Insert(0, modGodEntry);
-            await SaveConfigAsync();
-            
-            _logger.Info("Added ModGod as protected mod entry");
+            config.ModList.Insert(0, entry);
+            return true;
         }
         else
         {
-            // Ensure existing entry has correct properties
-            bool needsSave = false;
+            bool needsUpdate = false;
             
             if (!existingModGod.IsProtected)
             {
                 existingModGod.IsProtected = true;
-                needsSave = true;
+                needsUpdate = true;
             }
             
             if (existingModGod.Status != ModStatus.Installed)
             {
                 existingModGod.Status = ModStatus.Installed;
-                needsSave = true;
+                needsUpdate = true;
             }
             
-            if (existingModGod.DownloadUrl != modGodUrl)
+            if (existingModGod.DownloadUrl != expectedUrl)
             {
-                existingModGod.DownloadUrl = modGodUrl;
-                needsSave = true;
+                existingModGod.DownloadUrl = expectedUrl;
+                needsUpdate = true;
             }
             
-            if (needsSave)
-            {
-                await SaveConfigAsync();
-            }
+            return needsUpdate;
         }
     }
 
@@ -171,14 +208,247 @@ public class ConfigService : IOnLoad
 
         // Safety: ensure new properties are initialized
         Config.SyncExclusions ??= new List<string>();
+        
+        // Migrate any legacy Pending/PendingRemoval mods to Installed
+        // With staged config system, live config should only have Installed mods
+        foreach (var mod in Config.ModList)
+        {
+            if (mod.Status == ModStatus.Pending || mod.Status == ModStatus.PendingRemoval)
+            {
+                _logger.Info($"Migrating mod '{mod.ModName}' from {mod.Status} to Installed");
+                mod.Status = ModStatus.Installed;
+            }
+        }
     }
 
+    /// <summary>
+    /// Save the live configuration. Only called when applying staged changes.
+    /// </summary>
     public async Task SaveConfigAsync()
     {
         var json = JsonSerializer.Serialize(Config, JsonOptions);
         await File.WriteAllTextAsync(ConfigPath, json);
     }
 
+    #endregion
+    
+    #region Staged Config Management
+    
+    /// <summary>
+    /// Load the staged configuration (working copy for UI edits).
+    /// If no staged config exists, use live config as the working copy (no file created).
+    /// </summary>
+    public async Task LoadStagedConfigAsync()
+    {
+        if (File.Exists(StagedConfigPath))
+        {
+            // Staged file exists - user has unsaved changes
+            var json = await File.ReadAllTextAsync(StagedConfigPath);
+            StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
+            _logger.Info("Loaded staged config (unsaved changes exist)");
+        }
+        else
+        {
+            // No staged file - use live config as working copy (no changes)
+            // Deep clone from live config, but don't create a file
+            var json = JsonSerializer.Serialize(Config, JsonOptions);
+            StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
+        }
+        
+        // Safety: ensure new properties are initialized
+        StagedConfig.SyncExclusions ??= new List<string>();
+    }
+    
+    /// <summary>
+    /// Save the staged configuration (called on every UI edit).
+    /// This creates serverConfig.staged.json if it doesn't exist.
+    /// </summary>
+    public async Task SaveStagedConfigAsync()
+    {
+        var json = JsonSerializer.Serialize(StagedConfig, JsonOptions);
+        await File.WriteAllTextAsync(StagedConfigPath, json);
+    }
+    
+    /// <summary>
+    /// Reset staged config to match live config (discard all changes).
+    /// Deletes the staged file and resets in-memory state.
+    /// </summary>
+    public async Task ResetStagedConfigAsync()
+    {
+        // Delete the staged config file
+        if (File.Exists(StagedConfigPath))
+        {
+            File.Delete(StagedConfigPath);
+            _logger.Info("Deleted staged config file");
+        }
+        
+        // Reset in-memory staged config to match live config
+        var json = JsonSerializer.Serialize(Config, JsonOptions);
+        StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
+        _logger.Info("Staged config reset to match live config");
+        
+        await Task.CompletedTask; // Keep async signature for consistency
+    }
+    
+    /// <summary>
+    /// Reload staged config from disk (useful if file was edited externally).
+    /// </summary>
+    public async Task ReloadStagedConfigFromDiskAsync()
+    {
+        await LoadStagedConfigAsync();
+        _logger.Info("Reloaded staged config from disk");
+    }
+    
+    /// <summary>
+    /// Reload live config from disk (useful if file was edited externally).
+    /// </summary>
+    public async Task ReloadConfigFromDiskAsync()
+    {
+        await LoadConfigAsync();
+        // Also reload staged to stay in sync
+        await LoadStagedConfigAsync();
+        _logger.Info("Reloaded configs from disk");
+    }
+    
+    /// <summary>
+    /// Check if there are unsaved changes (staged file exists).
+    /// </summary>
+    public bool HasStagedChanges()
+    {
+        // Simple check: if staged file exists, there are unsaved changes
+        return File.Exists(StagedConfigPath);
+    }
+    
+    /// <summary>
+    /// Detailed check of what changes exist between staged and live config.
+    /// Use this for the Apply button to see actual differences.
+    /// </summary>
+    public bool HasActualStagedChanges()
+    {
+        // Compare mod lists
+        var liveUrls = Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
+        var stagedUrls = StagedConfig.ModList.Select(m => m.DownloadUrl).ToHashSet();
+        
+        // Check for added/removed mods
+        if (!liveUrls.SetEquals(stagedUrls))
+            return true;
+        
+        // Check for modified mods (compare each mod's properties)
+        foreach (var stagedMod in StagedConfig.ModList)
+        {
+            var liveMod = Config.ModList.Find(m => m.DownloadUrl == stagedMod.DownloadUrl);
+            if (liveMod == null)
+                return true; // New mod
+            
+            // Compare key properties
+            if (liveMod.ModName != stagedMod.ModName ||
+                liveMod.Optional != stagedMod.Optional ||
+                !InstallPathsEqual(liveMod.InstallPaths, stagedMod.InstallPaths) ||
+                !FileRulesEqual(liveMod.FileRules, stagedMod.FileRules))
+            {
+                return true;
+            }
+        }
+        
+        // Check sync exclusions
+        if (!Config.SyncExclusions.SequenceEqual(StagedConfig.SyncExclusions))
+            return true;
+        
+        return false;
+    }
+    
+    private static bool InstallPathsEqual(List<string[]> a, List<string[]> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (a[i].Length != b[i].Length) return false;
+            for (int j = 0; j < a[i].Length; j++)
+            {
+                if (a[i][j] != b[i][j]) return false;
+            }
+        }
+        return true;
+    }
+    
+    private static bool FileRulesEqual(List<FileCopyRule> a, List<FileCopyRule> b)
+    {
+        if (a.Count != b.Count) return false;
+        var aSet = a.Select(r => $"{r.Path}:{r.State}").ToHashSet();
+        var bSet = b.Select(r => $"{r.Path}:{r.State}").ToHashSet();
+        return aSet.SetEquals(bSet);
+    }
+    
+    /// <summary>
+    /// Calculate what changes need to be applied (mods to add/remove/update).
+    /// </summary>
+    public StagedChanges CalculateStagedChanges()
+    {
+        var changes = new StagedChanges();
+        
+        var liveModsByUrl = Config.ModList.ToDictionary(m => m.DownloadUrl);
+        var stagedModsByUrl = StagedConfig.ModList.ToDictionary(m => m.DownloadUrl);
+        
+        // Find mods to add (in staged but not in live)
+        foreach (var stagedMod in StagedConfig.ModList)
+        {
+            if (!liveModsByUrl.ContainsKey(stagedMod.DownloadUrl))
+            {
+                changes.ModsToInstall.Add(stagedMod);
+            }
+            else
+            {
+                // Check if mod needs update (properties changed)
+                var liveMod = liveModsByUrl[stagedMod.DownloadUrl];
+                if (!InstallPathsEqual(liveMod.InstallPaths, stagedMod.InstallPaths) ||
+                    !FileRulesEqual(liveMod.FileRules, stagedMod.FileRules))
+                {
+                    changes.ModsToUpdate.Add(stagedMod);
+                }
+            }
+        }
+        
+        // Find mods to remove (in live but not in staged)
+        foreach (var liveMod in Config.ModList)
+        {
+            if (!stagedModsByUrl.ContainsKey(liveMod.DownloadUrl))
+            {
+                changes.ModsToRemove.Add(liveMod);
+            }
+        }
+        
+        return changes;
+    }
+    
+    /// <summary>
+    /// Apply staged config to live config. Called when user clicks "Apply Changes".
+    /// Deletes the staged file after successful apply.
+    /// Returns the changes that were applied.
+    /// </summary>
+    public async Task<StagedChanges> ApplyStagedToLiveAsync()
+    {
+        var changes = CalculateStagedChanges();
+        
+        // Replace live config with staged config
+        var json = JsonSerializer.Serialize(StagedConfig, JsonOptions);
+        Config = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
+        
+        // Save the new live config
+        await SaveConfigAsync();
+        
+        // Delete the staged config file (no more pending changes)
+        if (File.Exists(StagedConfigPath))
+        {
+            File.Delete(StagedConfigPath);
+            _logger.Info("Deleted staged config file after apply");
+        }
+        
+        _logger.Info($"Applied staged config: {changes.ModsToInstall.Count} to install, " +
+                    $"{changes.ModsToRemove.Count} to remove, {changes.ModsToUpdate.Count} to update");
+        
+        return changes;
+    }
+    
     #endregion
 
     #region Staging Management
@@ -269,47 +539,44 @@ public class ConfigService : IOnLoad
     /// </summary>
     private async Task ApplyPendingOperationsOnStartupAsync()
     {
-        var pendingRemovals = Config.ModList.Where(m => m.Status == ModStatus.PendingRemoval).ToList();
         var pendingDeletions = PendingOps.PathsToDelete.Count;
 
-        // Only apply deletions - these are for mods that were removed via UI
-        if (pendingDeletions > 0 || pendingRemovals.Count > 0)
+        // Apply any queued deletions from previous session
+        if (pendingDeletions > 0)
         {
             _logger.Info("========================================");
-            _logger.Info("ModGod: Processing pending removals...");
+            _logger.Info("ModGod: Processing pending deletions...");
             _logger.Info("========================================");
             await ApplyPendingDeletionsAsync();
         }
 
-        // Check if any pending mods have been installed by the auto-installer
+        // Check if any operations completed by the auto-installer
         await CheckAndMarkInstalledModsAsync();
 
-        // Get remaining pending installs after checking
-        var pendingInstalls = Config.ModList.Where(m => m.Status == ModStatus.Pending).ToList();
-
-        // If there are still pending mods, launch the auto-install script
-        if (pendingInstalls.Count > 0)
+        // Check for staged changes that need applying
+        var stagedChanges = CalculateStagedChanges();
+        
+        // If there are staged changes with downloaded files, show a warning
+        var stagedInstalls = stagedChanges.ModsToInstall.Where(m => IsUrlStaged(m.DownloadUrl)).ToList();
+        if (stagedInstalls.Count > 0 || stagedChanges.ModsToRemove.Count > 0)
         {
-            // Generate and launch the auto-install script
-            var scriptPath = await GenerateInstallScriptAsync();
-            
             _logger.Warning("========================================");
-            _logger.Warning($"ModGod: {pendingInstalls.Count} mod(s) pending installation:");
-            foreach (var mod in pendingInstalls)
+            _logger.Warning($"ModGod: You have unapplied changes in the staged config:");
+            foreach (var mod in stagedInstalls)
             {
-                _logger.Warning($"  • {mod.ModName}");
+                _logger.Warning($"  + {mod.ModName} (to install)");
+            }
+            foreach (var mod in stagedChanges.ModsToRemove.Where(m => !m.IsProtected))
+            {
+                _logger.Warning($"  - {mod.ModName} (to remove)");
             }
             _logger.Warning("");
-            _logger.Warning("Auto-installer launched in separate window.");
-            _logger.Warning("Mods will be installed automatically when you stop the server.");
+            _logger.Warning("Open the ModGod web UI and click 'Apply Changes' to install these mods.");
             _logger.Warning("========================================");
-            
-            // Launch the script in a new window
-            LaunchInstallScript();
         }
         else
         {
-            // No pending mods - delete the install script if it exists
+            // No staged changes - delete the install script if it exists
             var scriptPath = Path.Combine(_dataPath, "install-pending-mods.ps1");
             if (File.Exists(scriptPath))
             {
@@ -319,7 +586,8 @@ public class ConfigService : IOnLoad
     }
     
     /// <summary>
-    /// Check if pending mods have been installed/removed (via the completion marker file)
+    /// Check if pending mods have been installed/removed (via the completion marker file).
+    /// Updates both live and staged config to match the actual installed state.
     /// </summary>
     private async Task CheckAndMarkInstalledModsAsync()
     {
@@ -358,43 +626,50 @@ public class ConfigService : IOnLoad
             var installedCount = 0;
             var removedCount = 0;
             
-            // Process installations
+            // Process installations - update live config (staged was already updated when Apply was clicked)
             foreach (var url in completionData.Installed)
             {
+                // Update in live config
                 var mod = Config.ModList.Find(m => m.DownloadUrl == url);
-                if (mod != null && mod.Status == ModStatus.Pending)
+                if (mod != null)
                 {
                     mod.Status = ModStatus.Installed;
                     mod.LastUpdated = DateTime.UtcNow.ToString("o");
-                    
-                    // Clear staging for this mod
-                    if (IsUrlStaged(mod.DownloadUrl))
-                    {
-                        ClearStagingForUrl(mod.DownloadUrl);
-                    }
-                    
                     installedCount++;
                     _logger.Success($"  ✓ Installed: {mod.ModName}");
                 }
+                
+                // Clear staging for this mod
+                if (IsUrlStaged(url))
+                {
+                    ClearStagingForUrl(url);
+                }
             }
             
-            // Process removals - remove from config entirely
+            // Process removals - ensure removed from both configs
             foreach (var url in completionData.Removed)
             {
+                // Remove from live config
                 var modIndex = Config.ModList.FindIndex(m => m.DownloadUrl == url);
                 if (modIndex >= 0)
                 {
                     var modName = Config.ModList[modIndex].ModName;
                     Config.ModList.RemoveAt(modIndex);
-                    
-                    // Clear staging if any
-                    if (IsUrlStaged(url))
-                    {
-                        ClearStagingForUrl(url);
-                    }
-                    
                     removedCount++;
                     _logger.Success($"  ✓ Removed: {modName}");
+                }
+                
+                // Also remove from staged config to keep them in sync
+                var stagedIndex = StagedConfig.ModList.FindIndex(m => m.DownloadUrl == url);
+                if (stagedIndex >= 0)
+                {
+                    StagedConfig.ModList.RemoveAt(stagedIndex);
+                }
+                
+                // Clear staging if any
+                if (IsUrlStaged(url))
+                {
+                    ClearStagingForUrl(url);
                 }
             }
             
@@ -410,6 +685,8 @@ public class ConfigService : IOnLoad
                 _logger.Info($"Processed {installedCount} installation(s), {removedCount} removal(s)");
                 await SaveStagingIndexAsync();
                 await SaveConfigAsync();
+                // Note: We only update staged config in-memory, don't create staged file
+                // The staged file was already deleted when Apply was clicked
             }
             
             // Delete the completion file
@@ -459,14 +736,6 @@ public class ConfigService : IOnLoad
             PendingOps.PathsToDelete = failed;
             await SavePendingOpsAsync();
         }
-
-        // Remove mods that were pending removal
-        var removedCount = Config.ModList.RemoveAll(m => m.Status == ModStatus.PendingRemoval);
-        if (removedCount > 0)
-        {
-            _logger.Info($"Removed {removedCount} mod(s) from configuration");
-            await SaveConfigAsync();
-        }
     }
 
     /// <summary>
@@ -490,16 +759,27 @@ public class ConfigService : IOnLoad
     }
 
     /// <summary>
-    /// Generate install scripts (PowerShell for Windows, Bash for Linux) to auto-apply installs/removals on server shutdown
+    /// Generate install scripts (PowerShell for Windows, Bash for Linux) to auto-apply installs/removals on server shutdown.
+    /// Uses staged changes to determine what needs to be installed/removed.
     /// </summary>
     public async Task<string?> GenerateInstallScriptAsync(string serverUrl = "https://127.0.0.1:6969")
     {
-        var pendingInstalls = Config.ModList
-            .Where(m => m.Status == ModStatus.Pending && IsUrlStaged(m.DownloadUrl))
+        var stagedChanges = CalculateStagedChanges();
+        return await GenerateInstallScriptAsync(stagedChanges, serverUrl);
+    }
+    
+    /// <summary>
+    /// Generate install scripts with explicitly provided changes.
+    /// </summary>
+    public async Task<string?> GenerateInstallScriptAsync(StagedChanges stagedChanges, string serverUrl = "https://127.0.0.1:6969")
+    {
+        // Filter to only staged mods that have files downloaded
+        var pendingInstalls = stagedChanges.ModsToInstall
+            .Where(m => IsUrlStaged(m.DownloadUrl))
             .ToList();
 
-        var pendingRemovals = Config.ModList
-            .Where(m => m.Status == ModStatus.PendingRemoval)
+        var pendingRemovals = stagedChanges.ModsToRemove
+            .Where(m => !m.IsProtected) // Don't remove protected mods
             .ToList();
 
         var pathsToDelete = PendingOps.PathsToDelete.ToList();
@@ -1114,78 +1394,124 @@ public class ConfigService : IOnLoad
 
     #endregion
 
-    #region SPT Server Mod Manager
+    #region SPT Server Mod Manager (Staged Operations)
 
-    public async Task AddModAsync(ModEntry mod)
+    /// <summary>
+    /// Add or update a mod in the staged config.
+    /// All mods added through the UI go to staged config first.
+    /// </summary>
+    public async Task AddModToStagedAsync(ModEntry mod)
     {
-        // Check if mod already exists by URL
-        var existing = Config.ModList.FindIndex(m => m.DownloadUrl == mod.DownloadUrl);
+        // Ensure the mod has Installed status (staged mods represent the "desired" state)
+        mod.Status = ModStatus.Installed;
+        
+        // Check if mod already exists by URL in staged config
+        var existing = StagedConfig.ModList.FindIndex(m => m.DownloadUrl == mod.DownloadUrl);
         if (existing >= 0)
         {
-            Config.ModList[existing] = mod;
+            StagedConfig.ModList[existing] = mod;
         }
         else
         {
-            Config.ModList.Add(mod);
+            StagedConfig.ModList.Add(mod);
         }
 
-        await SaveConfigAsync();
+        await SaveStagedConfigAsync();
     }
 
     /// <summary>
-    /// Mark a mod for removal (will be deleted on apply/restart)
+    /// Remove a mod from the staged config.
+    /// This stages the mod for removal - it won't actually be removed until Apply.
     /// </summary>
-    public async Task MarkModForRemovalAsync(string downloadUrl)
+    public async Task RemoveModFromStagedAsync(string downloadUrl)
     {
-        var mod = Config.ModList.Find(m => m.DownloadUrl == downloadUrl);
+        var mod = StagedConfig.ModList.Find(m => m.DownloadUrl == downloadUrl);
         if (mod != null)
         {
-            mod.Status = ModStatus.PendingRemoval;
-            await SaveConfigAsync();
+            StagedConfig.ModList.Remove(mod);
+            
+            // If this mod isn't in live config, it was never installed, so clean up staging
+            var isInLive = Config.ModList.Any(m => m.DownloadUrl == downloadUrl);
+            if (!isInLive)
+            {
+                ClearStagingForUrl(downloadUrl);
+                await SaveStagingIndexAsync();
+            }
+            
+            await SaveStagedConfigAsync();
         }
     }
 
     /// <summary>
-    /// Remove a pending (not yet installed) mod entirely
+    /// Update a mod's timestamp in staged config.
     /// </summary>
-    public async Task RemovePendingModAsync(string downloadUrl)
+    public async Task UpdateStagedModTimestampAsync(string downloadUrl)
     {
-        var mod = Config.ModList.Find(m => m.DownloadUrl == downloadUrl);
-        if (mod != null && mod.Status == ModStatus.Pending)
-        {
-            Config.ModList.Remove(mod);
-            ClearStagingForUrl(downloadUrl);
-            await SaveStagingIndexAsync();
-            await SaveConfigAsync();
-        }
-    }
-
-    public async Task UpdateModStatusAsync(string downloadUrl, ModStatus status)
-    {
-        var mod = Config.ModList.Find(m => m.DownloadUrl == downloadUrl);
-        if (mod != null)
-        {
-            mod.Status = status;
-            await SaveConfigAsync();
-        }
-    }
-
-    public async Task UpdateModTimestampAsync(string downloadUrl)
-    {
-        var mod = Config.ModList.Find(m => m.DownloadUrl == downloadUrl);
+        var mod = StagedConfig.ModList.Find(m => m.DownloadUrl == downloadUrl);
         if (mod != null)
         {
             mod.LastUpdated = DateTime.UtcNow.ToString("o");
-            await SaveConfigAsync();
+            await SaveStagedConfigAsync();
         }
     }
 
     /// <summary>
-    /// Check if there are pending changes to apply
+    /// Check if there are staged changes to apply.
     /// </summary>
     public bool HasPendingChanges()
     {
-        return Config.ModList.Any(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval);
+        return HasStagedChanges();
+    }
+
+    #endregion
+    
+    #region Legacy Methods (for backwards compatibility)
+    
+    /// <summary>
+    /// Legacy: Add mod directly to live config. Use AddModToStagedAsync instead.
+    /// </summary>
+    [Obsolete("Use AddModToStagedAsync instead")]
+    public async Task AddModAsync(ModEntry mod)
+    {
+        await AddModToStagedAsync(mod);
+    }
+
+    /// <summary>
+    /// Legacy: Mark a mod for removal. Use RemoveModFromStagedAsync instead.
+    /// </summary>
+    [Obsolete("Use RemoveModFromStagedAsync instead")]
+    public async Task MarkModForRemovalAsync(string downloadUrl)
+    {
+        await RemoveModFromStagedAsync(downloadUrl);
+    }
+
+    /// <summary>
+    /// Legacy: Remove a pending mod. Use RemoveModFromStagedAsync instead.
+    /// </summary>
+    [Obsolete("Use RemoveModFromStagedAsync instead")]
+    public async Task RemovePendingModAsync(string downloadUrl)
+    {
+        await RemoveModFromStagedAsync(downloadUrl);
+    }
+
+    /// <summary>
+    /// Legacy: Update mod status. No longer needed with staged config.
+    /// </summary>
+    [Obsolete("Status is automatically managed with staged config")]
+    public async Task UpdateModStatusAsync(string downloadUrl, ModStatus status)
+    {
+        // With staged config, we don't use status to track pending changes
+        // All mods in staged config are "desired state" = Installed
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Legacy: Update mod timestamp.
+    /// </summary>
+    [Obsolete("Use UpdateStagedModTimestampAsync instead")]
+    public async Task UpdateModTimestampAsync(string downloadUrl)
+    {
+        await UpdateStagedModTimestampAsync(downloadUrl);
     }
 
     #endregion

@@ -25,8 +25,22 @@
                 </MudText>
             </div>
             <div class="d-flex gap-2">
+                <MudTooltip Text="Reload config from disk (if edited externally)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh" 
+                                   Color="Color.Default"
+                                   OnClick="ReloadFromDisk"
+                                   Disabled="@_isApplying" />
+                </MudTooltip>
                 @if (ConfigService.HasPendingChanges())
                 {
+                    <MudButton Variant="Variant.Outlined" 
+                               StartIcon="@Icons.Material.Filled.Undo" 
+                               Color="Color.Default"
+                               Style="font-weight: 600;"
+                               OnClick="DiscardChanges"
+                               Disabled="@_isApplying">
+                        Discard Changes
+                    </MudButton>
                     <MudTooltip Text="@(AnyModsNeedConfiguration() ? "Configure all mods before applying" : "")" Disabled="@(!AnyModsNeedConfiguration())">
                         <MudButton Variant="Variant.Filled" 
                                    StartIcon="@Icons.Material.Filled.PlayArrow" 
@@ -63,18 +77,21 @@
         @if (ConfigService.HasPendingChanges())
         {
             <MudAlert Severity="Severity.Warning" Class="mt-4" Dense="true">
-                You have pending changes. Click "Apply Changes" to install/remove mods.
+                You have unsaved changes. Click "Apply Changes" to install/remove mods.
                 @{
-                    var pendingInstalls = ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Pending);
-                    var pendingRemovals = ConfigService.Config.ModList.Count(m => m.Status == ModStatus.PendingRemoval);
+                    var changes = ConfigService.CalculateStagedChanges();
                 }
-                @if (pendingInstalls > 0)
+                @if (changes.ModsToInstall.Count > 0)
                 {
-                    <span class="ml-2">📦 @pendingInstalls to install</span>
+                    <span class="ml-2">📦 @changes.ModsToInstall.Count to install</span>
                 }
-                @if (pendingRemovals > 0)
+                @if (changes.ModsToRemove.Count > 0)
                 {
-                    <span class="ml-2">🗑️ @pendingRemovals to remove</span>
+                    <span class="ml-2">🗑️ @changes.ModsToRemove.Count to remove</span>
+                }
+                @if (changes.ModsToUpdate.Count > 0)
+                {
+                    <span class="ml-2">🔄 @changes.ModsToUpdate.Count to update</span>
                 }
             </MudAlert>
         }
@@ -86,7 +103,7 @@
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
                 <div>
-                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count</MudText>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.StagedConfig.ModList.Count</MudText>
                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
                 </div>
             </div>
@@ -95,7 +112,7 @@
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
                 <div>
-                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Installed)</MudText>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@GetInstalledModCount()</MudText>
                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Installed</MudText>
                 </div>
             </div>
@@ -104,7 +121,7 @@
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
                 <div>
-                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Status == ModStatus.Pending)</MudText>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@GetPendingModCount()</MudText>
                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Install</MudText>
                 </div>
             </div>
@@ -113,7 +130,7 @@
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
                 <div>
-                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => !m.Optional)</MudText>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.StagedConfig.ModList.Count(m => !m.Optional)</MudText>
                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
                 </div>
             </div>
@@ -122,7 +139,7 @@
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.LockOpen" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
                 <div>
-                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.Config.ModList.Count(m => m.Optional)</MudText>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@ConfigService.StagedConfig.ModList.Count(m => m.Optional)</MudText>
                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Optional</MudText>
                 </div>
             </div>
@@ -155,7 +172,7 @@
             </div>
             
             <!-- Mod Cards -->
-            @if (ConfigService.Config.ModList.Count == 0)
+            @if (ConfigService.StagedConfig.ModList.Count == 0)
             {
                 <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
                     <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
@@ -170,14 +187,15 @@
                 
                 // Sort: Protected mods first (ModGod), then pending mods, then installed
                 // Within each group: needs-config first, then alphabetically
+                // "Pending" = mods that are in staged but not in live config (not yet installed)
                 var pendingMods = filteredMods
-                    .Where(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval)
+                    .Where(m => IsModPendingInstall(m))
                     .OrderByDescending(m => m.IsProtected) // Protected first
                     .ThenByDescending(m => ModNeedsConfiguration(m)) // Needs config first
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var installedMods = filteredMods
-                    .Where(m => m.Status == ModStatus.Installed)
+                    .Where(m => !IsModPendingInstall(m))
                     .OrderByDescending(m => m.IsProtected) // Protected first (ModGod at top)
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -1118,8 +1136,8 @@
                     <div>
                         <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
                         <div class="d-flex gap-1 flex-wrap mt-1" @onclick:stopPropagation="true">
-                            <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyle(mod.Status)">
-                                @GetStatusText(mod.Status)
+                            <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyleForMod(mod)">
+                                @GetStatusTextForMod(mod)
                             </MudChip>
                             @if (mod.IsProtected)
                             {
@@ -1155,7 +1173,7 @@
                                 }
                                 <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
                                     <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
-                                    @(mod.Status == ModStatus.Pending ? "Remove" : "Uninstall")
+                                    @(IsModPendingInstall(mod) ? "Remove" : "Uninstall")
                                 </MudMenuItem>
                             </MudMenu>
                         </div>
@@ -1178,7 +1196,7 @@
                     @mod.InstallPaths.Count install path(s)
                 </MudText>
                 
-                @if (mod.Status == ModStatus.Pending)
+                @if (IsModPendingInstall(mod))
                 {
                     @if (ModNeedsConfiguration(mod))
                     {
@@ -1221,7 +1239,7 @@
     private async Task ToggleModOptional(ModEntry mod)
     {
         mod.Optional = !mod.Optional;
-        await ConfigService.SaveConfigAsync();
+        await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"'{mod.ModName}' is now {(mod.Optional ? "optional" : "required")}", Severity.Info);
         StateHasChanged();
     }
@@ -1363,6 +1381,31 @@
             StateHasChanged();
         }
     }
+    
+    // Discard Changes - reset staged config to match live config
+    private async Task DiscardChanges()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Discard Changes",
+            "This will discard all unsaved changes and reset to the last applied state. Continue?",
+            yesText: "Discard", cancelText: "Cancel");
+
+        if (result == true)
+        {
+            await ConfigService.ResetStagedConfigAsync();
+            Snackbar.Add("Changes discarded.", Severity.Info);
+            StateHasChanged();
+        }
+    }
+    
+    // Reload config from disk (useful if edited externally)
+    private async Task ReloadFromDisk()
+    {
+        await ConfigService.ReloadConfigFromDiskAsync();
+        _syncTabInitialized = false; // Force sync tab to reload
+        Snackbar.Add("Reloaded config from disk.", Severity.Info);
+        StateHasChanged();
+    }
 
     // Add Mods Dialog Methods
     private async Task OpenAddModsDialog()
@@ -1476,9 +1519,9 @@
                         Optional = _bulkOptional,
                         LastUpdated = DateTime.UtcNow.ToString("o"),
                         InstallPaths = installPaths,
-                        Status = ModStatus.Pending // New mods start as pending
+                        Status = ModStatus.Installed // Staged mods represent desired state
                     };
-                    await ConfigService.AddModAsync(mod);
+                    await ConfigService.AddModToStagedAsync(mod);
                 }
             }
             catch (Exception ex)
@@ -1947,9 +1990,9 @@
                     Optional = _forgeOptional,
                     LastUpdated = DateTime.UtcNow.ToString("o"),
                     InstallPaths = installPaths,
-                    Status = ModStatus.Pending
+                    Status = ModStatus.Installed // Staged mods represent desired state
                 };
-                await ConfigService.AddModAsync(mod);
+                await ConfigService.AddModToStagedAsync(mod);
             }
         }
         catch (Exception ex)
@@ -2017,7 +2060,7 @@
         try
         {
             _syncExclusionSet = new HashSet<string>(
-                (ConfigService.Config.SyncExclusions ?? new List<string>())
+                (ConfigService.StagedConfig.SyncExclusions ?? new List<string>())
                     .Select(NormalizeRulePath)
                     .Where(p => !string.IsNullOrWhiteSpace(p)),
                 StringComparer.OrdinalIgnoreCase);
@@ -2322,14 +2365,14 @@
     {
         try
         {
-            ConfigService.Config.SyncExclusions = _syncExclusionSet
+            ConfigService.StagedConfig.SyncExclusions = _syncExclusionSet
                 .Select(NormalizeRulePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(p => p)
                 .ToList();
 
-            await ConfigService.SaveConfigAsync();
+            await ConfigService.SaveStagedConfigAsync();
             Snackbar.Add("Sync exclusions updated.", Severity.Success);
         }
         catch (Exception ex)
@@ -2423,7 +2466,7 @@
             .Select(p => new FileCopyRule { Path = p, State = FileCopyRuleState.Ignore })
             .ToList();
         
-        await ConfigService.SaveConfigAsync();
+        await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"Mod '{_editModName}' updated!", Severity.Success);
         
         CloseEditDialog();
@@ -2450,14 +2493,12 @@
         {
             // Clear staging and re-download
             ConfigService.ClearStagingForUrl(mod.DownloadUrl);
-            mod.Status = ModStatus.Pending;
-            await ConfigService.SaveConfigAsync();
             
             // Trigger download
             var downloadResult = await ModDownloadService.DownloadAndAnalyzeModAsync(mod.DownloadUrl);
             if (downloadResult.Success)
             {
-                Snackbar.Add($"Mod '{mod.ModName}' staged for reinstall. Click 'Apply Changes'.", Severity.Success);
+                Snackbar.Add($"Mod '{mod.ModName}' ready for reinstall. Click 'Apply Changes'.", Severity.Success);
             }
             else
             {
@@ -2930,9 +2971,13 @@
             return;
         }
         
-        if (mod.Status == ModStatus.Pending)
+        // With staged config, we always remove from staged config
+        // The difference is just in the messaging
+        var isPending = IsModPendingInstall(mod);
+        
+        if (isPending)
         {
-            // Not yet installed - just remove from config
+            // Not yet installed - just remove from staged config
             var result = await DialogService.ShowMessageBox(
                 "Remove Mod",
                 $"Remove '{mod.ModName}' from the mod list? (It hasn't been installed yet)",
@@ -2940,23 +2985,23 @@
 
             if (result == true)
             {
-                await ConfigService.RemovePendingModAsync(mod.DownloadUrl);
+                await ConfigService.RemoveModFromStagedAsync(mod.DownloadUrl);
                 Snackbar.Add($"Mod '{mod.ModName}' removed.", Severity.Warning);
                 StateHasChanged();
             }
         }
         else
         {
-            // Installed - mark for removal
+            // Installed - remove from staged config (will be uninstalled on Apply)
             var result = await DialogService.ShowMessageBox(
                 "Uninstall Mod",
-                $"Mark '{mod.ModName}' for uninstallation? Files will be removed when you click 'Apply Changes'.",
+                $"Remove '{mod.ModName}'? Files will be uninstalled when you click 'Apply Changes'.",
                 yesText: "Uninstall", cancelText: "Cancel");
 
             if (result == true)
             {
-                await ConfigService.MarkModForRemovalAsync(mod.DownloadUrl);
-                Snackbar.Add($"Mod '{mod.ModName}' marked for removal. Click 'Apply Changes' to uninstall.", Severity.Warning);
+                await ConfigService.RemoveModFromStagedAsync(mod.DownloadUrl);
+                Snackbar.Add($"Mod '{mod.ModName}' will be removed. Click 'Apply Changes' to uninstall.", Severity.Warning);
                 StateHasChanged();
             }
         }
@@ -2965,15 +3010,16 @@
     // Search and Filter Methods
     private List<ModEntry> GetFilteredMods()
     {
-        var mods = ConfigService.Config.ModList.AsEnumerable();
+        // Always show mods from staged config (the working copy)
+        var mods = ConfigService.StagedConfig.ModList.AsEnumerable();
         
         // Apply status filter
         if (_activeStatusFilter != null)
         {
             mods = _activeStatusFilter switch
             {
-                "Installed" => mods.Where(m => m.Status == ModStatus.Installed),
-                "Pending" => mods.Where(m => m.Status == ModStatus.Pending || m.Status == ModStatus.PendingRemoval),
+                "Installed" => mods.Where(m => !IsModPendingInstall(m)),
+                "Pending" => mods.Where(m => IsModPendingInstall(m)),
                 "Required" => mods.Where(m => !m.Optional),
                 "Optional" => mods.Where(m => m.Optional),
                 _ => mods
@@ -3035,16 +3081,45 @@
         return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
     }
 
+    /// <summary>
+    /// Check if a mod is pending install (in staged but not in live config)
+    /// </summary>
+    private bool IsModPendingInstall(ModEntry mod)
+    {
+        return !ConfigService.Config.ModList.Any(m => m.DownloadUrl == mod.DownloadUrl);
+    }
+    
+    /// <summary>
+    /// Get count of mods that are already installed (in both staged and live)
+    /// </summary>
+    private int GetInstalledModCount()
+    {
+        var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
+        return ConfigService.StagedConfig.ModList.Count(m => liveUrls.Contains(m.DownloadUrl));
+    }
+    
+    /// <summary>
+    /// Get count of mods pending install (in staged but not in live)
+    /// </summary>
+    private int GetPendingModCount()
+    {
+        var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
+        return ConfigService.StagedConfig.ModList.Count(m => !liveUrls.Contains(m.DownloadUrl));
+    }
+
+    /// <summary>
+    /// Check if a mod needs configuration (pending install but no install paths)
+    /// </summary>
     private bool ModNeedsConfiguration(ModEntry mod)
     {
-        return mod.Status == ModStatus.Pending && 
+        return IsModPendingInstall(mod) && 
             (mod.InstallPaths.Count == 0 || 
              mod.InstallPaths.All(p => p == null || p.Length < 2 || string.IsNullOrWhiteSpace(p[0])));
     }
 
     private bool AnyModsNeedConfiguration()
     {
-        return ConfigService.Config.ModList.Any(ModNeedsConfiguration);
+        return ConfigService.StagedConfig.ModList.Any(ModNeedsConfiguration);
     }
 
     private string FormatTimestamp(string timestamp)
@@ -3065,14 +3140,53 @@
             return baseStyle + " border-left: 4px solid var(--accent-red);";
         }
         
-        return mod.Status switch
+        // Check staged status instead of mod.Status
+        if (IsModPendingInstall(mod))
         {
-            ModStatus.Pending => baseStyle + " border-left: 4px solid var(--accent-orange);",
-            ModStatus.PendingRemoval => baseStyle + " border-left: 4px solid var(--accent-red); opacity: 0.7;",
-            _ => baseStyle
-        };
+            return baseStyle + " border-left: 4px solid var(--accent-orange);";
+        }
+        
+        // Check if mod is pending removal (in live but not in staged)
+        if (IsModPendingRemoval(mod))
+        {
+            return baseStyle + " border-left: 4px solid var(--accent-red); opacity: 0.7;";
+        }
+        
+        return baseStyle;
+    }
+    
+    /// <summary>
+    /// Check if a mod is pending removal (in live config but not in staged - staged from a remove action)
+    /// Note: We show mods from staged config in UI, but we can still track this for styling
+    /// </summary>
+    private bool IsModPendingRemoval(ModEntry mod)
+    {
+        // This is called with mods from staged config.
+        // A mod is "pending removal" if it exists in live but was removed from staged.
+        // However, we show mods FROM staged config, so this will never return true
+        // for visible mods. This method is here for completeness.
+        return false;
     }
 
+    private string GetStatusChipStyleForMod(ModEntry mod)
+    {
+        if (IsModPendingInstall(mod))
+        {
+            return "background: var(--accent-orange); color: #000;";
+        }
+        return "background: var(--accent-green); color: #000;";
+    }
+
+    private string GetStatusTextForMod(ModEntry mod)
+    {
+        if (IsModPendingInstall(mod))
+        {
+            return "Pending Install";
+        }
+        return "Installed";
+    }
+    
+    // Legacy helpers for backwards compatibility
     private string GetStatusChipStyle(ModStatus status)
     {
         return status switch

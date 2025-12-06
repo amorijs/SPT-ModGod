@@ -3,17 +3,19 @@ using System.Text.Json.Serialization;
 namespace ModGod.Models;
 
 /// <summary>
-/// Status of a mod in the configuration
+/// Status of a mod in the configuration.
+/// With the staged config system, mods in serverConfig.json are always "Installed".
+/// The Pending status is kept for backwards compatibility during migration.
 /// </summary>
 public enum ModStatus
 {
-    /// <summary>Downloaded to staging, not yet installed</summary>
+    /// <summary>Legacy: Downloaded to staging, not yet installed. Migrated to Installed on load.</summary>
     Pending,
     
     /// <summary>Installed on the server</summary>
     Installed,
     
-    /// <summary>Marked for removal on next apply/restart</summary>
+    /// <summary>Legacy: Marked for removal. With staged config, removal is handled by comparing staged vs live.</summary>
     PendingRemoval
 }
 

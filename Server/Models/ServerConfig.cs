@@ -45,3 +45,34 @@ public class PendingOperations
     [JsonPropertyName("pathsToDelete")]
     public List<string> PathsToDelete { get; set; } = new();
 }
+
+/// <summary>
+/// Represents changes between staged and live config
+/// </summary>
+public class StagedChanges
+{
+    /// <summary>
+    /// Mods that are in staged config but not in live (need to be installed)
+    /// </summary>
+    public List<ModEntry> ModsToInstall { get; set; } = new();
+    
+    /// <summary>
+    /// Mods that are in live config but not in staged (need to be removed)
+    /// </summary>
+    public List<ModEntry> ModsToRemove { get; set; } = new();
+    
+    /// <summary>
+    /// Mods that exist in both but have different install paths/rules (may need reinstall)
+    /// </summary>
+    public List<ModEntry> ModsToUpdate { get; set; } = new();
+    
+    /// <summary>
+    /// Total count of changes
+    /// </summary>
+    public int TotalChanges => ModsToInstall.Count + ModsToRemove.Count + ModsToUpdate.Count;
+    
+    /// <summary>
+    /// Whether there are any changes
+    /// </summary>
+    public bool HasChanges => TotalChanges > 0;
+}
