@@ -255,13 +255,9 @@
                                OnClick="LoadSyncExclusionsTreeAsync">
                         Refresh
                     </MudButton>
-                    <MudButton Color="Color.Success"
-                               Variant="Variant.Filled"
-                               StartIcon="@Icons.Material.Filled.Save"
-                               Disabled="_syncExclusionsLoading"
-                               OnClick="SaveSyncExclusionsAsync">
-                        Save Exclusions
-                    </MudButton>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary); align-self: center;">
+                        Changes are saved automatically. Click "Apply Changes" to commit.
+                    </MudText>
                 </div>
 
                 @if (_syncExclusionsLoading)
@@ -2170,9 +2166,9 @@
             norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
     }
 
-    private void OnSyncNodeClick(FileNode node)
+    private async Task OnSyncNodeClick(FileNode node)
     {
-        _ = ToggleSyncNodeAsync(node);
+        await ToggleSyncNodeAsync(node);
     }
 
     private void ToggleSyncExpand(FileNode node)
@@ -2188,9 +2184,9 @@
         StateHasChanged();
     }
 
-    private Task ToggleSyncNodeAsync(FileNode? node)
+    private async Task ToggleSyncNodeAsync(FileNode? node)
     {
-        if (node == null) return Task.CompletedTask;
+        if (node == null) return;
 
         var current = GetSyncNodeState(node);
         var next = current == SyncNodeState.Excluded ? SyncNodeState.Included : SyncNodeState.Excluded;
@@ -2204,8 +2200,10 @@
             ApplySyncFileState(node, next);
         }
 
+        // Immediately save to staged config
+        await SaveSyncExclusionsToStagedAsync();
+        
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private void ApplySyncDirectoryState(FileNode? node, SyncNodeState state)
@@ -2361,7 +2359,10 @@
         return result;
     }
 
-    private async Task SaveSyncExclusionsAsync()
+    /// <summary>
+    /// Save sync exclusions to staged config (called automatically on each change)
+    /// </summary>
+    private async Task SaveSyncExclusionsToStagedAsync()
     {
         try
         {
@@ -2373,7 +2374,6 @@
                 .ToList();
 
             await ConfigService.SaveStagedConfigAsync();
-            Snackbar.Add("Sync exclusions updated.", Severity.Success);
         }
         catch (Exception ex)
         {

@@ -22,7 +22,7 @@ public class ModInstallService
     }
 
     /// <summary>
-    /// Apply all pending changes from staged config (installs and removals)
+    /// Apply all pending changes from staged config (installs, removals, and config changes like sync exclusions)
     /// </summary>
     /// <returns>Result with details about what was done</returns>
     public async Task<ApplyChangesResult> ApplyPendingChangesAsync()
@@ -31,10 +31,13 @@ public class ModInstallService
 
         _logger.Info("Applying staged config changes...");
 
-        // Calculate what changes need to be made
+        // Calculate what mod changes need to be made
         var stagedChanges = _configService.CalculateStagedChanges();
         
-        if (!stagedChanges.HasChanges)
+        // Check if there's actually a staged file (could be config-only changes like sync exclusions)
+        var hasStagedFile = _configService.HasPendingChanges();
+        
+        if (!stagedChanges.HasChanges && !hasStagedFile)
         {
             _logger.Info("No changes to apply");
             result.Success = true;
@@ -42,7 +45,8 @@ public class ModInstallService
         }
         
         _logger.Info($"Changes to apply: {stagedChanges.ModsToInstall.Count} installs, " +
-                    $"{stagedChanges.ModsToRemove.Count} removals, {stagedChanges.ModsToUpdate.Count} updates");
+                    $"{stagedChanges.ModsToRemove.Count} removals, {stagedChanges.ModsToUpdate.Count} updates" +
+                    (hasStagedFile && !stagedChanges.HasChanges ? " (config-only changes)" : ""));
 
         // First, handle removals (queue them for next startup since DLLs may be locked)
         foreach (var mod in stagedChanges.ModsToRemove)
