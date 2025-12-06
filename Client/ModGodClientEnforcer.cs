@@ -587,8 +587,6 @@ namespace ModGod.ClientEnforcer
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
         private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
-        private static readonly string PluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
-        private static readonly string ServerModsPath = Path.Combine(SptRoot, "SPT", "user", "mods");
         
         public List<FileIssue> Issues = new List<FileIssue>();
         private bool _showWarning = true;
@@ -751,70 +749,39 @@ namespace ModGod.ClientEnforcer
 
             GUILayout.Space(10);
             
-            // Context-aware help text
-            if (hasOnlyExtras)
-            {
-                GUILayout.Label("To fix: Quit the game and remove these mod files from BepInEx\\plugins", bodyStyle);
-            }
-            else if (missingFiles.Any() || hashMismatches.Any())
-            {
-                GUILayout.Label("Run ModGodUpdater.exe to download/update missing mods.", bodyStyle);
-            }
+            // Help text - updater handles all issues now
+            GUILayout.Label("Run ModGodUpdater.exe to sync your mods with the server.", bodyStyle);
 
             GUILayout.FlexibleSpace();
 
-            // Check which folders have extra files
-            bool hasPluginExtras = extraFiles.Any(f => f.FilePath.IndexOf("BepInEx", StringComparison.OrdinalIgnoreCase) >= 0);
-            bool hasServerModExtras = extraFiles.Any(f => f.FilePath.IndexOf("SPT", StringComparison.OrdinalIgnoreCase) >= 0);
-
-            // Buttons - organized in rows for better layout
+            // Simplified buttons: Continue, Exit & Run Updater, Quit
             var buttonStyle = new GUIStyle(GUI.skin.button)
             {
                 fontSize = 13,
                 fontStyle = FontStyle.Bold
             };
 
-            // Row 1: Action buttons
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
 
-            if (GUILayout.Button("Continue Anyway", buttonStyle, GUILayout.Width(130), GUILayout.Height(35)))
+            if (GUILayout.Button("Continue", buttonStyle, GUILayout.Width(120), GUILayout.Height(35)))
             {
                 _showWarning = false;
                 HideGameUI(false);
             }
 
-            GUILayout.Space(10);
+            GUILayout.Space(15);
 
-            // Show folder buttons based on where extra files are
-            if (hasPluginExtras)
+            if (_updaterExists)
             {
-                if (GUILayout.Button("Open Plugins Folder", buttonStyle, GUILayout.Width(145), GUILayout.Height(35)))
-                {
-                    OpenFolder(PluginsPath);
-                }
-                GUILayout.Space(10);
-            }
-
-            if (hasServerModExtras)
-            {
-                if (GUILayout.Button("Open Server Mods", buttonStyle, GUILayout.Width(140), GUILayout.Height(35)))
-                {
-                    OpenFolder(ServerModsPath);
-                }
-                GUILayout.Space(10);
-            }
-
-            if (_updaterExists && (missingFiles.Any() || hashMismatches.Any()))
-            {
-                if (GUILayout.Button("Run Updater & Exit", buttonStyle, GUILayout.Width(145), GUILayout.Height(35)))
+                if (GUILayout.Button("Exit & Run Updater", buttonStyle, GUILayout.Width(160), GUILayout.Height(35)))
                 {
                     LaunchUpdaterAndQuit();
                 }
-                GUILayout.Space(10);
+                GUILayout.Space(15);
             }
 
-            if (GUILayout.Button("Quit Game", buttonStyle, GUILayout.Width(100), GUILayout.Height(35)))
+            if (GUILayout.Button("Exit", buttonStyle, GUILayout.Width(100), GUILayout.Height(35)))
             {
                 Application.Quit();
             }
@@ -823,19 +790,6 @@ namespace ModGod.ClientEnforcer
             GUILayout.EndHorizontal();
 
             GUILayout.Space(15);
-        }
-
-        private void OpenFolder(string path)
-        {
-            try
-            {
-                ModGodClientEnforcerPlugin.LogSource.LogInfo($"Opening folder: {path}");
-                Process.Start("explorer.exe", path);
-            }
-            catch (Exception ex)
-            {
-                ModGodClientEnforcerPlugin.LogSource.LogError($"Failed to open folder: {ex.Message}");
-            }
         }
 
         private string TruncatePath(string path, int maxLength)
