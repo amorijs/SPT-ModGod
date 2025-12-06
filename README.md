@@ -1,7 +1,5 @@
 # ModGod
 
-![thumb](docs/images/thumb.png)
-
 <div align="center">
 
 **Server-Side Mod Manager + Client Sync — The Complete End-to-End Solution for SPT Tarkov 4.0**
