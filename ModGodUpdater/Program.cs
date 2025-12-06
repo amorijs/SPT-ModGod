@@ -344,6 +344,13 @@ class Program
 
     static async Task ProcessModAsync(ModEntry mod, bool isOptional, bool optIn = true)
     {
+        // Skip protected/baked-in mods (e.g., ModGod itself) - they don't need downloading
+        if (mod.IsProtected || string.IsNullOrWhiteSpace(mod.DownloadUrl))
+        {
+            AnsiConsole.MarkupLine($"  [green]✓[/] {EscapeMarkup(mod.ModName)} [grey](installed)[/]");
+            return;
+        }
+
         var downloaded = _modsDownloaded.Find(d => d.DownloadUrl == mod.DownloadUrl);
         var needsUpdate = downloaded == null || downloaded.LastUpdated != mod.LastUpdated;
 

@@ -179,6 +179,68 @@ public class ForgeService
     }
 
     /// <summary>
+    /// Search for mods on Forge
+    /// </summary>
+    public async Task<ForgeSearchResponse?> SearchModsAsync(string query, string? sptVersion = null)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot search mods - no Forge API key configured");
+            return null;
+        }
+
+        try
+        {
+            // Build the query URL with all the specified parameters
+            var queryEncoded = Uri.EscapeDataString(query);
+            var fields = "id,name,slug,thumbnail,downloads,teaser,detail_url";
+            var url = $"{ApiBaseUrl}/mods?query={queryEncoded}&sort=-downloads&fields={fields}";
+            
+            // Add SPT version filter if provided
+            if (!string.IsNullOrWhiteSpace(sptVersion))
+            {
+                var versionEncoded = Uri.EscapeDataString($"^{sptVersion}");
+                url += $"&filter[spt_version]={versionEncoded}";
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _configService.Config.ForgeApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge search API returned {response.StatusCode}");
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ForgeSearchApiResponse>(json, JsonOptions);
+            
+            if (result?.Success != true)
+            {
+                _logger.Warning("Forge search API returned unsuccessful response");
+                return null;
+            }
+
+            return new ForgeSearchResponse
+            {
+                Success = true,
+                Mods = result.Data ?? new List<ForgeSearchModData>()
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error searching mods on Forge: {ex.Message}");
+            return new ForgeSearchResponse
+            {
+                Success = false,
+                Error = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
     /// Construct a download URL for a specific mod version
     /// </summary>
     public static string BuildDownloadUrl(int modId, string slug, string version)
@@ -206,6 +268,46 @@ public class ForgeModResponse
     public bool Success { get; set; }
     public ForgeModData? Mod { get; set; }
     public string? Error { get; set; }
+}
+
+public class ForgeSearchApiResponse
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("data")]
+    public List<ForgeSearchModData>? Data { get; set; }
+}
+
+public class ForgeSearchResponse
+{
+    public bool Success { get; set; }
+    public List<ForgeSearchModData> Mods { get; set; } = new();
+    public string? Error { get; set; }
+}
+
+public class ForgeSearchModData
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("slug")]
+    public string Slug { get; set; } = string.Empty;
+
+    [JsonPropertyName("thumbnail")]
+    public string? Thumbnail { get; set; }
+
+    [JsonPropertyName("downloads")]
+    public long Downloads { get; set; }
+
+    [JsonPropertyName("teaser")]
+    public string? Teaser { get; set; }
+
+    [JsonPropertyName("detail_url")]
+    public string? DetailUrl { get; set; }
 }
 
 public class ForgeModData

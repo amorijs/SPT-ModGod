@@ -14,9 +14,21 @@ _Manage your server mods from a web UI. Sync them to your players automatically.
 
 ---
 
-> ⚠️ **Early Development Notice**
->
-> ModGod is currently in early development (v1.0). While functional, you may encounter bugs, missing features, or breaking changes. Please report issues and feedback to help improve the project!
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Screenshots](#-screenshots)
+- [Features](#-features)
+- [Project Structure](#-project-structure)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Usage Guide](#-usage-guide)
+- [Building from Source](#️-building-from-source)
+- [API Endpoints](#-api-endpoints)
+- [Linux Support](#-linux-support)
+- [Troubleshooting](#-troubleshooting)
+- [License](#-license)
+- [Credits](#-credits)
 
 ---
 
@@ -26,10 +38,54 @@ ModGod is a complete mod synchronization solution for SPT Tarkov servers. It all
 
 ### Why ModGod?
 
-- **No more "wrong mod version" issues** - Clients automatically verify their mods match the server
-- **Easy mod distribution** - Add mods via download URL, players download automatically
-- **Preserve your configs** - File overwrite rules let you protect server-side customizations
-- **Cross-platform support** - Auto-install scripts for both Windows and Linux servers
+- **Easy mod installation** - Install mods via Forge search or direct download URLs
+- **Clients always up to date** - Clients automatically verify their mods match the server
+- **Control synced files** - By default, everything in `BepInEx/plugins` and `SPT/user/mods` is synced, but you can easily exclude specific files or folders via the web UI
+- **Preserve your configs** - When updating or reinstalling a mod you can easily set overwrite rules on specific files/directories, letting you protect server-side customizations
+
+---
+
+## 📸 Screenshots
+
+### Web UI Dashboard
+
+![Dashboard](docs/images/dashboard.png)
+_The main dashboard with mod cards, stats filtering, and quick search_
+
+### Forge Integration
+
+<!-- TODO: Add screenshot of the Forge search with autocomplete dropdown -->
+
+![Forge Search](docs/images/forge-search.png)
+_Search and add mods directly from SP-Tarkov Forge with autocomplete_
+
+### Add Mods Dialog
+
+<!-- TODO: Add screenshot of the Add Mods dialog showing version selector -->
+
+![Add Mods](docs/images/add-mods.png)
+_Add mods with version selection and SPT compatibility info_
+
+### Mod Management
+
+<!-- TODO: Add screenshot of the edit mod dialog with file overwrite options -->
+
+![Edit Mod](docs/images/edit-mod.png)
+_Configure file overwrites and mod settings_
+
+### Client Warning Screen
+
+<!-- TODO: Add screenshot of the in-game warning dialog -->
+
+![Client Warning](docs/images/client-warning.png)
+_In-game warnings for missing or modified files_
+
+### ModGod Updater
+
+<!-- TODO: Add screenshot of the updater console UI -->
+
+![Updater](docs/images/updater.png)
+_Standalone updater with progress tracking_
 
 ---
 
@@ -38,18 +94,24 @@ ModGod is a complete mod synchronization solution for SPT Tarkov servers. It all
 ### 🖥️ Server Mod
 
 - **Modern Web UI** at `https://your-server:6969/modgod/`
-- Add mods from direct download URLs (GitHub releases, etc.)
+- **Forge Integration** - Search and add mods directly from [SP-Tarkov Forge](https://forge.sp-tarkov.com/)
+  - Debounced search-as-you-type with autocomplete
+  - Version selector with SPT compatibility info
+  - Or paste a Forge mod page URL directly
+- **Direct URL Support** - Add mods from GitHub releases, etc.
 - Supports archive formats `.zip` & `.7z`
 - Auto-detect install paths for standard mod structures
 - **File Overwrite Rules** - Choose which files to preserve during installs/reinstalls
 - **Sync Exclusions** - Exclude any server files from client verification
+- **Stats Dashboard** - Clickable cards to filter by status (Total, Installed, Pending, Required, Optional)
+- **Quick Search** - Filter mods by name instantly
 - Pending changes system with visual status indicators
 - **Auto-Install Scripts** - PowerShell (Windows) and Bash (Linux) scripts that wait for server shutdown then install
 
 ### 🎮 Client Enforcer Plugin
 
 - **File Integrity Verification** - Compares client files against server manifest using SHA256 hashes
-- **In-Game Warnings** - Shows detailed warnings for missing, modified, or extra files
+- **In-Game Warnings** - Upon game launch, shows detailed warnings for missing, modified, or extra files
 - **One-Click Updates** - Launch the updater directly from the warning dialog
 - Respects sync exclusions from server configuration
 - Distinguishes between required and optional mods
@@ -73,6 +135,7 @@ ModGod/
 │   ├── Models/                      # Data models (ServerConfig, ModEntry, etc.)
 │   ├── Services/                    # Business logic
 │   │   ├── ConfigService.cs         # Configuration & auto-install scripts
+│   │   ├── ForgeService.cs          # Forge API integration
 │   │   ├── ManifestService.cs       # File manifest generation
 │   │   ├── ModDownloadService.cs    # Mod downloading & extraction
 │   │   └── ModInstallService.cs     # Mod installation logic
@@ -101,27 +164,17 @@ ModGod/
 
 ### Server Setup
 
-1. **Download the release** or build from source
-2. **Copy server mod** to your SPT installation:
-   ```
-   dist/SPT/user/mods/ModGodServer/ → <SPT_ROOT>/SPT/user/mods/ModGodServer/
-   ```
+1. **Download the release** from the [Releases page](https://github.com/your-repo/releases)
+2. **Extract and copy** the contents of the zip to your SPT installation
 3. **Start your SPT server**
-4. **Access the Web UI** at `https://127.0.0.1:6969/modgod/`
-5. **Add mods** using the "Add Mods" button with direct download URLs
+4. **Access the Web UI** at `<YOUR_SERVER_URL>/modgod/` eg: `https://127.0.0.1:6969/modgod/`
+5. **Add mods** using search or direct download URLs
 
 ### Client Setup
 
-1. **Copy the client plugin** to your SPT installation:
-   ```
-   dist/BepInEx/plugins/ModGodClientEnforcer/ → <SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer/
-   ```
-2. **Copy the updater** to your SPT root:
-   ```
-   dist/ModGodUpdater.exe → <SPT_ROOT>/ModGodUpdater.exe
-   ```
-3. **Run `ModGodUpdater.exe`** and enter your server URL when prompted
-4. **Launch the game** - the enforcer plugin will verify your mods
+1. **Extract and copy** the contents of the zip to your SPT installation
+2. **Run `ModGodUpdater.exe`** and enter your server URL when prompted
+3. **Launch the game** - the enforcer plugin will verify your mods
 
 ---
 
@@ -131,16 +184,16 @@ ModGod/
 
 All server configuration is stored in `<SPT_ROOT>/ModGodData/`:
 
-| File                     | Description                             |
-| ------------------------ | --------------------------------------- |
-| `serverConfig.json`      | Mod list, sync exclusions, and settings |
-| `stagingIndex.json`      | Downloaded mod cache index              |
-| `pendingOperations.json` | Queued install/remove operations        |
-| `staging/`               | Downloaded and extracted mod files      |
+| File                     | Description                                    |
+| ------------------------ | ---------------------------------------------- |
+| `serverConfig.json`      | Mod list, sync exclusions, Forge API key, etc. |
+| `stagingIndex.json`      | Downloaded mod cache index                     |
+| `pendingOperations.json` | Queued install/remove operations               |
+| `staging/`               | Downloaded and extracted mod files             |
 
 ### Client Configuration
 
-Client configuration is stored in `<SPT_ROOT>/ModGodData/`:
+Client configuration is also stored in `<SPT_ROOT>/ModGodData/`:
 
 | File                  | Description                                |
 | --------------------- | ------------------------------------------ |
@@ -153,31 +206,53 @@ Client configuration is stored in `<SPT_ROOT>/ModGodData/`:
 
 ### Adding Mods (Server)
 
+#### Option 1: Forge Search (Recommended)
+
 1. Open the Web UI at `https://your-server:6969/modgod/`
 2. Click **"Add Mods"**
-3. Paste direct download URLs (one per line)
-4. Choose if mods are optional or required
-5. Click **"Download & Stage"**
-6. Review the results and click **"Apply Changes"**
-7. The auto-installer will launch and wait for server shutdown
+3. In the **"From Forge"** tab:
+   - Enter your Forge API key (get one at [forge.sp-tarkov.com/user/api-tokens](https://forge.sp-tarkov.com/user/api-tokens))
+   - Start typing to search for mods
+   - Select a mod from the dropdown
+   - Choose a version (defaults to latest)
+   - Click **"Download & Stage"**
+
+#### Option 2: Direct URLs
+
+1. Switch to the **"Direct URLs"** tab
+2. Paste direct download URLs (one per line or space-separated)
+3. Click **"Download & Stage"**
+
+#### After Adding Mods
+
+1. Review the results, if needed make edits, and click **"Apply Changes"**
+2. The auto-installer will launch and wait for server shutdown, wait for installer to complete
+3. Start your server to apply the changes
 
 ### Managing File Overwrites
 
-When editing a mod, you can control which files get overwritten during reinstalls:
+When installing/reinstalling a mod, you can control which files get overwritten during reinstalls:
 
 1. Click on a mod card to open the edit dialog
 2. Scroll to **"Files to be Overwritten"**
-3. Uncheck any files you want to preserve (e.g., `config.json`)
-4. These files will be skipped during future installs
+3. Uncheck any files/directories you want to preserve (e.g., `config.json`)
+4. These paths will not be written to your server
+
+When installing mods, there is a helpful alert on the card if it will overwrite any files.
 
 ### Sync Exclusions
 
-Prevent client warnings for server-generated files:
+Many mods generate files that don't need to be synced to clients. This will cause warnings (that clients can skip) when the clients launch their game. Prevent client warnings for files you don't need them to have:
 
 1. Go to the **"Sync Exclusions"** tab
 2. Uncheck files/directories that shouldn't be synced to clients
 3. Click **"Save Exclusions"**
 4. Clients will ignore these paths during verification
+
+### Filtering Mods
+
+- **Stats Cards**: Click on "Total Mods", "Installed", "Pending Install", "Required", or "Optional" to filter the mod list
+- **Search Bar**: Type in the search box to filter mods by name
 
 ---
 
@@ -217,12 +292,16 @@ Update `SPTPath` in project files to match your SPT installation:
 
 The server exposes the following REST endpoints:
 
-| Endpoint               | Method | Description                     |
-| ---------------------- | ------ | ------------------------------- |
-| `/modgod/`             | GET    | Web UI                          |
-| `/modgod/api/config`   | GET    | Server configuration (mod list) |
-| `/modgod/api/manifest` | GET    | File manifest with hashes       |
-| `/modgod/api/status`   | GET    | Server status check             |
+| Endpoint                         | Method | Description                     |
+| -------------------------------- | ------ | ------------------------------- |
+| `/modgod/`                       | GET    | Web UI                          |
+| `/modgod/api/config`             | GET    | Server configuration (mod list) |
+| `/modgod/api/manifest`           | GET    | File manifest with hashes       |
+| `/modgod/api/status`             | GET    | Server status check             |
+| `/modgod/api/forge/status`       | GET    | Check if Forge API key exists   |
+| `/modgod/api/forge/validate-key` | POST   | Validate and save Forge API key |
+| `/modgod/api/forge/search`       | GET    | Search mods on Forge            |
+| `/modgod/api/forge/mod/{id}`     | GET    | Get mod details from Forge      |
 
 ---
 
@@ -260,6 +339,12 @@ ModGod includes Bash script generation for Linux servers:
 - Verify SPT server is running
 - Check the URL: `https://127.0.0.1:6969/modgod/` (note: HTTPS)
 - Accept the self-signed certificate warning in your browser
+
+### Forge Search Not Working
+
+- Ensure you have a valid Forge API key configured
+- Get an API key at [forge.sp-tarkov.com/user/api-tokens](https://forge.sp-tarkov.com/user/api-tokens)
+- Check that your API key has the required permissions
 
 ---
 

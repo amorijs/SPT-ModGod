@@ -697,3 +697,95 @@ public class ForgeDeleteKeyHttpListener : IHttpListener
         await context.Response.CompleteAsync();
     }
 }
+
+/// <summary>
+/// HTTP listener for searching mods on Forge
+/// GET /modgod/api/forge/search?query=...&sptVersion=...
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeSearchHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeSearchHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public ForgeSearchHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeSearchHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/modgod/api/forge/search", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            var query = context.Request.Query["query"].FirstOrDefault();
+            var sptVersion = context.Request.Query["sptVersion"].FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "Query parameter is required" });
+                return;
+            }
+
+            if (!_forgeService.HasApiKey)
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "No Forge API key configured" });
+                return;
+            }
+
+            var result = await _forgeService.SearchModsAsync(query, sptVersion);
+
+            if (result?.Success == true)
+            {
+                await SendJsonResponse(context, 200, new
+                {
+                    success = true,
+                    mods = result.Mods.Select(m => new
+                    {
+                        m.Id,
+                        m.Name,
+                        m.Slug,
+                        m.Thumbnail,
+                        m.Downloads,
+                        m.Teaser,
+                        m.DetailUrl
+                    }).ToList()
+                });
+            }
+            else
+            {
+                await SendJsonResponse(context, 500, new { success = false, error = result?.Error ?? "Search failed" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error searching Forge mods: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = ex.Message });
+        }
+    }
+
+    private async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}

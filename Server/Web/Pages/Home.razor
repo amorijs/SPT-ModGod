@@ -411,7 +411,7 @@
                             {
                                 <div class="d-flex justify-space-between align-center">
                                     <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                                        API key is saved. Paste a Forge mod page URL below.
+                                        API key is saved. Search for a forge mod, or paste the mod page URL below.
                                     </MudText>
                                     <MudButton Variant="Variant.Text" 
                                                Size="Size.Small"
@@ -424,21 +424,74 @@
                             }
                         </MudPaper>
                         
-                        @* Forge URL Input *@
+                        @* Forge Search Input *@
                         @if (_forgeHasApiKey)
                         {
-                            <MudTextField @bind-Value="_forgeUrlInput"
-                                          Label="Forge Mod Page URL"
-                                          Variant="Variant.Outlined"
-                                          Immediate="true"
-                                          Disabled="_forgeModLoading"
-                                          Placeholder="eg: https://forge.sp-tarkov.com/mod/861/morecheckmarks"
-                                          Adornment="Adornment.End"
-                                          AdornmentIcon="@Icons.Material.Filled.Search"
-                                          OnAdornmentClick="FetchForgeModDetails"
-                                          OnKeyDown="OnForgeUrlKeyDown"
-                                          HelperText="Press Enter or click 🔍 to search"
-                                          Class="mb-4 mono" />
+                            <div style="position: relative;">
+                                <MudTextField @bind-Value="_forgeSearchInput"
+                                              @bind-Value:after="OnForgeSearchInputChanged"
+                                              Label="Search mods or paste URL"
+                                              Variant="Variant.Outlined"
+                                              Immediate="true"
+                                              Disabled="@(_forgeModLoading || _forgeMod != null)"
+                                              Placeholder="Type to search or paste a Forge URL..."
+                                              Adornment="Adornment.End"
+                                              AdornmentIcon="@(_forgeSearchLoading ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Search)"
+                                              OnKeyDown="OnForgeSearchKeyDown"
+                                              Class="mb-2"
+                                              @onfocus="OnForgeSearchFocus" />
+                                
+                                @* Search Results Dropdown *@
+                                @if (_forgeShowSearchResults && _forgeSearchResults.Any() && _forgeMod == null)
+                                {
+                                    <MudPaper Elevation="8" Style="max-height: 350px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color);">
+                                        <MudList T="ForgeSearchResult" Dense="true" Class="py-0">
+                                            @foreach (var result in _forgeSearchResults)
+                                            {
+                                                <MudListItem T="ForgeSearchResult" OnClick="@(() => OnForgeSearchResultSelected(result))" Style="cursor: pointer;">
+                                                    <div class="d-flex gap-2 align-center py-1">
+                                                        @if (!string.IsNullOrEmpty(result.Thumbnail))
+                                                        {
+                                                            <MudImage Src="@result.Thumbnail" Width="40" Height="40" ObjectFit="ObjectFit.Cover" Style="border-radius: 4px; flex-shrink: 0;" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <div style="width: 40px; height: 40px; background: var(--secondary-bg); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                                                <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Small" Style="color: var(--text-secondary);" />
+                                                            </div>
+                                                        }
+                                                        <div style="flex: 1; min-width: 0;">
+                                                            <MudText Typo="Typo.body2" Style="color: var(--text-primary); font-weight: 500;">@result.Name</MudText>
+                                                            @if (!string.IsNullOrEmpty(result.Teaser))
+                                                            {
+                                                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                                                    @result.Teaser
+                                                                </MudText>
+                                                            }
+                                                        </div>
+                                                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary); flex-shrink: 0;">
+                                                            @FormatDownloadCount(result.Downloads)
+                                                        </MudText>
+                                                    </div>
+                                                </MudListItem>
+                                            }
+                                        </MudList>
+                                    </MudPaper>
+                                }
+                            </div>
+                            
+                            @* Clear selection button when mod is selected *@
+                            @if (_forgeMod != null && !_forgeModLoading)
+                            {
+                                <MudButton Variant="Variant.Text" 
+                                           Color="Color.Secondary" 
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.ArrowBack"
+                                           OnClick="ClearForgeSelection"
+                                           Class="mb-3">
+                                    Search for another mod
+                                </MudButton>
+                            }
                             
                             @if (_forgeModLoading)
                             {
@@ -1196,12 +1249,19 @@
     private string _forgeApiKeyInput = "";
     private bool _forgeApiKeyValidating = false;
     private string? _forgeApiKeyError;
-    private string _forgeUrlInput = "";
+    private string _forgeSearchInput = "";
     private bool _forgeModLoading = false;
     private ForgeModInfo? _forgeMod = null;
     private string? _forgeModError;
     private string? _forgeSelectedVersion;
     private bool _forgeOptional = false;
+    
+    // Forge Search
+    private List<ForgeSearchResult> _forgeSearchResults = new();
+    private bool _forgeSearchLoading = false;
+    private bool _forgeShowSearchResults = false;
+    private System.Threading.Timer? _forgeSearchDebounceTimer;
+    private const int ForgeSearchDebounceMs = 400;
 
     private class ForgeModInfo
     {
@@ -1227,6 +1287,17 @@
         public long Downloads { get; set; }
         public string? PublishedAt { get; set; }
         public string DownloadUrl { get; set; } = "";
+    }
+
+    private class ForgeSearchResult
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Thumbnail { get; set; }
+        public long Downloads { get; set; }
+        public string? Teaser { get; set; }
+        public string? DetailUrl { get; set; }
     }
 
     // Edit Mod Dialog
@@ -1309,12 +1380,15 @@
         _forgeApiKeyInput = "";
         _forgeApiKeyValidating = false;
         _forgeApiKeyError = null;
-        _forgeUrlInput = "";
+        _forgeSearchInput = "";
         _forgeModLoading = false;
         _forgeMod = null;
         _forgeModError = null;
         _forgeSelectedVersion = null;
         _forgeOptional = false;
+        _forgeSearchResults.Clear();
+        _forgeShowSearchResults = false;
+        _forgeSearchDebounceTimer?.Dispose();
         
         // Check if Forge API key is already configured
         await CheckForgeApiKeyStatus();
@@ -1527,7 +1601,9 @@
                 _forgeHasApiKey = false;
                 _forgeMod = null;
                 _forgeSelectedVersion = null;
-                _forgeUrlInput = "";
+                _forgeSearchInput = "";
+                _forgeSearchResults.Clear();
+                _forgeShowSearchResults = false;
                 Snackbar.Add("Forge API key removed", Severity.Info);
             }
             else
@@ -1543,26 +1619,127 @@
         StateHasChanged();
     }
 
-    private async Task OnForgeUrlKeyDown(KeyboardEventArgs e)
+    private async Task OnForgeSearchKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter")
+        if (e.Key == "Enter" && _forgeShowSearchResults && _forgeSearchResults.Any())
         {
-            await FetchForgeModDetails();
+            // Select first result on Enter
+            await OnForgeSearchResultSelected(_forgeSearchResults.First());
+        }
+        else if (e.Key == "Escape")
+        {
+            _forgeShowSearchResults = false;
         }
     }
 
-    private async Task FetchForgeModDetails()
+    private void OnForgeSearchFocus()
     {
-        if (string.IsNullOrWhiteSpace(_forgeUrlInput))
-            return;
-
-        // Extract mod ID from URL
-        var modId = ExtractModIdFromForgeUrl(_forgeUrlInput);
-        if (modId == null)
+        if (_forgeSearchResults.Any() && _forgeMod == null)
         {
-            _forgeModError = "Invalid Forge URL. Expected format: https://forge.sp-tarkov.com/mod/{id}/...";
+            _forgeShowSearchResults = true;
+        }
+    }
+
+    private void OnForgeSearchInputChanged()
+    {
+        if (string.IsNullOrWhiteSpace(_forgeSearchInput))
+        {
+            _forgeSearchResults.Clear();
+            _forgeShowSearchResults = false;
+            _forgeSearchDebounceTimer?.Dispose();
             return;
         }
+
+        // Check if it's a Forge URL - if so, fetch directly
+        var modId = ExtractModIdFromForgeUrl(_forgeSearchInput);
+        if (modId != null)
+        {
+            _forgeSearchDebounceTimer?.Dispose();
+            _ = FetchForgeModById(modId.Value);
+            return;
+        }
+
+        // Otherwise, debounce and search
+        _forgeSearchDebounceTimer?.Dispose();
+        _forgeSearchDebounceTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(ExecuteForgeSearch),
+            null,
+            ForgeSearchDebounceMs,
+            Timeout.Infinite
+        );
+    }
+
+    private async Task ExecuteForgeSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_forgeSearchInput) || _forgeMod != null)
+            return;
+
+        _forgeSearchLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var queryEncoded = Uri.EscapeDataString(_forgeSearchInput);
+            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/search?query={queryEncoded}");
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeSearchApiResponse>(json, 
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Success == true && result.Mods != null)
+                {
+                    _forgeSearchResults = result.Mods.Select(m => new ForgeSearchResult
+                    {
+                        Id = m.Id,
+                        Name = m.Name ?? "",
+                        Slug = m.Slug ?? "",
+                        Thumbnail = m.Thumbnail,
+                        Downloads = m.Downloads,
+                        Teaser = m.Teaser,
+                        DetailUrl = m.DetailUrl
+                    }).ToList();
+                    _forgeShowSearchResults = _forgeSearchResults.Any();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Search error: {ex.Message}");
+        }
+        finally
+        {
+            _forgeSearchLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnForgeSearchResultSelected(ForgeSearchResult result)
+    {
+        _forgeShowSearchResults = false;
+        _forgeSearchResults.Clear();
+        _forgeSearchInput = result.Name;
+        await FetchForgeModById(result.Id);
+    }
+
+    private void ClearForgeSelection()
+    {
+        _forgeMod = null;
+        _forgeSelectedVersion = null;
+        _forgeModError = null;
+        _forgeSearchInput = "";
+        _forgeSearchResults.Clear();
+        _forgeShowSearchResults = false;
+    }
+
+    private async Task FetchForgeModById(int modId)
+    {
 
         _forgeModLoading = true;
         _forgeModError = null;
@@ -1641,6 +1818,24 @@
         public bool Success { get; set; }
         public ForgeModApiData? Mod { get; set; }
         public string? Error { get; set; }
+    }
+
+    private class ForgeSearchApiResponse
+    {
+        public bool Success { get; set; }
+        public List<ForgeSearchModApiData>? Mods { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private class ForgeSearchModApiData
+    {
+        public int Id { get; set; }
+        public string? Name { get; set; }
+        public string? Slug { get; set; }
+        public string? Thumbnail { get; set; }
+        public long Downloads { get; set; }
+        public string? Teaser { get; set; }
+        public string? DetailUrl { get; set; }
     }
 
     private class ForgeModApiData
