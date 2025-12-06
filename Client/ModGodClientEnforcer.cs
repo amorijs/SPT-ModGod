@@ -36,6 +36,10 @@ namespace ModGod.ClientEnforcer
         // Directories to scan for extra files
         private static readonly string BepInExPluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
         private static readonly string SptUserModsPath = Path.Combine(SptRoot, "SPT", "user", "mods");
+        
+        // Cache for compiled glob pattern regexes
+        private static readonly Dictionary<string, System.Text.RegularExpressions.Regex> _globCache = 
+            new Dictionary<string, System.Text.RegularExpressions.Regex>(StringComparer.OrdinalIgnoreCase);
 
         private void Awake()
         {
@@ -440,9 +444,114 @@ namespace ModGod.ClientEnforcer
         private static bool IsExcludedPath(string relativePath, HashSet<string> exclusions)
         {
             var norm = NormalizeRelativePath(relativePath);
-            return exclusions.Any(ex =>
-                norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
-                norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            
+            foreach (var pattern in exclusions)
+            {
+                // Check if it's a glob pattern (contains *, ?, or **)
+                if (pattern.Contains("*") || pattern.Contains("?"))
+                {
+                    if (GlobMatch(norm, pattern))
+                        return true;
+                }
+                else
+                {
+                    // Exact match or prefix match for non-glob patterns
+                    if (norm.Equals(pattern, StringComparison.OrdinalIgnoreCase) ||
+                        norm.StartsWith(pattern + "/", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Simple glob pattern matching for exclusions.
+        /// Supports: * (any chars except /), ** (any chars including /), ? (single char)
+        /// </summary>
+        private static bool GlobMatch(string path, string pattern)
+        {
+            try
+            {
+                // Check cache first
+                if (!_globCache.TryGetValue(pattern, out var regex))
+                {
+                    regex = CompileGlobPattern(pattern);
+                    if (regex != null)
+                        _globCache[pattern] = regex;
+                }
+                
+                return regex?.IsMatch(path) ?? false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        private static System.Text.RegularExpressions.Regex CompileGlobPattern(string pattern)
+        {
+            try
+            {
+                var regexPattern = "^";
+                pattern = pattern.Replace('\\', '/').TrimStart('/');
+                
+                for (int i = 0; i < pattern.Length; i++)
+                {
+                    var c = pattern[i];
+                    
+                    if (c == '*')
+                    {
+                        if (i + 1 < pattern.Length && pattern[i + 1] == '*')
+                        {
+                            if (i + 2 < pattern.Length && pattern[i + 2] == '/')
+                            {
+                                regexPattern += "(.*/)?";
+                                i += 2; // Skip ** and /, loop will add 1
+                            }
+                            else
+                            {
+                                regexPattern += ".*";
+                                i++; // Skip second *, loop will add 1
+                            }
+                        }
+                        else
+                        {
+                            regexPattern += "[^/]*";
+                        }
+                    }
+                    else if (c == '?')
+                    {
+                        regexPattern += "[^/]";
+                    }
+                    else if (c == '.')
+                    {
+                        regexPattern += "\\.";
+                    }
+                    else if (c == '/' || c == '\\')
+                    {
+                        regexPattern += "/";
+                    }
+                    else if ("[](){}+^$|".IndexOf(c) >= 0)
+                    {
+                        regexPattern += "\\" + c;
+                    }
+                    else
+                    {
+                        regexPattern += c;
+                    }
+                }
+                
+                regexPattern += "$";
+                
+                return new System.Text.RegularExpressions.Regex(
+                    regexPattern, 
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private ServerConfig FetchServerConfig(string serverUrl)

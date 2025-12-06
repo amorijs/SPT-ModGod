@@ -20,6 +20,9 @@ class Program
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+    
+    // Cache for compiled glob pattern regexes
+    private static readonly Dictionary<string, System.Text.RegularExpressions.Regex?> _globCache = new();
 
     private static ClientConfig _clientConfig = new();
     private static List<DownloadedMod> _modsDownloaded = new();
@@ -776,9 +779,121 @@ class Program
     static bool IsExcluded(string relativePath, HashSet<string> exclusions)
     {
         var norm = relativePath.Replace('\\', '/').TrimStart('/');
-        return exclusions.Any(ex => 
-            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
-            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+        
+        foreach (var pattern in exclusions)
+        {
+            // Check if it's a glob pattern (contains *, ?, or **)
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                if (GlobMatch(norm, pattern))
+                    return true;
+            }
+            else
+            {
+                // Exact match or prefix match for non-glob patterns
+                if (norm.Equals(pattern, StringComparison.OrdinalIgnoreCase) ||
+                    norm.StartsWith(pattern + "/", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /// <summary>
+    /// Simple glob pattern matching for exclusions.
+    /// Supports: * (any chars except /), ** (any chars including /), ? (single char)
+    /// </summary>
+    static bool GlobMatch(string path, string pattern)
+    {
+        try
+        {
+            // Check cache first
+            if (!_globCache.TryGetValue(pattern, out var regex))
+            {
+                regex = CompileGlobPattern(pattern);
+                _globCache[pattern] = regex;
+            }
+            
+            return regex?.IsMatch(path) ?? false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    static System.Text.RegularExpressions.Regex? CompileGlobPattern(string pattern)
+    {
+        try
+        {
+            var regexPattern = "^";
+            var i = 0;
+            pattern = pattern.Replace('\\', '/').TrimStart('/');
+            
+            while (i < pattern.Length)
+            {
+                var c = pattern[i];
+                
+                if (c == '*')
+                {
+                    if (i + 1 < pattern.Length && pattern[i + 1] == '*')
+                    {
+                        if (i + 2 < pattern.Length && pattern[i + 2] == '/')
+                        {
+                            regexPattern += "(.*/)?";
+                            i += 3;
+                        }
+                        else
+                        {
+                            regexPattern += ".*";
+                            i += 2;
+                        }
+                    }
+                    else
+                    {
+                        regexPattern += "[^/]*";
+                        i++;
+                    }
+                }
+                else if (c == '?')
+                {
+                    regexPattern += "[^/]";
+                    i++;
+                }
+                else if (c == '.')
+                {
+                    regexPattern += "\\.";
+                    i++;
+                }
+                else if (c == '/' || c == '\\')
+                {
+                    regexPattern += "/";
+                    i++;
+                }
+                else if ("[](){}+^$|".Contains(c))
+                {
+                    regexPattern += "\\" + c;
+                    i++;
+                }
+                else
+                {
+                    regexPattern += c;
+                    i++;
+                }
+            }
+            
+            regexPattern += "$";
+            
+            return new System.Text.RegularExpressions.Regex(
+                regexPattern, 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled,
+                TimeSpan.FromMilliseconds(100));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     static async Task DownloadFilesAsync(List<FileSyncIssue> files)

@@ -122,8 +122,11 @@ public class ConfigService : IOnLoad
             LastUpdated = DateTime.UtcNow.ToString("o"),
             InstallPaths = new List<string[]>
             {
+                // Note: ModGodUpdater.exe is NOT included here because:
+                // 1. It's synced via the self-download mechanism (/modgod/api/self-download)
+                // 2. It's at SPT root, not under BepInEx/plugins or SPT/user/mods
+                // 3. It doesn't exist on Linux servers
                 new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
-                new[] { "ModGodUpdater.exe", "<SPT_ROOT>/ModGodUpdater.exe" },
                 new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
             }
         };
@@ -184,6 +187,15 @@ public class ConfigService : IOnLoad
             if (existingModGod.DownloadUrl != expectedUrl)
             {
                 existingModGod.DownloadUrl = expectedUrl;
+                needsUpdate = true;
+            }
+            
+            // Update install paths to match template (removes ModGodUpdater.exe if present)
+            var expectedPaths = template.InstallPaths.Select(p => $"{p[0]}|{p[1]}").ToHashSet();
+            var currentPaths = existingModGod.InstallPaths.Select(p => $"{p[0]}|{p[1]}").ToHashSet();
+            if (!expectedPaths.SetEquals(currentPaths))
+            {
+                existingModGod.InstallPaths = template.InstallPaths.Select(p => new[] { p[0], p[1] }).ToList();
                 needsUpdate = true;
             }
             

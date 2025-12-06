@@ -41,13 +41,26 @@ public class ManifestService
         var stopwatch = Stopwatch.StartNew();
         var manifest = new FileManifest();
 
-        var exclusions = new HashSet<string>(
+        // Combine default exclusions + custom exclusions
+        var allExclusions = new List<string>();
+        
+        // Add default exclusions if enabled
+        allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(_configService.Config));
+        
+        // Add custom exclusions
+        allExclusions.AddRange(
             (_configService.Config.SyncExclusions ?? new List<string>())
                 .Select(NormalizePath)
-                .Where(p => !string.IsNullOrWhiteSpace(p)),
-            StringComparer.OrdinalIgnoreCase);
+                .Where(p => !string.IsNullOrWhiteSpace(p)));
+        
+        // Deduplicate
+        var exclusions = allExclusions
+            .Select(NormalizePath)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        _logger.Info("Generating file manifest from installed files...");
+        _logger.Info($"Generating file manifest with {exclusions.Count} exclusion patterns...");
 
         // Only include installed mods (not pending or pending removal)
         var installedMods = _configService.Config.ModList
@@ -68,7 +81,7 @@ public class ManifestService
             }
         }
 
-        manifest.SyncExclusions = exclusions.ToList();
+        manifest.SyncExclusions = exclusions;
 
         stopwatch.Stop();
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
@@ -79,7 +92,7 @@ public class ManifestService
         return manifest;
     }
 
-    private void AddModToManifest(FileManifest manifest, ModEntry mod, HashSet<string> exclusions)
+    private void AddModToManifest(FileManifest manifest, ModEntry mod, List<string> exclusions)
     {
         // Process each install path - read from ACTUAL installed location
         foreach (var installPath in mod.InstallPaths)
@@ -109,7 +122,7 @@ public class ManifestService
         }
     }
 
-    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod, HashSet<string> exclusions)
+    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod, List<string> exclusions)
     {
         try
         {
@@ -131,7 +144,7 @@ public class ManifestService
         }
     }
 
-    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod, HashSet<string> exclusions)
+    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod, List<string> exclusions)
     {
         // Normalize path separators
         targetPath = targetPath.Replace('\\', '/').TrimStart('/');
@@ -190,11 +203,28 @@ public class ManifestService
         return path.Replace("\\", "/").TrimStart('/');
     }
 
-    private static bool IsExcluded(string relativePath, HashSet<string> exclusions)
+    private static bool IsExcluded(string relativePath, IEnumerable<string> exclusions)
     {
         var norm = NormalizePath(relativePath);
-        return exclusions.Any(ex => norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
-                                    norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+        
+        foreach (var pattern in exclusions)
+        {
+            // Check if it's a glob pattern (contains *, ?, or **)
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                if (GlobMatcher.IsMatch(norm, pattern))
+                    return true;
+            }
+            else
+            {
+                // Exact match or prefix match for non-glob patterns
+                if (norm.Equals(pattern, StringComparison.OrdinalIgnoreCase) ||
+                    norm.StartsWith(pattern + "/", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        
+        return false;
     }
 
     private static bool IsAllowedPath(string relativePath)

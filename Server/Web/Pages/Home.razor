@@ -241,11 +241,62 @@
         </MudTabPanel>
 
         <MudTabPanel Text="Sync Exclusions" Class="mt-4">
+            <!-- Default Exclusions Section -->
+            <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div class="d-flex justify-space-between align-center mb-2">
+                    <div>
+                        <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                            <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" Style="vertical-align: middle;" />
+                            Default Exclusion Patterns
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                            Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+                        </MudText>
+                    </div>
+                    <MudSwitch T="bool" 
+                               Value="@_useDefaultExclusions" 
+                               ValueChanged="OnUseDefaultExclusionsChanged"
+                               Color="Color.Success"
+                               Label="@(_useDefaultExclusions ? "Enabled" : "Disabled")" />
+                </div>
+                
+                @if (_useDefaultExclusions)
+                {
+                    <MudExpansionPanels Class="mt-3">
+                        <MudExpansionPanel Text="@($"View/Edit Default Patterns ({_defaultExclusionPatterns.Count} patterns)")" 
+                                           Style="background: var(--secondary-bg);">
+                            <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                                Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
+                            </MudText>
+                            <MudTextField T="string"
+                                          Value="@_defaultExclusionPatternsText"
+                                          ValueChanged="OnDefaultExclusionPatternsChanged"
+                                          Lines="12"
+                                          Variant="Variant.Outlined"
+                                          Placeholder="One pattern per line..."
+                                          Style="font-family: monospace; font-size: 12px;"
+                                          HelperText="Edit patterns above. Changes save automatically." />
+                            <div class="d-flex gap-2 mt-2">
+                                <MudButton Variant="Variant.Text" 
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.RestartAlt"
+                                           OnClick="ResetDefaultExclusionsToBuiltIn">
+                                    Reset to Built-in Defaults
+                                </MudButton>
+                            </div>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
+            </MudPaper>
+            
+            <!-- File Tree Exclusions Section -->
             <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">Sync Exclusions</MudText>
+                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                    <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="vertical-align: middle;" />
+                    File/Folder Exclusions
+                </MudText>
                 <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-                    Files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> are synced to clients by default.
-                    Uncheck items to exclude them from being synced to clients.
+                    Browse files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> and uncheck items to exclude them.
                 </MudText>
 
                 <div class="d-flex gap-2 mb-3">
@@ -1336,6 +1387,11 @@
     private FileNode? _syncTreeRoot;
     private HashSet<string> _syncExclusionSet = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _syncExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    
+    // Default exclusion patterns
+    private bool _useDefaultExclusions = true;
+    private List<string> _defaultExclusionPatterns = new();
+    private string _defaultExclusionPatternsText = "";
 
     private enum SyncNodeState { Included, Excluded, Mixed }
 
@@ -1399,6 +1455,13 @@
     {
         await ConfigService.ReloadConfigFromDiskAsync();
         _syncTabInitialized = false; // Force sync tab to reload
+        
+        // Reset default exclusions state
+        _useDefaultExclusions = ConfigService.StagedConfig.UseDefaultExclusions;
+        _defaultExclusionPatterns = ConfigService.StagedConfig.CustomDefaultExclusions?.ToList() 
+            ?? DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+        
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();
     }
@@ -2043,6 +2106,12 @@
 
         if (index == 1 && !_syncTabInitialized)
         {
+            // Initialize default exclusions state
+            _useDefaultExclusions = ConfigService.StagedConfig.UseDefaultExclusions;
+            _defaultExclusionPatterns = ConfigService.StagedConfig.CustomDefaultExclusions?.ToList() 
+                ?? DefaultSyncExclusions.Patterns.ToList();
+            _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+            
             await LoadSyncExclusionsTreeAsync();
         }
     }
@@ -2379,6 +2448,50 @@
         {
             Snackbar.Add($"Failed to save exclusions: {ex.Message}", Severity.Error);
         }
+    }
+    
+    /// <summary>
+    /// Toggle use of default exclusion patterns
+    /// </summary>
+    private async Task OnUseDefaultExclusionsChanged(bool value)
+    {
+        _useDefaultExclusions = value;
+        ConfigService.StagedConfig.UseDefaultExclusions = value;
+        await ConfigService.SaveStagedConfigAsync();
+        StateHasChanged();
+    }
+    
+    /// <summary>
+    /// Handle changes to the default exclusion patterns text
+    /// </summary>
+    private async Task OnDefaultExclusionPatternsChanged(string text)
+    {
+        _defaultExclusionPatternsText = text;
+        _defaultExclusionPatterns = text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+        
+        // Save to staged config (null means use built-in defaults)
+        ConfigService.StagedConfig.CustomDefaultExclusions = _defaultExclusionPatterns.Count > 0 
+            ? _defaultExclusionPatterns 
+            : null;
+        
+        await ConfigService.SaveStagedConfigAsync();
+    }
+    
+    /// <summary>
+    /// Reset default exclusions to built-in patterns
+    /// </summary>
+    private async Task ResetDefaultExclusionsToBuiltIn()
+    {
+        _defaultExclusionPatterns = DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+        ConfigService.StagedConfig.CustomDefaultExclusions = null; // null = use built-in
+        await ConfigService.SaveStagedConfigAsync();
+        Snackbar.Add("Reset to built-in default patterns.", Severity.Info);
+        StateHasChanged();
     }
 
     #endregion
