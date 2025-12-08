@@ -28,13 +28,6 @@ public class ServerConfig
     /// </summary>
     [JsonPropertyName("customDefaultExclusions")]
     public List<string>? CustomDefaultExclusions { get; set; }
-
-    /// <summary>
-    /// API key for SP-Tarkov Forge integration.
-    /// Get yours at: https://forge.sp-tarkov.com/user/api-tokens
-    /// </summary>
-    [JsonPropertyName("forgeApiKey")]
-    public string? ForgeApiKey { get; set; }
 }
 
 /// <summary>

@@ -59,6 +59,14 @@ public class ModEntry
     /// </summary>
     [JsonPropertyName("isProtected")]
     public bool IsProtected { get; set; } = false;
+    
+    /// <summary>
+    /// List of all files installed by this mod (relative paths from SPT root, using forward slashes).
+    /// Tracked during installation for accurate removal.
+    /// Example: ["BepInEx/plugins/MyMod/MyMod.dll", "BepInEx/plugins/MyMod/config.json"]
+    /// </summary>
+    [JsonPropertyName("installedFiles")]
+    public List<string> InstalledFiles { get; set; } = new();
 }
 
 /// <summary>

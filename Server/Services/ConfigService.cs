@@ -112,25 +112,25 @@ public class ConfigService : IOnLoad
     {
         const string modGodUrl = "{SERVER_URL}/modgod/api/self-download";
         
-        var modGodEntry = new ModEntry
-        {
-            ModName = "ModGod",
-            DownloadUrl = modGodUrl,
-            Optional = false,
-            IsProtected = true,
-            Status = ModStatus.Installed,
-            LastUpdated = DateTime.UtcNow.ToString("o"),
-            InstallPaths = new List<string[]>
+            var modGodEntry = new ModEntry
             {
+                ModName = "ModGod",
+                DownloadUrl = modGodUrl,
+                Optional = false,
+                IsProtected = true,
+            Status = ModStatus.Installed,
+                LastUpdated = DateTime.UtcNow.ToString("o"),
+                InstallPaths = new List<string[]>
+                {
                 // Note: ModGodUpdater.exe is NOT included here because:
                 // 1. It's synced via the self-download mechanism (/modgod/api/self-download)
                 // 2. It's at SPT root, not under BepInEx/plugins or SPT/user/mods
                 // 3. It doesn't exist on Linux servers
-                new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
-                new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
-            }
-        };
-        
+                    new[] { "BepInEx/plugins/ModGodClientEnforcer", "<SPT_ROOT>/BepInEx/plugins/ModGodClientEnforcer" },
+                    new[] { "SPT/user/mods/ModGodServer", "<SPT_ROOT>/SPT/user/mods/ModGodServer" }
+                }
+            };
+            
         bool liveNeedsSave = EnsureModGodInConfig(Config, modGodEntry, modGodUrl);
         bool stagedNeedsUpdate = EnsureModGodInConfig(StagedConfig, modGodEntry, modGodUrl);
         
@@ -460,7 +460,7 @@ public class ConfigService : IOnLoad
         
         return changes;
     }
-    
+
     #endregion
 
     #region Staging Management
@@ -567,7 +567,7 @@ public class ConfigService : IOnLoad
 
         // Check for staged changes that need applying
         var stagedChanges = CalculateStagedChanges();
-        
+
         // If there are staged changes with downloaded files, show a warning
         var stagedInstalls = stagedChanges.ModsToInstall.Where(m => IsUrlStaged(m.DownloadUrl)).ToList();
         if (stagedInstalls.Count > 0 || stagedChanges.ModsToRemove.Count > 0)
@@ -650,10 +650,10 @@ public class ConfigService : IOnLoad
                     installedCount++;
                     _logger.Success($"  ✓ Installed: {mod.ModName}");
                 }
-                
-                // Clear staging for this mod
+                    
+                    // Clear staging for this mod
                 if (IsUrlStaged(url))
-                {
+                    {
                     ClearStagingForUrl(url);
                 }
             }
@@ -677,11 +677,11 @@ public class ConfigService : IOnLoad
                 {
                     StagedConfig.ModList.RemoveAt(stagedIndex);
                 }
-                
-                // Clear staging if any
-                if (IsUrlStaged(url))
-                {
-                    ClearStagingForUrl(url);
+                    
+                    // Clear staging if any
+                    if (IsUrlStaged(url))
+                    {
+                        ClearStagingForUrl(url);
                 }
             }
             
@@ -721,17 +721,14 @@ public class ConfigService : IOnLoad
             _logger.Info($"Deleting {PendingOps.PathsToDelete.Count} queued path(s)...");
 
             var failed = new List<string>();
+            
+            // First pass: delete files
             foreach (var path in PendingOps.PathsToDelete)
             {
                 try
                 {
                     var fullPath = path.Replace("<SPT_ROOT>", _sptRoot);
-                    if (Directory.Exists(fullPath))
-                    {
-                        Directory.Delete(fullPath, true);
-                        _logger.Info($"  Deleted directory: {fullPath}");
-                    }
-                    else if (File.Exists(fullPath))
+                    if (File.Exists(fullPath))
                     {
                         File.Delete(fullPath);
                         _logger.Info($"  Deleted file: {fullPath}");
@@ -739,12 +736,35 @@ public class ConfigService : IOnLoad
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"  Failed to delete {path}: {ex.Message}");
+                    _logger.Warning($"  Failed to delete file {path}: {ex.Message}");
                     failed.Add(path);
                 }
             }
 
-            // Keep only failed deletions for next time
+            // Second pass: try to delete directories (only if empty - safe for shared dirs)
+            foreach (var path in PendingOps.PathsToDelete)
+            {
+                try
+                {
+                    var fullPath = path.Replace("<SPT_ROOT>", _sptRoot);
+                    if (Directory.Exists(fullPath))
+                    {
+                        // Only delete if directory is empty
+                        if (!Directory.EnumerateFileSystemEntries(fullPath).Any())
+                        {
+                            Directory.Delete(fullPath);
+                            _logger.Info($"  Deleted empty directory: {fullPath}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+        {
+                    _logger.Warning($"  Failed to delete directory {path}: {ex.Message}");
+                    // Don't add to failed - we don't want to retry directory deletions
+                }
+            }
+
+            // Keep only failed file deletions for next time
             PendingOps.PathsToDelete = failed;
             await SavePendingOpsAsync();
         }
@@ -1471,7 +1491,7 @@ public class ConfigService : IOnLoad
     /// Check if there are staged changes to apply.
     /// </summary>
     public bool HasPendingChanges()
-    {
+        {
         return HasStagedChanges();
     }
 

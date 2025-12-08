@@ -148,6 +148,7 @@ public class ModInstallService
     {
         var result = new ModOperationResult { ModName = mod.ModName };
         var lockedFiles = new List<string>();
+        var installedFiles = new List<string>(); // Track all installed files
 
         try
         {
@@ -187,18 +188,22 @@ public class ModInstallService
                 if (Directory.Exists(fullSourcePath))
                 {
                     _logger.Info($"  Copying {sourcePath} -> {fullTargetPath} (with rules)");
-                    CopyWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles);
+                    CopyWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles, installedFiles);
                 }
                 else if (File.Exists(fullSourcePath))
                 {
                     _logger.Info($"  Copying file {sourcePath} -> {fullTargetPath} (with rules)");
-                    CopyFileWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles);
+                    CopyFileWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles, installedFiles);
                 }
                 else
                 {
                     _logger.Warning($"  Source path not found: {fullSourcePath}");
                 }
             }
+
+            // Store the list of installed files in the mod entry
+            mod.InstalledFiles = installedFiles;
+            _logger.Info($"  Tracked {installedFiles.Count} installed file(s)");
 
             // Check if any files were locked
             if (lockedFiles.Count > 0)
@@ -227,7 +232,7 @@ public class ModInstallService
         return Task.FromResult(result);
     }
 
-    private void CopyWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles)
+    private void CopyWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles, List<string> installedFiles)
     {
         Directory.CreateDirectory(fullTargetPath);
 
@@ -245,6 +250,10 @@ public class ModInstallService
             try
             {
                 File.Copy(file, targetFile, true);
+                
+                // Track the installed file (relative path from SPT root using forward slashes)
+                var relativePath = Path.GetRelativePath(_configService.SptRoot, targetFile).Replace('\\', '/');
+                installedFiles.Add(relativePath);
             }
             catch (IOException ex) when (IsFileLockedException(ex))
             {
@@ -253,7 +262,7 @@ public class ModInstallService
         }
     }
 
-    private void CopyFileWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles)
+    private void CopyFileWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles, List<string> installedFiles)
     {
         var relative = Path.GetRelativePath(extractedRoot, fullSourcePath);
         if (IsIgnored(relative, ignoreRules))
@@ -263,6 +272,10 @@ public class ModInstallService
         try
         {
             File.Copy(fullSourcePath, fullTargetPath, true);
+            
+            // Track the installed file (relative path from SPT root using forward slashes)
+            var relativePath = Path.GetRelativePath(_configService.SptRoot, fullTargetPath).Replace('\\', '/');
+            installedFiles.Add(relativePath);
         }
         catch (IOException ex) when (IsFileLockedException(ex))
         {
@@ -310,18 +323,50 @@ public class ModInstallService
 
             var pathsToDelete = new List<string>();
 
-            // Build list of paths to delete based on install paths
-            foreach (var installPath in mod.InstallPaths)
+            // Use InstalledFiles if available (new system - accurate per-file tracking)
+            if (mod.InstalledFiles != null && mod.InstalledFiles.Count > 0)
             {
-                var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
-                var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
-
-                // Try to determine the mod-specific folder
-                var modSubfolder = DetermineModSubfolder(mod, fullTargetPath);
-                if (modSubfolder != null && Directory.Exists(modSubfolder))
+                _logger.Info($"  Using tracked InstalledFiles list ({mod.InstalledFiles.Count} files)");
+                
+                // Convert relative paths to <SPT_ROOT> paths for deletion
+                foreach (var relativePath in mod.InstalledFiles)
                 {
-                    pathsToDelete.Add(modSubfolder.Replace(_configService.SptRoot, "<SPT_ROOT>"));
-                    _logger.Info($"  Will delete: {modSubfolder}");
+                    pathsToDelete.Add($"<SPT_ROOT>/{relativePath}");
+                }
+                
+                // Also find and queue empty parent directories for cleanup
+                var directories = mod.InstalledFiles
+                    .Select(f => Path.GetDirectoryName(f)?.Replace('\\', '/'))
+                    .Where(d => !string.IsNullOrEmpty(d))
+                    .Distinct()
+                    .OrderByDescending(d => d!.Length) // Deepest first
+                    .ToList();
+                
+                foreach (var dir in directories)
+                {
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        pathsToDelete.Add($"<SPT_ROOT>/{dir}");
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: Try to determine paths from install paths (legacy mods without InstalledFiles)
+                _logger.Info($"  No InstalledFiles tracked, falling back to folder detection");
+                
+                foreach (var installPath in mod.InstallPaths)
+                {
+                    var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
+                    var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
+
+                    // Try to determine the mod-specific folder
+                    var modSubfolder = DetermineModSubfolder(mod, fullTargetPath);
+                    if (modSubfolder != null && Directory.Exists(modSubfolder))
+                    {
+                        pathsToDelete.Add(modSubfolder.Replace(_configService.SptRoot, "<SPT_ROOT>"));
+                        _logger.Info($"  Will delete: {modSubfolder}");
+                    }
                 }
             }
 

@@ -1,5 +1,6 @@
 @using ModGod.Services
 @using Color = MudBlazor.Color
+@using System.Reflection
 @inherits LayoutComponentBase
 
 @inject ISnackbar Snackbar
@@ -54,8 +55,8 @@
     <MudAppBar Dense Elevation="0" Style="background: var(--secondary-bg); border-bottom: 1px solid var(--border-color);">
         <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Large" Style="color: var(--accent-cyan);" Class="mr-2" />
         <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 700;">ModGod</MudText>
+        <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--text-secondary); align-self: flex-end; margin-bottom: 4px;">@Version</MudText>
         <MudSpacer/>
-        <MudChip T="string" Size="Size.Small" Style="background: var(--accent-green); color: #000;">v1.0.0</MudChip>
     </MudAppBar>
     <MudMainContent Class="pt-4 px-4" Style="background: var(--primary-bg); min-height: calc(100vh - 48px);">
         @Body
@@ -63,6 +64,8 @@
 </MudLayout>
 
 @code {
+    private string Version => $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0"}";
+    
     MudTheme CustomTheme = new MudTheme()
     {
         PaletteDark = new PaletteDark()

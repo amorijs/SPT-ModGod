@@ -2,20 +2,33 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SPTarkov.DI.Annotations;
+using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Utils;
 
 namespace ModGod.Services;
+
+/// <summary>
+/// Credentials stored separately from mod configuration (secrets shouldn't be in shareable config)
+/// </summary>
+public class ForgeCredentials
+{
+    [JsonPropertyName("apiKey")]
+    public string? ApiKey { get; set; }
+}
 
 /// <summary>
 /// Service for interacting with the SP-Tarkov Forge API
 /// https://forge.sp-tarkov.com/docs/index.html
 /// </summary>
 [Injectable(InjectionType = InjectionType.Singleton)]
-public class ForgeService
+public class ForgeService : IOnLoad
 {
     private readonly ConfigService _configService;
     private readonly ISptLogger<ForgeService> _logger;
     private readonly HttpClient _httpClient;
+    
+    private ForgeCredentials _credentials = new();
+    private string CredentialsPath => Path.Combine(_configService.DataPath, "credentials.json");
 
     private const string ForgeBaseUrl = "https://forge.sp-tarkov.com";
     private const string ApiBaseUrl = "https://forge.sp-tarkov.com/api/v0";
@@ -24,6 +37,11 @@ public class ForgeService
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+    };
+    
+    private static readonly JsonSerializerOptions CredentialsJsonOptions = new()
+    {
+        WriteIndented = true
     };
 
     public ForgeService(
@@ -36,11 +54,29 @@ public class ForgeService
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("ModGod/1.0");
     }
+    
+    public async Task OnLoad()
+    {
+        if (File.Exists(CredentialsPath))
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(CredentialsPath);
+                _credentials = JsonSerializer.Deserialize<ForgeCredentials>(json, CredentialsJsonOptions) ?? new ForgeCredentials();
+                _logger.Info("Loaded Forge credentials");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to load credentials: {ex.Message}");
+                _credentials = new ForgeCredentials();
+            }
+        }
+    }
 
     /// <summary>
     /// Check if a Forge API key is configured
     /// </summary>
-    public bool HasApiKey => !string.IsNullOrWhiteSpace(_configService.Config.ForgeApiKey);
+    public bool HasApiKey => !string.IsNullOrWhiteSpace(_credentials.ApiKey);
 
     /// <summary>
     /// Validate an API key by making a test request
@@ -74,17 +110,27 @@ public class ForgeService
     }
 
     /// <summary>
-    /// Save the Forge API key to config (pass null to remove)
+    /// Save the Forge API key to credentials file (pass null to remove)
     /// </summary>
     public async Task SaveApiKeyAsync(string? apiKey)
     {
-        _configService.Config.ForgeApiKey = apiKey;
-        await _configService.SaveConfigAsync();
+        _credentials.ApiKey = apiKey;
         
         if (string.IsNullOrEmpty(apiKey))
-            _logger.Info("Forge API key removed from config");
+        {
+            // Remove credentials file if key is cleared
+            if (File.Exists(CredentialsPath))
+            {
+                File.Delete(CredentialsPath);
+                _logger.Info("Forge credentials file removed");
+            }
+        }
         else
-            _logger.Info("Forge API key saved to config");
+        {
+            var json = JsonSerializer.Serialize(_credentials, CredentialsJsonOptions);
+            await File.WriteAllTextAsync(CredentialsPath, json);
+            _logger.Info("Forge API key saved to credentials file");
+        }
     }
 
     /// <summary>
@@ -102,7 +148,7 @@ public class ForgeService
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, 
                 $"{ApiBaseUrl}/mod/{modId}?include=versions,license,category");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _configService.Config.ForgeApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
 
             var response = await _httpClient.SendAsync(request);
             
@@ -204,7 +250,7 @@ public class ForgeService
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _configService.Config.ForgeApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
 
             var response = await _httpClient.SendAsync(request);
             
