@@ -321,66 +321,34 @@ public class ModInstallService
         {
             _logger.Info($"Queuing mod for removal: {mod.ModName}");
 
-            var pathsToDelete = new List<string>();
+            var hasUserSelection = _configService.StagedConfig.RemovalSelections?.ContainsKey(mod.DownloadUrl) == true;
+            var selectedPaths = hasUserSelection
+                ? _configService.GetRemovalSelection(mod.DownloadUrl)
+                : CalculateDeletionPaths(mod);
 
-            // Use InstalledFiles if available (new system - accurate per-file tracking)
-            if (mod.InstalledFiles != null && mod.InstalledFiles.Count > 0)
-            {
-                _logger.Info($"  Using tracked InstalledFiles list ({mod.InstalledFiles.Count} files)");
-                
-                // Convert relative paths to <SPT_ROOT> paths for deletion
-                foreach (var relativePath in mod.InstalledFiles)
-                {
-                    pathsToDelete.Add($"<SPT_ROOT>/{relativePath}");
-                }
-                
-                // Also find and queue empty parent directories for cleanup
-                var directories = mod.InstalledFiles
-                    .Select(f => Path.GetDirectoryName(f)?.Replace('\\', '/'))
-                    .Where(d => !string.IsNullOrEmpty(d))
-                    .Distinct()
-                    .OrderByDescending(d => d!.Length) // Deepest first
-                    .ToList();
-                
-                foreach (var dir in directories)
-                {
-                    if (!string.IsNullOrEmpty(dir))
-                    {
-                        pathsToDelete.Add($"<SPT_ROOT>/{dir}");
-                    }
-                }
-            }
-            else
-            {
-                // Fallback: Try to determine paths from install paths (legacy mods without InstalledFiles)
-                _logger.Info($"  No InstalledFiles tracked, falling back to folder detection");
-                
-                foreach (var installPath in mod.InstallPaths)
-                {
-                    var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
-                    var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
-
-                    // Try to determine the mod-specific folder
-                    var modSubfolder = DetermineModSubfolder(mod, fullTargetPath);
-                    if (modSubfolder != null && Directory.Exists(modSubfolder))
-                    {
-                        pathsToDelete.Add(modSubfolder.Replace(_configService.SptRoot, "<SPT_ROOT>"));
-                        _logger.Info($"  Will delete: {modSubfolder}");
-                    }
-                }
-            }
+            // Normalize and de-dupe
+            var pathsToDelete = selectedPaths
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Replace("\\", "/"))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             if (pathsToDelete.Count > 0)
             {
                 await _configService.QueueDeletionsAsync(pathsToDelete);
                 result.Success = true;
-                _logger.Info($"Queued {pathsToDelete.Count} paths for deletion");
+                _logger.Info($"Queued {pathsToDelete.Count} path(s) for deletion");
             }
             else
             {
                 // No specific paths found - just remove from config
                 result.Success = true;
-                _logger.Warning($"No specific paths found for {mod.ModName}, will just remove from config");
+                _logger.Warning($"No specific paths selected for {mod.ModName}, will just remove from config");
+            }
+
+            if (hasUserSelection)
+            {
+                _configService.ClearRemovalSelection(mod.DownloadUrl);
             }
         }
         catch (Exception ex)
@@ -390,6 +358,75 @@ public class ModInstallService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Provide suggested deletion paths for a mod (used by UI).
+    /// </summary>
+    public Task<List<string>> GetSuggestedDeletionPathsAsync(ModEntry mod)
+    {
+        var paths = CalculateDeletionPaths(mod);
+        return Task.FromResult(paths);
+    }
+
+    private List<string> CalculateDeletionPaths(ModEntry mod)
+    {
+        var pathsToDelete = new List<string>();
+
+        // Use InstalledFiles if available (new system - accurate per-file tracking)
+        if (mod.InstalledFiles != null && mod.InstalledFiles.Count > 0)
+        {
+            _logger.Info($"  Using tracked InstalledFiles list ({mod.InstalledFiles.Count} files)");
+
+            // Convert relative paths to <SPT_ROOT> paths for deletion
+            foreach (var relativePath in mod.InstalledFiles)
+            {
+                pathsToDelete.Add($"<SPT_ROOT>/{relativePath}");
+            }
+
+            // Also find and queue empty parent directories for cleanup
+            var directories = mod.InstalledFiles
+                .Select(f => Path.GetDirectoryName(f)?.Replace('\\', '/'))
+                .Where(d => !string.IsNullOrEmpty(d))
+                .Distinct()
+                .OrderByDescending(d => d!.Length) // Deepest first
+                .ToList();
+
+            foreach (var dir in directories)
+            {
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    pathsToDelete.Add($"<SPT_ROOT>/{dir}");
+                }
+            }
+        }
+        else
+        {
+            // Fallback: Try to determine paths from install paths (legacy mods without InstalledFiles)
+            _logger.Info($"  No InstalledFiles tracked, falling back to folder detection");
+
+            foreach (var installPath in mod.InstallPaths)
+            {
+                if (installPath.Length < 2) continue;
+
+                var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
+                var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
+
+                // Try to determine the mod-specific folder
+                var modSubfolder = DetermineModSubfolder(mod, fullTargetPath);
+                if (modSubfolder != null && Directory.Exists(modSubfolder))
+                {
+                    pathsToDelete.Add(modSubfolder.Replace(_configService.SptRoot, "<SPT_ROOT>"));
+                    _logger.Info($"  Will delete: {modSubfolder}");
+                }
+            }
+        }
+
+        return pathsToDelete
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Replace("\\", "/"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

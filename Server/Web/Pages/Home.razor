@@ -6,6 +6,7 @@
 @using Color = MudBlazor.Color
 @using System.Linq
 @using Microsoft.JSInterop
+@using System.Text.Json
 
 @inject ConfigService ConfigService
 @inject ModDownloadService ModDownloadService
@@ -126,6 +127,15 @@
                 </div>
             </div>
         </MudPaper>
+        <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("PendingRemoval"))" @onclick="@(() => ToggleStatusFilter("PendingRemoval"))">
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.Delete" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+                <div>
+                    <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@GetPendingRemovalCount()</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Uninstall</MudText>
+                </div>
+            </div>
+        </MudPaper>
         <MudPaper Class="pa-4 flex-grow-1" Style="@(GetStatsCardStyle("Required"))" @onclick="@(() => ToggleStatusFilter("Required"))">
             <div class="d-flex align-center">
                 <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
@@ -172,7 +182,11 @@
             </div>
             
             <!-- Mod Cards -->
-            @if (ConfigService.StagedConfig.ModList.Count == 0)
+            @{
+                var hasPendingRemoval = GetPendingRemovalCount() > 0;
+            }
+
+            @if (ConfigService.StagedConfig.ModList.Count == 0 && !hasPendingRemoval)
             {
                 <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
                     <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
@@ -185,18 +199,22 @@
                 // Apply search and status filters
                 var filteredMods = GetFilteredMods();
                 
-                // Sort: Protected mods first (ModGod), then pending mods, then installed
+                // Sort: Protected mods first (ModGod), then pending install, pending uninstall, then installed
                 // Within each group: needs-config first, then alphabetically
-                // "Pending" = mods that are in staged but not in live config (not yet installed)
                 var pendingMods = filteredMods
                     .Where(m => IsModPendingInstall(m))
-                    .OrderByDescending(m => m.IsProtected) // Protected first
-                    .ThenByDescending(m => ModNeedsConfiguration(m)) // Needs config first
+                    .OrderByDescending(m => m.IsProtected)
+                    .ThenByDescending(m => ModNeedsConfiguration(m))
+                    .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var removalMods = filteredMods
+                    .Where(m => IsModPendingRemoval(m))
+                    .OrderByDescending(m => m.IsProtected)
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var installedMods = filteredMods
-                    .Where(m => !IsModPendingInstall(m))
-                    .OrderByDescending(m => m.IsProtected) // Protected first (ModGod at top)
+                    .Where(m => !IsModPendingInstall(m) && !IsModPendingRemoval(m))
+                    .OrderByDescending(m => m.IsProtected)
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 
@@ -217,6 +235,20 @@
                         </MudText>
                         <MudGrid Class="mb-4">
                             @foreach (var mod in pendingMods)
+                            {
+                                @RenderModCard(mod)
+                            }
+                        </MudGrid>
+                    }
+                    
+                    if (removalMods.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-red); font-weight: 600;">
+                            <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            Pending Uninstall (@removalMods.Count)
+                        </MudText>
+                        <MudGrid Class="mb-4">
+                            @foreach (var mod in removalMods)
                             {
                                 @RenderModCard(mod)
                             }
@@ -1076,6 +1108,122 @@
         </DialogActions>
 </MudDialog>
 
+<!-- Uninstall Mod Dialog -->
+<MudDialog @bind-Visible="_uninstallDialogVisible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            Uninstall @(_uninstallMod?.ModName)
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--text-secondary);">
+            The selected paths will be queued for deletion when you click "Apply Changes".
+        </MudText>
+
+        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
+            Paths to be deleted
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+            ✓ Checked = delete &nbsp;|&nbsp; ☐ Unchecked = keep
+        </MudText>
+
+        @if (_uninstallTreeLoading)
+        {
+            <div class="d-flex align-center mb-2">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <MudText Typo="Typo.body2">Loading paths...</MudText>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(_uninstallTreeError))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-2">
+                @_uninstallTreeError
+            </MudAlert>
+        }
+        else if (_uninstallTreeRoot != null && _uninstallTreeRoot.Children != null && _uninstallTreeRoot.Children.Any())
+        {
+            @if (_uninstallNoAutoPaths)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-2">
+                    No removal paths auto-detected. Check any files or folders you want removed, or delete them manually in your server files after clicking Apply Changes.
+                </MudAlert>
+            }
+
+            <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
+                @foreach (var (node, depth) in GetUninstallFlattenedTree())
+                {
+                    var state = GetUninstallNodeState(node);
+                    var capturedNode = node;
+                    var isExpanded = node.IsDirectory && _uninstallExpandedDirs.Contains(node.RelativePath);
+                    var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                    <div class="d-flex align-center" style="padding-left:@(depth * 18)px; margin-bottom:2px;">
+                        @if (hasChildren)
+                        {
+                            <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                           Size="Size.Small"
+                                           Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                           OnClick="() => ToggleUninstallExpand(capturedNode)" />
+                        }
+                        else
+                        {
+                            <div style="width: 28px;"></div>
+                        }
+
+                        @{
+                            var checkIcon = state switch
+                            {
+                                DeleteNodeState.Delete => Icons.Material.Filled.CheckBox,
+                                DeleteNodeState.Keep => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                _ => Icons.Material.Filled.IndeterminateCheckBox
+                            };
+                            var iconColor = state switch
+                            {
+                                DeleteNodeState.Delete => "var(--accent-red)",
+                                DeleteNodeState.Keep => "var(--text-secondary)",
+                                _ => "var(--accent-orange)"
+                            };
+                        }
+                        <MudIconButton Icon="@checkIcon"
+                                       Size="Size.Small"
+                                       Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                       OnClick="() => ToggleUninstallNode(capturedNode)" />
+
+                        @if (node.IsDirectory && hasChildren)
+                        {
+                            <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleUninstallExpand(capturedNode)">
+                                📁 @(node.Name)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="ml-1 mono" style="color: var(--text-primary);">
+                                @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                            </span>
+                        }
+                    </div>
+                }
+            </MudPaper>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info">
+                No paths detected. The mod will be removed from your list without deleting files.
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseUninstallDialog" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   Disabled="_uninstallTreeLoading"
+                   OnClick="ConfirmUninstallSelection">
+            Uninstall
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
 <!-- Apply Changes Result Dialog -->
 <MudDialog @bind-Visible="_applyResultDialogVisible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
     <TitleContent>
@@ -1178,7 +1326,7 @@
     private RenderFragment RenderModCard(ModEntry mod) => __builder =>
     {
         <MudItem xs="12" md="6" lg="4">
-            <MudPaper Class="pa-4" Style="@(GetModCardStyle(mod) + (mod.IsProtected ? "" : " cursor: pointer;"))" @onclick="() => { if (!mod.IsProtected) EditMod(mod); }">
+            <MudPaper Class="pa-4" Style="@(GetModCardStyle(mod) + (mod.IsProtected ? "" : " cursor: pointer;"))" @onclick="() => { if (!mod.IsProtected) { if (IsModPendingRemoval(mod)) OpenUninstallDialog(mod); else EditMod(mod); } }">
                 <div class="d-flex justify-space-between align-start mb-3">
                     <div>
                         <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
@@ -1207,21 +1355,33 @@
                     {
                         <div @onclick:stopPropagation="true">
                             <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
-                                <MudMenuItem OnClick="@(() => EditMod(mod))">
-                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
-                                </MudMenuItem>
-                                @if (mod.Status == ModStatus.Installed)
+                                @if (IsModPendingRemoval(mod))
                                 {
-                                    <MudTooltip Text="Re-download and re-install this mod from the original URL. Useful if mod files were corrupted or manually modified.">
-                                        <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
-                                            <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
-                                        </MudMenuItem>
-                                    </MudTooltip>
+                                    <MudMenuItem OnClick="@(() => OpenUninstallDialog(mod))">
+                                        <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit Removal
+                                    </MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => UndoRemoval(mod))" Style="color: var(--accent-green);">
+                                        <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Class="mr-2" /> Undo Removal
+                                    </MudMenuItem>
                                 }
-                                <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
-                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
-                                    @(IsModPendingInstall(mod) ? "Remove" : "Uninstall")
-                                </MudMenuItem>
+                                else
+                                {
+                                    <MudMenuItem OnClick="@(() => EditMod(mod))">
+                                        <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
+                                    </MudMenuItem>
+                                    @if (mod.Status == ModStatus.Installed)
+                                    {
+                                        <MudTooltip Text="Re-download and re-install this mod from the original URL. Useful if mod files were corrupted or manually modified.">
+                                            <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                                            </MudMenuItem>
+                                        </MudTooltip>
+                                    }
+                                    <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
+                                        <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
+                                        @(IsModPendingInstall(mod) ? "Remove" : "Uninstall")
+                                    </MudMenuItem>
+                                }
                             </MudMenu>
                         </div>
                     }
@@ -1411,6 +1571,23 @@
     private HashSet<string> _fileRulesIgnore = new(StringComparer.OrdinalIgnoreCase);
     private bool _fileRulesLoading = false;
     private string? _fileRulesError;
+
+    // Uninstall dialog state
+    private bool _uninstallDialogVisible = false;
+    private ModEntry? _uninstallMod = null;
+    private FileNode? _uninstallTreeRoot;
+    private HashSet<string> _uninstallCheckedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _uninstallExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private bool _uninstallTreeLoading = false;
+    private string? _uninstallTreeError;
+    private bool _uninstallNoAutoPaths = false;
+
+    private enum DeleteNodeState
+    {
+        Delete,
+        Keep,
+        Mixed
+    }
 
     // Apply Changes
     private async Task ApplyChanges()
@@ -3074,6 +3251,306 @@
 
     #endregion
 
+    #region Uninstall helpers
+
+    private string NormalizeDeletionPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        var cleaned = path.Replace("\\", "/").Replace("<SPT_ROOT>", "", StringComparison.OrdinalIgnoreCase);
+        return cleaned.TrimStart('/');
+    }
+
+    private string ToPlaceholderPath(string relativePath)
+    {
+        var normalized = NormalizeDeletionPath(relativePath);
+        return string.IsNullOrEmpty(normalized) ? string.Empty : $"<SPT_ROOT>/{normalized}";
+    }
+
+    private FileNode? BuildUninstallNodeRecursive(string fullPath, string relativePath)
+    {
+        if (!Directory.Exists(fullPath))
+            return null;
+
+        var node = new FileNode
+        {
+            Name = Path.GetFileName(fullPath),
+            RelativePath = NormalizeDeletionPath(relativePath),
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullPath))
+        {
+            var name = Path.GetFileName(dir);
+            var childRel = NormalizeDeletionPath(Path.Combine(relativePath, name));
+            var child = BuildUninstallNodeRecursive(dir, childRel);
+            if (child != null)
+            {
+                node.Children.Add(child);
+            }
+        }
+
+        foreach (var file in Directory.GetFiles(fullPath))
+        {
+            var name = Path.GetFileName(file);
+            var childRel = NormalizeDeletionPath(Path.Combine(relativePath, name));
+            node.Children.Add(new FileNode
+            {
+                Name = name,
+                RelativePath = childRel,
+                IsDirectory = false
+            });
+        }
+
+        return node;
+    }
+
+    private IEnumerable<FileNode> GetUninstallLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        var children = node.Children;
+        if (!node.IsDirectory || children == null || children.Count == 0)
+        {
+            yield return node;
+            yield break;
+        }
+
+        foreach (var child in children)
+        {
+            foreach (var leaf in GetUninstallLeafNodes(child))
+                yield return leaf;
+        }
+    }
+
+    private DeleteNodeState GetUninstallNodeState(FileNode node)
+    {
+        if (!node.IsDirectory || node.Children == null || node.Children.Count == 0)
+        {
+            return _uninstallCheckedPaths.Contains(node.RelativePath)
+                ? DeleteNodeState.Delete
+                : DeleteNodeState.Keep;
+        }
+
+        var leafStates = GetUninstallLeafNodes(node).Select(GetUninstallNodeState).Distinct().ToList();
+        if (leafStates.Count == 0) return DeleteNodeState.Keep;
+        if (leafStates.Count == 1) return leafStates[0];
+        return DeleteNodeState.Mixed;
+    }
+
+    private void SetUninstallState(FileNode node, bool delete)
+    {
+        foreach (var leaf in GetUninstallLeafNodes(node))
+        {
+            if (delete)
+            {
+                _uninstallCheckedPaths.Add(leaf.RelativePath);
+            }
+            else
+            {
+                _uninstallCheckedPaths.Remove(leaf.RelativePath);
+            }
+        }
+    }
+
+    private void ToggleUninstallNode(FileNode node)
+    {
+        var makeDelete = GetUninstallNodeState(node) != DeleteNodeState.Delete;
+        SetUninstallState(node, makeDelete);
+    }
+
+    private void ToggleUninstallExpand(FileNode node)
+    {
+        if (node == null || !node.IsDirectory) return;
+
+        if (_uninstallExpandedDirs.Contains(node.RelativePath))
+            _uninstallExpandedDirs.Remove(node.RelativePath);
+        else
+            _uninstallExpandedDirs.Add(node.RelativePath);
+    }
+
+    private void SetInitialUninstallExpansion(FileNode root)
+    {
+        void Walk(FileNode node)
+        {
+            if (node.IsDirectory)
+            {
+                var state = GetUninstallNodeState(node);
+                if (state != DeleteNodeState.Keep && !string.IsNullOrEmpty(node.RelativePath))
+                {
+                    _uninstallExpandedDirs.Add(node.RelativePath);
+                }
+            }
+
+            foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+            {
+                Walk(child);
+            }
+        }
+
+        Walk(root);
+    }
+
+    private FileNode? FindUninstallNodeByPath(FileNode? node, string relativePath)
+    {
+        if (node == null) return null;
+        var norm = NormalizeDeletionPath(relativePath);
+        if (NormalizeDeletionPath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
+            return node;
+
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+        {
+            var found = FindUninstallNodeByPath(child, relativePath);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private List<(FileNode Node, int Depth)> GetUninstallFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_uninstallTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            if (node.IsDirectory && !_uninstallExpandedDirs.Contains(node.RelativePath))
+            {
+                return;
+            }
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _uninstallTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private async Task LoadUninstallTreeAsync(ModEntry mod)
+    {
+        try
+        {
+            _uninstallTreeLoading = true;
+            _uninstallTreeError = null;
+            _uninstallTreeRoot = null;
+            _uninstallCheckedPaths.Clear();
+            _uninstallExpandedDirs.Clear();
+
+            var existingSelection = ConfigService.GetRemovalSelection(mod.DownloadUrl) ?? new List<string>();
+            var installedFiles = mod.InstalledFiles ?? new List<string>();
+            var prechecked = (existingSelection.Count > 0 ? existingSelection : installedFiles)
+                .Select(NormalizeDeletionPath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _uninstallNoAutoPaths = prechecked.Count == 0;
+
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+            var sptRoot = ConfigService.SptRoot;
+            var bepPlugins = Path.Combine(sptRoot, "BepInEx", "plugins");
+            var sptMods = Path.Combine(sptRoot, "SPT", "user", "mods");
+
+            void TryAddDirectory(string fullPath, string relativeBase)
+            {
+                if (Directory.Exists(fullPath))
+                {
+                    var node = BuildUninstallNodeRecursive(fullPath, relativeBase);
+                    if (node != null)
+                    {
+                        root.Children.Add(node);
+                    }
+                }
+            }
+
+            TryAddDirectory(bepPlugins, "BepInEx/plugins");
+            TryAddDirectory(sptMods, "SPT/user/mods");
+
+            // Apply prechecked selections
+            foreach (var rel in prechecked)
+            {
+                var node = FindUninstallNodeByPath(root, rel);
+                if (node != null)
+                {
+                    SetUninstallState(node, true);
+                }
+            }
+
+            _uninstallExpandedDirs.Clear();
+            SetInitialUninstallExpansion(root);
+
+            if (root.Children.Count == 0)
+            {
+                _uninstallTreeError = "No paths detected. This will remove the mod from your list only.";
+            }
+            else
+            {
+                _uninstallTreeRoot = root;
+            }
+        }
+        catch (Exception ex)
+        {
+            _uninstallTreeError = $"Failed to load delete paths: {ex.Message}";
+        }
+        finally
+        {
+            _uninstallTreeLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OpenUninstallDialog(ModEntry mod)
+    {
+        _uninstallMod = mod;
+        _uninstallDialogVisible = true;
+        await LoadUninstallTreeAsync(mod);
+    }
+
+    private void CloseUninstallDialog()
+    {
+        _uninstallDialogVisible = false;
+        _uninstallMod = null;
+        _uninstallTreeRoot = null;
+        _uninstallTreeError = null;
+        _uninstallTreeLoading = false;
+        _uninstallCheckedPaths.Clear();
+        _uninstallExpandedDirs.Clear();
+        _uninstallNoAutoPaths = false;
+    }
+
+    private async Task ConfirmUninstallSelection()
+    {
+        if (_uninstallMod == null) return;
+
+        var selectedPaths = _uninstallCheckedPaths
+            .Select(ToPlaceholderPath)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        ConfigService.SetRemovalSelection(_uninstallMod.DownloadUrl, selectedPaths);
+
+        await ConfigService.RemoveModFromStagedAsync(_uninstallMod.DownloadUrl);
+        Snackbar.Add($"Mod '{_uninstallMod.ModName}' will be removed. Click 'Apply Changes' to uninstall.", Severity.Warning);
+
+        CloseUninstallDialog();
+        StateHasChanged();
+    }
+
+    #endregion
+
     // Delete Mod
     private async Task DeleteMod(ModEntry mod)
     {
@@ -3087,6 +3564,7 @@
         // With staged config, we always remove from staged config
         // The difference is just in the messaging
         var isPending = IsModPendingInstall(mod);
+        var isRemoval = IsModPendingRemoval(mod);
         
         if (isPending)
         {
@@ -3103,39 +3581,42 @@
                 StateHasChanged();
             }
         }
+        else if (isRemoval)
+        {
+            await OpenUninstallDialog(mod);
+        }
         else
         {
-            // Installed - remove from staged config (will be uninstalled on Apply)
-            var result = await DialogService.ShowMessageBox(
-                "Uninstall Mod",
-                $"Remove '{mod.ModName}'? Files will be uninstalled when you click 'Apply Changes'.",
-                yesText: "Uninstall", cancelText: "Cancel");
-
-            if (result == true)
-            {
-                await ConfigService.RemoveModFromStagedAsync(mod.DownloadUrl);
-                Snackbar.Add($"Mod '{mod.ModName}' will be removed. Click 'Apply Changes' to uninstall.", Severity.Warning);
-                StateHasChanged();
-            }
+            await OpenUninstallDialog(mod);
         }
     }
 
     // Search and Filter Methods
     private List<ModEntry> GetFilteredMods()
     {
-        // Always show mods from staged config (the working copy)
-        var mods = ConfigService.StagedConfig.ModList.AsEnumerable();
+        // Combine staged mods (working copy) with pending removal mods (from live config but removed in staged)
+        var stagedMods = ConfigService.StagedConfig.ModList;
+        var removalSet = GetPendingRemovalUrlSet();
+        var removalMods = ConfigService.Config.ModList
+            .Where(m => removalSet.Contains(m.DownloadUrl))
+            .ToList();
+
+        var allMods = stagedMods.Concat(removalMods)
+            .GroupBy(m => m.DownloadUrl)
+            .Select(g => g.First())
+            .AsEnumerable();
         
         // Apply status filter
         if (_activeStatusFilter != null)
         {
-            mods = _activeStatusFilter switch
+            allMods = _activeStatusFilter switch
             {
-                "Installed" => mods.Where(m => !IsModPendingInstall(m)),
-                "Pending" => mods.Where(m => IsModPendingInstall(m)),
-                "Required" => mods.Where(m => !m.Optional),
-                "Optional" => mods.Where(m => m.Optional),
-                _ => mods
+                "Installed" => allMods.Where(m => !IsModPendingInstall(m) && !IsModPendingRemoval(m)),
+                "Pending" => allMods.Where(m => IsModPendingInstall(m)),
+                "PendingRemoval" => allMods.Where(m => IsModPendingRemoval(m)),
+                "Required" => allMods.Where(m => !m.Optional),
+                "Optional" => allMods.Where(m => m.Optional),
+                _ => allMods
             };
         }
         
@@ -3143,12 +3624,12 @@
         if (!string.IsNullOrWhiteSpace(_searchQuery))
         {
             var query = _searchQuery.Trim();
-            mods = mods.Where(m => 
+            allMods = allMods.Where(m => 
                 m.ModName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 m.DownloadUrl.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
         
-        return mods.ToList();
+        return allMods.ToList();
     }
     
     private void ToggleStatusFilter(string? filter)
@@ -3175,6 +3656,7 @@
             {
                 "Installed" => "var(--accent-green)",
                 "Pending" => "var(--accent-orange)",
+                "PendingRemoval" => "var(--accent-red)",
                 "Required" => "var(--accent-red)",
                 "Optional" => "var(--accent-green)",
                 _ => "var(--accent-cyan)" // Total
@@ -3203,6 +3685,16 @@
     }
     
     /// <summary>
+    /// Get set of URLs pending removal (present in live but removed from staged)
+    /// </summary>
+    private HashSet<string> GetPendingRemovalUrlSet()
+    {
+        return ConfigService.CalculateStagedChanges().ModsToRemove
+            .Select(m => m.DownloadUrl)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+    
+    /// <summary>
     /// Get count of mods that are already installed (in both staged and live)
     /// </summary>
     private int GetInstalledModCount()
@@ -3218,6 +3710,14 @@
     {
         var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
         return ConfigService.StagedConfig.ModList.Count(m => !liveUrls.Contains(m.DownloadUrl));
+    }
+
+    /// <summary>
+    /// Get count of mods pending removal (in live but removed from staged)
+    /// </summary>
+    private int GetPendingRemovalCount()
+    {
+        return GetPendingRemovalUrlSet().Count;
     }
 
     /// <summary>
@@ -3274,11 +3774,8 @@
     /// </summary>
     private bool IsModPendingRemoval(ModEntry mod)
     {
-        // This is called with mods from staged config.
-        // A mod is "pending removal" if it exists in live but was removed from staged.
-        // However, we show mods FROM staged config, so this will never return true
-        // for visible mods. This method is here for completeness.
-        return false;
+        var removalSet = GetPendingRemovalUrlSet();
+        return removalSet.Contains(mod.DownloadUrl);
     }
 
     private string GetStatusChipStyleForMod(ModEntry mod)
@@ -3286,6 +3783,10 @@
         if (IsModPendingInstall(mod))
         {
             return "background: var(--accent-orange); color: #000;";
+        }
+        if (IsModPendingRemoval(mod))
+        {
+            return "background: var(--accent-red); color: #fff;";
         }
         return "background: var(--accent-green); color: #000;";
     }
@@ -3296,7 +3797,44 @@
         {
             return "Pending Install";
         }
+        if (IsModPendingRemoval(mod))
+        {
+            return "Pending Uninstall";
+        }
         return "Installed";
+    }
+
+    private async Task UndoRemoval(ModEntry mod)
+    {
+        try
+        {
+            var liveMod = ConfigService.Config.ModList.FirstOrDefault(m => m.DownloadUrl == mod.DownloadUrl);
+            if (liveMod == null)
+            {
+                Snackbar.Add("Unable to undo removal: mod not found in live config.", Severity.Warning);
+                return;
+            }
+
+            // Deep clone to avoid mutating live reference
+            var cloneJson = JsonSerializer.Serialize(liveMod);
+            var clone = JsonSerializer.Deserialize<ModEntry>(cloneJson);
+            if (clone == null)
+            {
+                Snackbar.Add("Unable to undo removal: serialization failed.", Severity.Error);
+                return;
+            }
+
+            await ConfigService.AddModToStagedAsync(clone);
+            // Remove from removalSelections in staged config
+            ConfigService.StagedConfig.RemovalSelections.Remove(mod.DownloadUrl);
+            await ConfigService.SaveStagedConfigAsync();
+            Snackbar.Add($"Removal undone for '{clone.ModName}'!", Severity.Success);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to undo removal: {ex.Message}", Severity.Error);
+        }
     }
     
     // Legacy helpers for backwards compatibility

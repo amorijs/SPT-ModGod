@@ -220,6 +220,7 @@ public class ConfigService : IOnLoad
 
         // Safety: ensure new properties are initialized
         Config.SyncExclusions ??= new List<string>();
+        Config.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         
         // Migrate any legacy Pending/PendingRemoval mods to Installed
         // With staged config system, live config should only have Installed mods
@@ -269,6 +270,7 @@ public class ConfigService : IOnLoad
         
         // Safety: ensure new properties are initialized
         StagedConfig.SyncExclusions ??= new List<string>();
+        StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
     }
     
     /// <summary>
@@ -297,6 +299,7 @@ public class ConfigService : IOnLoad
         // Reset in-memory staged config to match live config
         var json = JsonSerializer.Serialize(Config, JsonOptions);
         StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
+        StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         _logger.Info("Staged config reset to match live config");
         
         await Task.CompletedTask; // Keep async signature for consistency
@@ -1472,6 +1475,46 @@ public class ConfigService : IOnLoad
             
             await SaveStagedConfigAsync();
         }
+    }
+
+    /// <summary>
+    /// Persist the user-selected paths to delete for a given mod (keyed by URL).
+    /// </summary>
+    public void SetRemovalSelection(string downloadUrl, List<string> paths)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+            return;
+
+        StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        StagedConfig.RemovalSelections[downloadUrl] = paths ?? new List<string>();
+    }
+
+    /// <summary>
+    /// Get any previously stored deletion selection for a mod.
+    /// </summary>
+    public List<string> GetRemovalSelection(string downloadUrl)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+            return new List<string>();
+
+        if (StagedConfig.RemovalSelections != null &&
+            StagedConfig.RemovalSelections.TryGetValue(downloadUrl, out var paths))
+        {
+            return paths;
+        }
+
+        return new List<string>();
+    }
+
+    /// <summary>
+    /// Clear the stored deletion selection for a mod (after apply or when cancelled).
+    /// </summary>
+    public void ClearRemovalSelection(string downloadUrl)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+            return;
+
+        StagedConfig.RemovalSelections?.Remove(downloadUrl);
     }
 
     /// <summary>

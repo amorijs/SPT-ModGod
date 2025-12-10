@@ -13,6 +13,7 @@ namespace ModGod.ClientEnforcer.Models
     public class ServerConfig
     {
         public List<ModEntry> ModList { get; set; } = new List<ModEntry>();
+        public Dictionary<string, List<string>> RemovalSelections { get; set; } = new Dictionary<string, List<string>>();
         public List<string> SyncExclusions { get; set; } = new List<string>();
     }
 

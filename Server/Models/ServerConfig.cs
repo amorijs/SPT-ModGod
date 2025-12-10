@@ -8,6 +8,13 @@ public class ServerConfig
     public List<ModEntry> ModList { get; set; } = new();
 
     /// <summary>
+    /// User-chosen paths to delete when uninstalling a mod (keyed by download URL).
+    /// Paths should use the <SPT_ROOT> placeholder and forward slashes.
+    /// </summary>
+    [JsonPropertyName("removalSelections")]
+    public Dictionary<string, List<string>> RemovalSelections { get; set; } = new();
+
+    /// <summary>
     /// Custom paths/patterns to exclude from client sync/manifest.
     /// Supports glob patterns: *, **, ?
     /// Example: "SPT/user/mods/MyMod/logs/**" or "**/*.log"
