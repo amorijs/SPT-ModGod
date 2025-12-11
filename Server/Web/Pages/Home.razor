@@ -6,6 +6,7 @@
 @using Color = MudBlazor.Color
 @using System.Linq
 @using Microsoft.JSInterop
+@using System.IO
 @using System.Text.Json
 
 @inject ConfigService ConfigService
@@ -878,7 +879,7 @@
                 <MudButton Color="Color.Primary" 
                            Variant="Variant.Filled"
                            Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
-                           OnClick="ProcessBulkDownload">
+                           OnClick="() => ProcessBulkDownload()">
                     Download & Stage
                 </MudButton>
             }
@@ -948,153 +949,215 @@
                 </MudExpansionPanels>
             }
 
-            <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
-                Install Paths
-            </MudText>
-            
-            @if (_editInstallPaths != null)
+            @if (_editingMod != null && IsModPendingInstall(_editingMod))
             {
-                @for (int i = 0; i < _editInstallPaths.Count; i++)
+                <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                    Install Paths
+                </MudText>
+                
+                @if (_editInstallPaths != null)
                 {
-                    var index = i;
-                    <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
-                        <MudGrid>
-                            <MudItem xs="5">
-                                <MudTextField @bind-Value="_editInstallPaths[index].Source" 
-                                              Label="Source Path" 
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense"
-                                              Class="mono" />
-                            </MudItem>
-                            <MudItem xs="1" Class="d-flex align-center justify-center">
-                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                            </MudItem>
-                            <MudItem xs="5">
-                                <MudTextField @bind-Value="_editInstallPaths[index].Target" 
-                                              Label="Target Path" 
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense"
-                                              Class="mono" />
-                            </MudItem>
-                            <MudItem xs="1" Class="d-flex align-center justify-center">
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
-                                               Color="Color.Error" 
-                                               Size="Size.Small"
-                                               OnClick="@(() => RemoveEditInstallPath(index))" />
-                            </MudItem>
-                        </MudGrid>
+                    @for (int i = 0; i < _editInstallPaths.Count; i++)
+                    {
+                        var index = i;
+                        <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                            <MudGrid>
+                                <MudItem xs="5">
+                                    <MudTextField @bind-Value="_editInstallPaths[index].Source" 
+                                                  Label="Source Path" 
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Class="mono" />
+                                </MudItem>
+                                <MudItem xs="1" Class="d-flex align-center justify-center">
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                                </MudItem>
+                                <MudItem xs="5">
+                                    <MudTextField @bind-Value="_editInstallPaths[index].Target" 
+                                                  Label="Target Path" 
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Class="mono" />
+                                </MudItem>
+                                <MudItem xs="1" Class="d-flex align-center justify-center">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                                   Color="Color.Error" 
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => RemoveEditInstallPath(index))" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudPaper>
+                    }
+                }
+
+                <MudButton Variant="Variant.Text" 
+                           StartIcon="@Icons.Material.Filled.Add" 
+                           Color="Color.Primary"
+                           OnClick="AddEditInstallPath"
+                           Class="mt-2">
+                    Add Install Path
+                </MudButton>
+            }
+
+            @if (_editingMod != null && !IsModPendingInstall(_editingMod))
+            {
+                <MudDivider Class="my-4" />
+
+                <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
+                    Installed Files
+                </MudText>
+
+                var installedFiles = _editingMod.InstalledFiles ?? new List<string>();
+                var missingFiles = GetMissingInstalledFiles(_editingMod);
+
+                @if (installedFiles.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                        No files are being tracked for this mod. This may be because you installed this mod on an older version of ModGod.
+                        <br />
+                        While not necessary, it is recommended you delete and reinstall this mod for the following reasons:
+                        <br/>
+                        <ul>
+                            <li>ModGod can warn you if any files are missing in your installation</li>
+                            <li>You can easily reference what files a mod installed in your server files</li>
+                            <li>If you decide to uninstall this mod, ModGod will automatically know which files to delete -- otherwise you would have to manually select each file to delete</li>
+                        </ul>
+                    </MudAlert>
+                }
+                else
+                {
+                    @if (missingFiles.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            <MudText Typo="Typo.caption">
+                                Missing @missingFiles.Count tracked file(s). Files may have been removed from disk.
+                            </MudText>
+                        </MudAlert>
+                    }
+
+                    <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 300px; overflow-y: auto;">
+                        @foreach (var file in installedFiles)
+                        {
+                            var isMissing = missingFiles.Contains(file, StringComparer.OrdinalIgnoreCase);
+                            <div class="d-flex align-center mb-1" style="font-family: monospace; font-size: 13px; color: @(isMissing ? "var(--accent-red)" : "var(--text-primary)")">
+                                @if (isMissing)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Class="mr-1" Style="color: var(--accent-red);" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" Style="color: var(--accent-green);" />
+                                }
+                                <span>@file</span>
+                            </div>
+                        }
                     </MudPaper>
                 }
             }
 
-            <MudButton Variant="Variant.Text" 
-                       StartIcon="@Icons.Material.Filled.Add" 
-                       Color="Color.Primary"
-                       OnClick="AddEditInstallPath"
-                       Class="mt-2">
-                Add Install Path
-            </MudButton>
-
-            <MudDivider Class="my-4" />
-
-            <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
-                Files to be Overwritten
-            </MudText>
-            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
-                Any files <b>that will be overwritten</b> will appear below.
-                <br />
-                <span>
-                    <b>Uncheck</b> any files you <b>do not want to overwrite</b>.
-                </span>
-                <br />
-                <span style="color: var(--accent-orange);">
-                    <i>
-                        Example: Updating a server mod but want to keep your existing <code>config.json</code>? Simply uncheck that item.
-                    </i>
-                </span>
-            </MudText>
-
-            @if (_fileRulesLoading)
+            @if (_editingMod != null && IsModPendingInstall(_editingMod))
             {
-                <div class="d-flex align-center mb-3">
-                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                    <MudText Typo="Typo.body2">Loading file tree...</MudText>
-                </div>
-            }
-            else if (!string.IsNullOrEmpty(_fileRulesError))
-            {
-                <MudAlert Severity="Severity.Warning" Class="mb-3">
-                    @_fileRulesError
-                </MudAlert>
-            }
-            else if (_fileTreeRoot != null && _fileTreeRoot.Children != null && _fileTreeRoot.Children.Any())
-            {
-                <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
-                    <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
-                        ✓ Checked = overwrite (default) &nbsp;|&nbsp; ☐ Unchecked = ignore (keep existing)
+                <MudDivider Class="my-4" />
+
+                <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
+                    Files to be Overwritten
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                    Any files <b>that will be overwritten</b> will appear below.
+                    <br />
+                    <span>
+                        <b>Uncheck</b> any files you <b>do not want to overwrite</b>.
+                    </span>
+                    <br />
+                    <span style="color: var(--accent-orange);">
+                        <i>
+                            Example: Updating a server mod but want to keep your existing <code>config.json</code>? Simply uncheck that item.
+                        </i>
+                    </span>
+                </MudText>
+
+                @if (_fileRulesLoading)
+                {
+                    <div class="d-flex align-center mb-3">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <MudText Typo="Typo.body2">Loading file tree...</MudText>
                     </div>
-                    @foreach (var item in GetFlattenedTree())
-                    {
-                        var node = item.Node;
-                        var depth = item.Depth;
-                        var state = GetNodeState(node);
-                        var capturedNode = node;
-                        var isExpanded = node.IsDirectory && _fileRulesExpandedDirs.Contains(node.RelativePath);
-                        var hasChildren = node.IsDirectory && node.Children?.Count > 0;
-                        <div class="d-flex align-center" style="padding-left:@(depth * 18)px; margin-bottom:2px;">
-                            @* Expand/collapse button for directories *@
-                            @if (hasChildren)
-                            {
-                                <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
-                                               Size="Size.Small"
-                                               Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
-                                               OnClick="() => ToggleFileRulesExpand(capturedNode)" />
-                            }
-                            else
-                            {
-                                <div style="width: 28px;"></div>
-                            }
-                            @* Checkbox for state *@
-                            @{
-                                var checkIcon = state switch
-                                {
-                                    FileRuleState.Overwrite => Icons.Material.Filled.CheckBox,
-                                    FileRuleState.Ignore => Icons.Material.Filled.CheckBoxOutlineBlank,
-                                    _ => Icons.Material.Filled.IndeterminateCheckBox
-                                };
-                                var iconColor = state switch
-                                {
-                                    FileRuleState.Overwrite => "var(--accent-green)",
-                                    FileRuleState.Ignore => "var(--text-secondary)",
-                                    _ => "var(--accent-orange)"
-                                };
-                            }
-                            <MudIconButton Icon="@checkIcon"
-                                           Size="Size.Small"
-                                           Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
-                                           OnClick="() => ToggleNode(capturedNode)" />
-                            @* Directory/file name (click to expand/collapse for directories) *@
-                            @if (node.IsDirectory && hasChildren)
-                            {
-                                <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleFileRulesExpand(capturedNode)">
-                                    📁 @(node.Name)
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="ml-1 mono" style="color: var(--text-primary);">
-                                    @(node.IsDirectory ? "📁" : "📄") @(node.Name)
-                                </span>
-                            }
+                }
+                else if (!string.IsNullOrEmpty(_fileRulesError))
+                {
+                    <MudAlert Severity="Severity.Warning" Class="mb-3">
+                        @_fileRulesError
+                    </MudAlert>
+                }
+                else if (_fileTreeRoot != null && _fileTreeRoot.Children != null && _fileTreeRoot.Children.Any())
+                {
+                    <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
+                        <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
+                            ✓ Checked = overwrite (default) &nbsp;|&nbsp; ☐ Unchecked = ignore (keep existing)
                         </div>
-                    }
-                </MudPaper>
-            }
-            else
-            {
-                <MudAlert Severity="Severity.Info">
-                    No files found in staging for this mod. Reinstall to refresh the file list.
-                </MudAlert>
+                        @foreach (var item in GetFlattenedTree())
+                        {
+                            var node = item.Node;
+                            var depth = item.Depth;
+                            var state = GetNodeState(node);
+                            var capturedNode = node;
+                            var isExpanded = node.IsDirectory && _fileRulesExpandedDirs.Contains(node.RelativePath);
+                            var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                            <div class="d-flex align-center" style="padding-left:@(depth * 18)px; margin-bottom:2px;">
+                                @* Expand/collapse button for directories *@
+                                @if (hasChildren)
+                                {
+                                    <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                                   Size="Size.Small"
+                                                   Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                                   OnClick="() => ToggleFileRulesExpand(capturedNode)" />
+                                }
+                                else
+                                {
+                                    <div style="width: 28px;"></div>
+                                }
+                                @* Checkbox for state *@
+                                @{
+                                    var checkIcon = state switch
+                                    {
+                                        FileRuleState.Overwrite => Icons.Material.Filled.CheckBox,
+                                        FileRuleState.Ignore => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                        _ => Icons.Material.Filled.IndeterminateCheckBox
+                                    };
+                                    var iconColor = state switch
+                                    {
+                                        FileRuleState.Overwrite => "var(--accent-green)",
+                                        FileRuleState.Ignore => "var(--text-secondary)",
+                                        _ => "var(--accent-orange)"
+                                    };
+                                }
+                                <MudIconButton Icon="@checkIcon"
+                                               Size="Size.Small"
+                                               Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                               OnClick="() => ToggleNode(capturedNode)" />
+                                @* Directory/file name (click to expand/collapse for directories) *@
+                                @if (node.IsDirectory && hasChildren)
+                                {
+                                    <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleFileRulesExpand(capturedNode)">
+                                        📁 @(node.Name)
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="ml-1 mono" style="color: var(--text-primary);">
+                                        @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">
+                        No files found in staging for this mod. Delete and reinstall to refresh the file list.
+                    </MudAlert>
+                }
             }
         </DialogContent>
         <DialogActions>
@@ -1330,7 +1393,7 @@
                 <div class="d-flex justify-space-between align-start mb-3">
                     <div>
                         <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@mod.ModName</MudText>
-                        <div class="d-flex gap-1 flex-wrap mt-1" @onclick:stopPropagation="true">
+                        <div class="d-inline-flex gap-1 flex-wrap mt-1" @onclick:stopPropagation="true">
                             <MudChip T="string" Size="Size.Small" Style="@GetStatusChipStyleForMod(mod)">
                                 @GetStatusTextForMod(mod)
                             </MudChip>
@@ -1369,14 +1432,14 @@
                                     <MudMenuItem OnClick="@(() => EditMod(mod))">
                                         <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
                                     </MudMenuItem>
-                                    @if (mod.Status == ModStatus.Installed)
+                                    @* @if (mod.Status == ModStatus.Installed)
                                     {
                                         <MudTooltip Text="Re-download and re-install this mod from the original URL. Useful if mod files were corrupted or manually modified.">
                                             <MudMenuItem OnClick="@(() => ReinstallMod(mod))">
                                                 <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
                                             </MudMenuItem>
                                         </MudTooltip>
-                                    }
+                                    } *@
                                     <MudMenuItem OnClick="@(() => DeleteMod(mod))" Style="color: var(--accent-red);">
                                         <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
                                         @(IsModPendingInstall(mod) ? "Remove" : "Uninstall")
@@ -1398,10 +1461,33 @@
                     Updated: @FormatTimestamp(mod.LastUpdated)
                 </MudText>
 
-                <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
-                    <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                    @mod.InstallPaths.Count install path(s)
-                </MudText>
+                         <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
+                             <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                             @mod.InstallPaths.Count install path(s)
+                         </MudText>
+                         
+                         @if (!IsModPendingInstall(mod))
+                         {
+                             var installedFiles = mod.InstalledFiles ?? new List<string>();
+                             var missingFiles = GetMissingInstalledFiles(mod);
+
+                             if (installedFiles.Count == 0 && !mod.IsProtected)
+                             {
+                                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                     <MudText Typo="Typo.caption">
+                                         No files are being tracked for this mod (click for more details...)
+                                     </MudText>
+                                 </MudAlert>
+                             }
+                             else if (missingFiles.Count > 0)
+                             {
+                                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                     <MudText Typo="Typo.caption">
+                                         Missing @missingFiles.Count tracked file(s). Files may have been removed from disk.
+                                     </MudText>
+                                 </MudAlert>
+                             }
+                         }
                 
                 @if (IsModPendingInstall(mod))
                 {
@@ -2783,6 +2869,8 @@
         {
             // Clear staging and re-download
             ConfigService.ClearStagingForUrl(mod.DownloadUrl);
+
+            @* await ProcessBulkDownload(mod.DownloadUrl); *@
             
             // Trigger download
             var downloadResult = await ModDownloadService.DownloadAndAnalyzeModAsync(mod.DownloadUrl);
@@ -2821,13 +2909,13 @@
             var staging = ConfigService?.Staging;
             if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
             {
-                _fileRulesError = "Staging not found. Reinstall this mod to view files.";
+                _fileRulesError = "Staging not found. Delete and reinstall this mod to view files.";
                 return;
             }
 
             if (string.IsNullOrEmpty(stagingPath))
             {
-                _fileRulesError = "Staging path is empty. Reinstall this mod.";
+                _fileRulesError = "Staging path is empty. Delete and reinstall this mod.";
                 return;
             }
 
@@ -2835,7 +2923,7 @@
             
             if (!Directory.Exists(extractedPath))
             {
-                _fileRulesError = "Staging extraction not found. Reinstall this mod to view files.";
+                _fileRulesError = "Staging extraction not found. Delete and reinstall this mod to view files.";
                 return;
             }
 
@@ -3802,6 +3890,27 @@
             return "Pending Uninstall";
         }
         return "Installed";
+    }
+
+    private List<string> GetMissingInstalledFiles(ModEntry mod)
+    {
+        var missing = new List<string>();
+        var files = mod.InstalledFiles ?? new List<string>();
+        var sptRoot = ConfigService?.SptRoot;
+        if (string.IsNullOrWhiteSpace(sptRoot)) return missing;
+
+        foreach (var rel in files)
+        {
+            if (string.IsNullOrWhiteSpace(rel)) continue;
+            var normalized = rel.Replace("\\", "/");
+            var full = Path.Combine(sptRoot, normalized.Replace("/", Path.DirectorySeparatorChar.ToString()));
+            if (!File.Exists(full))
+            {
+                missing.Add(normalized);
+            }
+        }
+
+        return missing;
     }
 
     private async Task UndoRemoval(ModEntry mod)
