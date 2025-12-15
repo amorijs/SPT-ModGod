@@ -1,0 +1,432 @@
+@using ModGod.Models
+@using ModGod.Web.Models
+@using ModGod.Services
+@using Color = MudBlazor.Color
+@using System.IO
+
+@inject ConfigService ConfigService
+
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            Uninstall @(Mod?.ModName)
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--text-secondary);">
+            The selected paths will be queued for deletion when you click "Apply Changes".
+        </MudText>
+
+        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
+            Paths to be deleted
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+            ✓ Checked = delete &nbsp;|&nbsp; ☐ Unchecked = keep
+        </MudText>
+
+        @if (_loading)
+        {
+            <div class="d-flex align-center mb-2">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <MudText Typo="Typo.body2">Loading paths...</MudText>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-2">
+                @_error
+            </MudAlert>
+        }
+        else if (_treeRoot != null && _treeRoot.Children != null && _treeRoot.Children.Any())
+        {
+            @if (_noAutoPaths)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-2">
+                    No removal paths auto-detected. Check any files or folders you want removed, or delete them manually in your server files after clicking Apply Changes.
+                </MudAlert>
+            }
+
+            <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
+                @foreach (var (node, depth) in GetFlattenedTree())
+                {
+                    var state = GetNodeState(node);
+                    var capturedNode = node;
+                    var isExpanded = node.IsDirectory && _expandedDirs.Contains(node.RelativePath);
+                    var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                    <div class="d-flex align-center" style="padding-left:@(depth * 18)px; margin-bottom:2px;">
+                        @if (hasChildren)
+                        {
+                            <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                           Size="Size.Small"
+                                           Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                           OnClick="() => ToggleExpand(capturedNode)" />
+                        }
+                        else
+                        {
+                            <div style="width: 28px;"></div>
+                        }
+
+                        @{
+                            var checkIcon = state switch
+                            {
+                                DeleteNodeState.Delete => Icons.Material.Filled.CheckBox,
+                                DeleteNodeState.Keep => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                _ => Icons.Material.Filled.IndeterminateCheckBox
+                            };
+                            var iconColor = state switch
+                            {
+                                DeleteNodeState.Delete => "var(--accent-red)",
+                                DeleteNodeState.Keep => "var(--text-secondary)",
+                                _ => "var(--accent-orange)"
+                            };
+                        }
+                        <MudIconButton Icon="@checkIcon"
+                                       Size="Size.Small"
+                                       Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                       OnClick="() => ToggleNode(capturedNode)" />
+
+                        @if (node.IsDirectory && hasChildren)
+                        {
+                            <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleExpand(capturedNode)">
+                                📁 @(node.Name)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="ml-1 mono" style="color: var(--text-primary);">
+                                @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                            </span>
+                        }
+                    </div>
+                }
+            </MudPaper>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info">
+                No paths detected. The mod will be removed from your list without deleting files.
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   Disabled="_loading"
+                   OnClick="ConfirmUninstall">
+            Uninstall
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public ModEntry? Mod { get; set; }
+    [Parameter] public EventCallback<List<string>> OnConfirm { get; set; }
+
+    private bool _loading;
+    private string? _error;
+    private bool _noAutoPaths;
+    private FileNode? _treeRoot;
+    private HashSet<string> _checkedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && Mod != null && _treeRoot == null)
+        {
+            await LoadTreeAsync();
+        }
+        else if (!Visible)
+        {
+            // Reset state when closed
+            _treeRoot = null;
+            _error = null;
+            _loading = false;
+            _checkedPaths.Clear();
+            _expandedDirs.Clear();
+            _noAutoPaths = false;
+        }
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        if (Mod == null) return;
+        
+        try
+        {
+            _loading = true;
+            _error = null;
+            _treeRoot = null;
+            _checkedPaths.Clear();
+            _expandedDirs.Clear();
+
+            var existingSelection = ConfigService.GetRemovalSelection(Mod.DownloadUrl) ?? new List<string>();
+            var installedFiles = Mod.InstalledFiles ?? new List<string>();
+            var prechecked = (existingSelection.Count > 0 ? existingSelection : installedFiles)
+                .Select(NormalizePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _noAutoPaths = prechecked.Count == 0;
+
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+            var sptRoot = ConfigService.SptRoot;
+            var bepPlugins = Path.Combine(sptRoot, "BepInEx", "plugins");
+            var sptMods = Path.Combine(sptRoot, "SPT", "user", "mods");
+
+            TryAddDirectory(root, bepPlugins, "BepInEx/plugins");
+            TryAddDirectory(root, sptMods, "SPT/user/mods");
+
+            // Apply prechecked selections
+            foreach (var rel in prechecked)
+            {
+                var node = FindNodeByPath(root, rel);
+                if (node != null)
+                {
+                    SetNodeState(node, true);
+                }
+            }
+
+            _expandedDirs.Clear();
+            SetInitialExpansion(root);
+
+            if (root.Children.Count == 0)
+            {
+                _error = "No paths detected. This will remove the mod from your list only.";
+            }
+            else
+            {
+                _treeRoot = root;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load delete paths: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void TryAddDirectory(FileNode root, string fullPath, string relativeBase)
+    {
+        if (Directory.Exists(fullPath))
+        {
+            var node = BuildNodeRecursive(fullPath, relativeBase);
+            if (node != null)
+            {
+                root.Children.Add(node);
+            }
+        }
+    }
+
+    private FileNode? BuildNodeRecursive(string fullPath, string relativePath)
+    {
+        if (!Directory.Exists(fullPath))
+            return null;
+
+        var node = new FileNode
+        {
+            Name = Path.GetFileName(fullPath),
+            RelativePath = NormalizePath(relativePath),
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullPath))
+        {
+            var name = Path.GetFileName(dir);
+            var childRel = NormalizePath(Path.Combine(relativePath, name));
+            var child = BuildNodeRecursive(dir, childRel);
+            if (child != null)
+            {
+                node.Children.Add(child);
+            }
+        }
+
+        foreach (var file in Directory.GetFiles(fullPath))
+        {
+            var name = Path.GetFileName(file);
+            var childRel = NormalizePath(Path.Combine(relativePath, name));
+            node.Children.Add(new FileNode
+            {
+                Name = name,
+                RelativePath = childRel,
+                IsDirectory = false
+            });
+        }
+
+        return node;
+    }
+
+    private static string NormalizePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        var cleaned = path.Replace("\\", "/").Replace("<SPT_ROOT>", "", StringComparison.OrdinalIgnoreCase);
+        return cleaned.TrimStart('/');
+    }
+
+    private static string ToPlaceholderPath(string relativePath)
+    {
+        var normalized = NormalizePath(relativePath);
+        return string.IsNullOrEmpty(normalized) ? string.Empty : $"<SPT_ROOT>/{normalized}";
+    }
+
+    private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        var children = node.Children;
+        if (!node.IsDirectory || children == null || children.Count == 0)
+        {
+            yield return node;
+            yield break;
+        }
+
+        foreach (var child in children)
+        {
+            foreach (var leaf in GetLeafNodes(child))
+                yield return leaf;
+        }
+    }
+
+    private DeleteNodeState GetNodeState(FileNode node)
+    {
+        if (!node.IsDirectory || node.Children == null || node.Children.Count == 0)
+        {
+            return _checkedPaths.Contains(node.RelativePath)
+                ? DeleteNodeState.Delete
+                : DeleteNodeState.Keep;
+        }
+
+        var leafStates = GetLeafNodes(node).Select(GetNodeState).Distinct().ToList();
+        if (leafStates.Count == 0) return DeleteNodeState.Keep;
+        if (leafStates.Count == 1) return leafStates[0];
+        return DeleteNodeState.Mixed;
+    }
+
+    private void SetNodeState(FileNode node, bool delete)
+    {
+        foreach (var leaf in GetLeafNodes(node))
+        {
+            if (delete)
+            {
+                _checkedPaths.Add(leaf.RelativePath);
+            }
+            else
+            {
+                _checkedPaths.Remove(leaf.RelativePath);
+            }
+        }
+    }
+
+    private void ToggleNode(FileNode node)
+    {
+        var makeDelete = GetNodeState(node) != DeleteNodeState.Delete;
+        SetNodeState(node, makeDelete);
+    }
+
+    private void ToggleExpand(FileNode node)
+    {
+        if (node == null || !node.IsDirectory) return;
+
+        if (_expandedDirs.Contains(node.RelativePath))
+            _expandedDirs.Remove(node.RelativePath);
+        else
+            _expandedDirs.Add(node.RelativePath);
+    }
+
+    private void SetInitialExpansion(FileNode root)
+    {
+        void Walk(FileNode node)
+        {
+            if (node.IsDirectory)
+            {
+                var state = GetNodeState(node);
+                if (state != DeleteNodeState.Keep && !string.IsNullOrEmpty(node.RelativePath))
+                {
+                    _expandedDirs.Add(node.RelativePath);
+                }
+            }
+
+            foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+            {
+                Walk(child);
+            }
+        }
+
+        Walk(root);
+    }
+
+    private FileNode? FindNodeByPath(FileNode? node, string relativePath)
+    {
+        if (node == null) return null;
+        var norm = NormalizePath(relativePath);
+        if (NormalizePath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
+            return node;
+
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+        {
+            var found = FindNodeByPath(child, relativePath);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_treeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath))
+            {
+                return;
+            }
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _treeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task ConfirmUninstall()
+    {
+        var selectedPaths = _checkedPaths
+            .Select(ToPlaceholderPath)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        await OnConfirm.InvokeAsync(selectedPaths);
+        await Close();
+    }
+}

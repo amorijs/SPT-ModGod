@@ -1,0 +1,124 @@
+@* StatsBar Component - Clickable filter cards showing mod counts *@
+
+<div class="d-flex gap-3 mb-4" style="flex-wrap: wrap;">
+    @* Total Mods *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle(null)" @onclick="() => OnFilterClick(null)">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@TotalCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
+            </div>
+        </div>
+    </MudPaper>
+    
+    @* Installed *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Installed")" @onclick="@(() => OnFilterClick("Installed"))">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@InstalledCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Installed</MudText>
+            </div>
+        </div>
+    </MudPaper>
+    
+    @* Pending Install *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Pending")" @onclick="@(() => OnFilterClick("Pending"))">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@PendingCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Install</MudText>
+            </div>
+        </div>
+    </MudPaper>
+    
+    @* Pending Uninstall *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("PendingRemoval")" @onclick="@(() => OnFilterClick("PendingRemoval"))">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Delete" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@PendingRemovalCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Uninstall</MudText>
+            </div>
+        </div>
+    </MudPaper>
+    
+    @* Required *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Required")" @onclick="@(() => OnFilterClick("Required"))">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@RequiredCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
+            </div>
+        </div>
+    </MudPaper>
+    
+    @* Optional *@
+    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Optional")" @onclick="@(() => OnFilterClick("Optional"))">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.LockOpen" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@OptionalCount</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Optional</MudText>
+            </div>
+        </div>
+    </MudPaper>
+</div>
+
+@code {
+    /// <summary>Total number of mods in staged config</summary>
+    [Parameter] public int TotalCount { get; set; }
+    
+    /// <summary>Number of installed mods (in both staged and live config)</summary>
+    [Parameter] public int InstalledCount { get; set; }
+    
+    /// <summary>Number of mods pending install (in staged but not live)</summary>
+    [Parameter] public int PendingCount { get; set; }
+    
+    /// <summary>Number of mods pending removal (in live but not staged)</summary>
+    [Parameter] public int PendingRemovalCount { get; set; }
+    
+    /// <summary>Number of required mods</summary>
+    [Parameter] public int RequiredCount { get; set; }
+    
+    /// <summary>Number of optional mods</summary>
+    [Parameter] public int OptionalCount { get; set; }
+    
+    /// <summary>Currently active filter (null = show all)</summary>
+    [Parameter] public string? ActiveFilter { get; set; }
+    
+    /// <summary>Callback when a filter is clicked</summary>
+    [Parameter] public EventCallback<string?> OnFilterChanged { get; set; }
+    
+    private async Task OnFilterClick(string? filter)
+    {
+        // Toggle behavior: clicking same filter clears it
+        var newFilter = ActiveFilter == filter ? null : filter;
+        await OnFilterChanged.InvokeAsync(newFilter);
+    }
+    
+    private string GetCardStyle(string? filter)
+    {
+        var isActive = ActiveFilter == filter;
+        var baseStyle = "background: var(--card-bg); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; min-width: 140px;";
+        
+        if (isActive)
+        {
+            var borderColor = filter switch
+            {
+                "Installed" => "var(--accent-green)",
+                "Pending" => "var(--accent-orange)",
+                "PendingRemoval" => "var(--accent-red)",
+                "Required" => "var(--accent-red)",
+                "Optional" => "var(--accent-green)",
+                _ => "var(--accent-cyan)" // Total
+            };
+            return $"{baseStyle} border: 2px solid {borderColor}; box-shadow: 0 0 12px {borderColor}40;";
+        }
+        
+        return $"{baseStyle} border: 1px solid var(--border-color);";
+    }
+}

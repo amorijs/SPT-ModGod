@@ -1,0 +1,96 @@
+@using ModGod.Models
+@using ModGod.Web.Models
+@using Color = MudBlazor.Color
+
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Apply Changes Result</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Result != null)
+        {
+            @if (Result.InstalledMods.Count > 0)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">✓ Installed @Result.InstalledMods.Count mod(s):</MudText>
+                    @foreach (var mod in Result.InstalledMods)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• @mod</MudText>
+                    }
+                </MudAlert>
+            }
+            
+            @if (Result.QueuedForInstall.Count > 0)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">📦 @Result.QueuedForInstall.Count mod(s) will be installed on server restart:</MudText>
+                    @foreach (var mod in Result.QueuedForInstall)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• @mod</MudText>
+                    }
+                </MudAlert>
+            }
+            
+            @if (Result.QueuedForRemoval.Count > 0)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">🗑️ @Result.QueuedForRemoval.Count mod(s) will be removed on server restart:</MudText>
+                    @foreach (var mod in Result.QueuedForRemoval)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• @mod</MudText>
+                    }
+                </MudAlert>
+            }
+            
+            @if (Result.Errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">❌ Errors:</MudText>
+                    @foreach (var error in Result.Errors)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• @error</MudText>
+                    }
+                </MudAlert>
+            }
+            
+            @if (Result.AutoInstallerLaunched)
+            {
+                <MudAlert Severity="Severity.Success" Class="mt-4">
+                    <MudText Typo="Typo.subtitle2">🚀 Auto-Installer Launched!</MudText>
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        A PowerShell window has opened that will automatically install the pending mods
+                        when you stop the SPT server.
+                    </MudText>
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        <strong>Just stop the server normally</strong> - the installer will detect it and complete the installation.
+                    </MudText>
+                </MudAlert>
+            }
+            else if (Result.QueuedForInstall.Count > 0)
+            {
+                <MudAlert Severity="Severity.Info" Class="mt-4">
+                    <MudText Typo="Typo.body2">
+                        @(Result.QueuedForInstall.Count) mod(s) queued for installation on next server restart.
+                    </MudText>
+                </MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">
+            OK
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public ApplyChangesResult? Result { get; set; }
+    
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+}

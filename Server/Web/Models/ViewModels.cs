@@ -60,6 +60,17 @@ public class InstallPathItem
     public string Target { get; set; } = "";
 }
 
+/// <summary>
+/// Result from the Edit Mod dialog
+/// </summary>
+public class EditModResult
+{
+    public string ModName { get; set; } = "";
+    public bool IsOptional { get; set; }
+    public List<string[]> InstallPaths { get; set; } = new();
+    public List<ModGod.Models.FileCopyRule> FileRules { get; set; } = new();
+}
+
 #region Forge UI Models (used by frontend to communicate with ModGod internal API)
 
 /// <summary>

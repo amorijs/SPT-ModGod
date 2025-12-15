@@ -1,0 +1,186 @@
+@using ModGod.Models
+@using ModGod.Web.Models
+@using Color = MudBlazor.Color
+
+<MudItem xs="12" md="6" lg="4">
+    <MudPaper Class="pa-4" Style="@(CardStyle + (Mod.IsProtected ? "" : " cursor: pointer;"))" 
+              @onclick="OnCardClick">
+        <div class="d-flex justify-space-between align-start mb-3">
+            <div>
+                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@Mod.ModName</MudText>
+                <div class="d-inline-flex gap-1 flex-wrap mt-1" @onclick:stopPropagation="true">
+                    <MudChip T="string" Size="Size.Small" Style="@StatusChipStyle">
+                        @StatusText
+                    </MudChip>
+                    @if (Mod.IsProtected)
+                    {
+                        <MudChip T="string" Size="Size.Small" 
+                                 Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff;">
+                            <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" /> Built-in
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" 
+                                 Style="@(Mod.Optional ? "background: var(--accent-green); color: #000; cursor: pointer;" : "background: var(--accent-orange); color: #000; cursor: pointer;")"
+                                 OnClick="@(() => OnToggleOptional.InvokeAsync(Mod))">
+                            @(Mod.Optional ? "Optional" : "Required")
+                        </MudChip>
+                    }
+                </div>
+            </div>
+            @if (!Mod.IsProtected)
+            {
+                <div @onclick:stopPropagation="true">
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true">
+                        @if (IsPendingRemoval)
+                        {
+                            <MudMenuItem OnClick="@(() => OnOpenUninstallDialog.InvokeAsync(Mod))">
+                                <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit Removal
+                            </MudMenuItem>
+                            <MudMenuItem OnClick="@(() => OnUndoRemoval.InvokeAsync(Mod))" Style="color: var(--accent-green);">
+                                <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Class="mr-2" /> Undo Removal
+                            </MudMenuItem>
+                        }
+                        else
+                        {
+                            <MudMenuItem OnClick="@(() => OnEdit.InvokeAsync(Mod))">
+                                <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
+                            </MudMenuItem>
+                            <MudMenuItem OnClick="@(() => OnDelete.InvokeAsync(Mod))" Style="color: var(--accent-red);">
+                                <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
+                                @(IsPendingInstall ? "Remove" : "Uninstall")
+                            </MudMenuItem>
+                        }
+                    </MudMenu>
+                </div>
+            }
+        </div>
+
+        <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
+            @TruncateUrl(Mod.DownloadUrl)
+        </MudText>
+
+        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+
+        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+            <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            Updated: @FormatTimestamp(Mod.LastUpdated)
+        </MudText>
+
+        <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
+            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            @Mod.InstallPaths.Count install path(s)
+        </MudText>
+        
+        @if (!IsPendingInstall)
+        {
+            var installedFiles = Mod.InstalledFiles ?? new List<string>();
+
+            if (installedFiles.Count == 0 && !Mod.IsProtected)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                    <MudText Typo="Typo.caption">
+                        No files are being tracked for this mod (click for more details...)
+                    </MudText>
+                </MudAlert>
+            }
+            else if (MissingFilesCount > 0)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                    <MudText Typo="Typo.caption">
+                        Missing @MissingFilesCount tracked file(s). Files may have been removed from disk.
+                    </MudText>
+                </MudAlert>
+            }
+        }
+
+        @if (IsPendingInstall)
+        {
+            @if (NeedsConfiguration)
+            {
+                <div class="mt-2 pa-2" style="background: rgba(255, 82, 82, 0.15); border: 1px solid var(--accent-red); border-radius: 6px;">
+                    <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                        <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                        Needs configuration — click to set install paths
+                    </MudText>
+                </div>
+            }
+            else
+            {
+                @if (OverwriteCount > 0)
+                {
+                    <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
+                        <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            @OverwriteCount existing file(s) will be overwritten
+                        </MudText>
+                    </div>
+                }
+                
+                @if (SkippedCount > 0)
+                {
+                    <div class="@(OverwriteCount > 0 ? "mt-1" : "mt-2") pa-2" style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-cyan); border-radius: 6px;">
+                        <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
+                            <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                            @SkippedCount file(s) preserved (won't overwrite)
+                        </MudText>
+                    </div>
+                }
+            }
+        }
+    </MudPaper>
+</MudItem>
+
+@code {
+    [Parameter, EditorRequired] public ModEntry Mod { get; set; } = null!;
+    
+    // State parameters
+    [Parameter] public bool IsPendingInstall { get; set; }
+    [Parameter] public bool IsPendingRemoval { get; set; }
+    [Parameter] public bool NeedsConfiguration { get; set; }
+    [Parameter] public int OverwriteCount { get; set; }
+    [Parameter] public int SkippedCount { get; set; }
+    [Parameter] public int MissingFilesCount { get; set; }
+    
+    // Computed style parameters
+    [Parameter] public string CardStyle { get; set; } = "";
+    [Parameter] public string StatusChipStyle { get; set; } = "";
+    [Parameter] public string StatusText { get; set; } = "";
+    
+    // Event callbacks
+    [Parameter] public EventCallback<ModEntry> OnEdit { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnDelete { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnToggleOptional { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnOpenUninstallDialog { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnUndoRemoval { get; set; }
+    
+    private void OnCardClick()
+    {
+        if (Mod.IsProtected) return;
+        
+        if (IsPendingRemoval)
+        {
+            OnOpenUninstallDialog.InvokeAsync(Mod);
+        }
+        else
+        {
+            OnEdit.InvokeAsync(Mod);
+        }
+    }
+    
+    private static string TruncateUrl(string url)
+    {
+        if (url.Length <= 50) return url;
+        return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
+    }
+    
+    private static string FormatTimestamp(string timestamp)
+    {
+        if (DateTime.TryParse(timestamp, out var dt))
+        {
+            return dt.ToString("MMM dd, yyyy HH:mm");
+        }
+        return "Never";
+    }
+}

@@ -1,0 +1,54 @@
+@* FileTreeView Component - Reusable file/folder tree with checkboxes *@
+@* Used by: SyncExclusionsPanel, EditModDialog, UninstallDialog *@
+
+@using ModGod.Web.Models
+
+<MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
+    @if (RootNode == null || RootNode.Children == null || !RootNode.Children.Any())
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">No items to display</MudText>
+    }
+    else
+    {
+        @* Placeholder - tree rendering to be implemented *@
+        <MudText>FileTreeView Component Placeholder (@RootNode.Children.Count items)</MudText>
+    }
+</MudPaper>
+
+@code {
+    /// <summary>
+    /// Root node of the file tree (children will be displayed)
+    /// </summary>
+    [Parameter] public FileNode? RootNode { get; set; }
+    
+    /// <summary>
+    /// Set of expanded directory paths
+    /// </summary>
+    [Parameter] public HashSet<string> ExpandedPaths { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    
+    /// <summary>
+    /// Called when a node is toggled (checked/unchecked)
+    /// </summary>
+    [Parameter] public EventCallback<FileNode> OnNodeToggle { get; set; }
+    
+    /// <summary>
+    /// Called when a directory is expanded/collapsed
+    /// </summary>
+    [Parameter] public EventCallback<FileNode> OnExpandToggle { get; set; }
+    
+    /// <summary>
+    /// Function to determine the state of a node (for tri-state checkbox)
+    /// </summary>
+    [Parameter] public Func<FileNode, int>? GetNodeState { get; set; }
+    
+    /// <summary>
+    /// Label for checked state
+    /// </summary>
+    [Parameter] public string CheckedLabel { get; set; } = "Included";
+    
+    /// <summary>
+    /// Label for unchecked state
+    /// </summary>
+    [Parameter] public string UncheckedLabel { get; set; } = "Excluded";
+}
+
