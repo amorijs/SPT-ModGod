@@ -52,3 +52,5 @@ logs/
 
 # Reference directories (not part of the mod - for development only)
 reference_*/
+# Ignore all reference files
+reference_*.*
