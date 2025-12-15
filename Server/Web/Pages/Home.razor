@@ -543,10 +543,10 @@
                                 @if (_forgeShowSearchResults && _forgeSearchResults.Any() && _forgeMod == null)
                                 {
                                     <MudPaper Elevation="8" Style="max-height: 350px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color);">
-                                        <MudList T="ForgeSearchResult" Dense="true" Class="py-0">
+                                        <MudList T="ForgeSearchResultViewModel" Dense="true" Class="py-0">
                                             @foreach (var result in _forgeSearchResults)
                                             {
-                                                <MudListItem T="ForgeSearchResult" OnClick="@(() => OnForgeSearchResultSelected(result))" Style="cursor: pointer;">
+                                                <MudListItem T="ForgeSearchResultViewModel" OnClick="@(() => OnForgeSearchResultSelected(result))" Style="cursor: pointer;">
                                                     <div class="d-flex gap-2 align-center py-1">
                                                         @if (!string.IsNullOrEmpty(result.Thumbnail))
                                                         {
@@ -1553,7 +1553,7 @@
     private string? _currentDownloadUrl;
     private List<ModDownloadResult> _downloadResults = new();
 
-    private enum AddDialogStep { Input, Downloading, Results }
+    // AddDialogStep enum moved to ViewModels.cs
 
     // Forge Integration
     private bool _forgeHasApiKey = false;
@@ -1562,54 +1562,19 @@
     private string? _forgeApiKeyError;
     private string _forgeSearchInput = "";
     private bool _forgeModLoading = false;
-    private ForgeModInfo? _forgeMod = null;
+    private ForgeModInfoViewModel? _forgeMod = null;
     private string? _forgeModError;
     private string? _forgeSelectedVersion;
     private bool _forgeOptional = false;
     
     // Forge Search
-    private List<ForgeSearchResult> _forgeSearchResults = new();
+    private List<ForgeSearchResultViewModel> _forgeSearchResults = new();
     private bool _forgeSearchLoading = false;
     private bool _forgeShowSearchResults = false;
     private System.Threading.Timer? _forgeSearchDebounceTimer;
     private const int ForgeSearchDebounceMs = 400;
 
-    private class ForgeModInfo
-    {
-        public int Id { get; set; }
-        public string Guid { get; set; } = "";
-        public string Name { get; set; } = "";
-        public string? Teaser { get; set; }
-        public string? Thumbnail { get; set; }
-        public long Downloads { get; set; }
-        public string? Owner { get; set; }
-        public string? Category { get; set; }
-        public string? CategoryColor { get; set; }
-        public string? License { get; set; }
-        public string? DetailUrl { get; set; }
-        public List<ForgeVersionInfo> Versions { get; set; } = new();
-    }
-
-    private class ForgeVersionInfo
-    {
-        public int Id { get; set; }
-        public string Version { get; set; } = "";
-        public string? SptVersionConstraint { get; set; }
-        public long Downloads { get; set; }
-        public string? PublishedAt { get; set; }
-        public string DownloadUrl { get; set; } = "";
-    }
-
-    private class ForgeSearchResult
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = "";
-        public string Slug { get; set; } = "";
-        public string? Thumbnail { get; set; }
-        public long Downloads { get; set; }
-        public string? Teaser { get; set; }
-        public string? DetailUrl { get; set; }
-    }
+    // ForgeModInfo, ForgeVersionInfo, ForgeSearchResult moved to ViewModels.cs
 
     // Edit Mod Dialog
     private bool _editDialogVisible = false;
@@ -1620,11 +1585,7 @@
     private List<InstallPathItem> _editInstallPaths = new();
     private List<string>? _archiveContents;
 
-    private class InstallPathItem
-    {
-        public string Source { get; set; } = "";
-        public string Target { get; set; } = "";
-    }
+    // InstallPathItem moved to ViewModels.cs
 
     // Sync exclusions (manifest opt-out)
     private bool _syncExclusionsLoading = false;
@@ -1639,19 +1600,10 @@
     private List<string> _defaultExclusionPatterns = new();
     private string _defaultExclusionPatternsText = "";
 
-    private enum SyncNodeState { Included, Excluded, Mixed }
+    // SyncNodeState enum moved to ViewModels.cs
 
-    // File rules for install (overwrite/ignore)
-    private enum FileRuleState { Overwrite, Ignore, Mixed }
+    // FileRuleState enum and FileNode class moved to ViewModels.cs
     private HashSet<string> _fileRulesExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
-
-    private class FileNode
-    {
-        public string Name { get; set; } = "";
-        public string RelativePath { get; set; } = "";
-        public bool IsDirectory { get; set; }
-        public List<FileNode> Children { get; set; } = new();
-    }
 
     private FileNode? _fileTreeRoot;
     private HashSet<string> _fileRulesIgnore = new(StringComparer.OrdinalIgnoreCase);
@@ -1668,12 +1620,7 @@
     private string? _uninstallTreeError;
     private bool _uninstallNoAutoPaths = false;
 
-    private enum DeleteNodeState
-    {
-        Delete,
-        Keep,
-        Mixed
-    }
+    // DeleteNodeState enum moved to ViewModels.cs
 
     // Apply Changes
     private async Task ApplyChanges()
@@ -1773,7 +1720,7 @@
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync();
-                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeStatusResponse>(json,
+                var result = System.Text.Json.JsonSerializer.Deserialize<InternalForgeStatusResponse>(json,
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 _forgeHasApiKey = result?.HasApiKey ?? false;
             }
@@ -1784,10 +1731,7 @@
         }
     }
     
-    private class ForgeStatusResponse
-    {
-        public bool HasApiKey { get; set; }
-    }
+    // ForgeStatusResponse moved to ViewModels.cs
 
     private async Task ProcessBulkDownload()
     {
@@ -1920,7 +1864,7 @@
             
             var response = await client.PostAsync("https://127.0.0.1:6969/modgod/api/forge/validate-key", content);
             var json = await response.Content.ReadAsStringAsync();
-            var result = System.Text.Json.JsonSerializer.Deserialize<ForgeValidateResponse>(json, 
+            var result = System.Text.Json.JsonSerializer.Deserialize<InternalForgeValidateResponse>(json, 
                 new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (result?.Success == true)
@@ -1944,11 +1888,7 @@
         }
     }
 
-    private class ForgeValidateResponse
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-    }
+    // ForgeValidateResponse moved to ViewModels.cs
 
     private async Task RemoveForgeApiKey()
     {
@@ -2055,12 +1995,12 @@
 
             if (response.IsSuccessStatusCode)
             {
-                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeSearchApiResponse>(json, 
+                var result = System.Text.Json.JsonSerializer.Deserialize<InternalForgeSearchResponse>(json, 
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                 if (result?.Success == true && result.Mods != null)
                 {
-                    _forgeSearchResults = result.Mods.Select(m => new ForgeSearchResult
+                    _forgeSearchResults = result.Mods.Select(m => new ForgeSearchResultViewModel
                     {
                         Id = m.Id,
                         Name = m.Name ?? "",
@@ -2085,7 +2025,7 @@
         }
     }
 
-    private async Task OnForgeSearchResultSelected(ForgeSearchResult result)
+    private async Task OnForgeSearchResultSelected(ForgeSearchResultViewModel result)
     {
         _forgeShowSearchResults = false;
         _forgeSearchResults.Clear();
@@ -2123,12 +2063,12 @@
 
             if (response.IsSuccessStatusCode)
             {
-                var result = System.Text.Json.JsonSerializer.Deserialize<ForgeModApiResponse>(json, 
+                var result = System.Text.Json.JsonSerializer.Deserialize<InternalForgeModResponse>(json, 
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                 if (result?.Success == true && result.Mod != null)
                 {
-                    _forgeMod = new ForgeModInfo
+                    _forgeMod = new ForgeModInfoViewModel
                     {
                         Id = result.Mod.Id,
                         Guid = result.Mod.Guid ?? "",
@@ -2141,7 +2081,7 @@
                         CategoryColor = result.Mod.CategoryColor,
                         License = result.Mod.License,
                         DetailUrl = result.Mod.DetailUrl,
-                        Versions = result.Mod.Versions?.Select(v => new ForgeVersionInfo
+                        Versions = result.Mod.Versions?.Select(v => new ForgeVersionViewModel
                         {
                             Id = v.Id,
                             Version = v.Version ?? "",
@@ -2162,7 +2102,7 @@
             }
             else
             {
-                var errorResult = System.Text.Json.JsonSerializer.Deserialize<ForgeValidateResponse>(json,
+                var errorResult = System.Text.Json.JsonSerializer.Deserialize<InternalForgeValidateResponse>(json,
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 _forgeModError = errorResult?.Error ?? $"API error: {response.StatusCode}";
             }
@@ -2178,56 +2118,7 @@
         }
     }
 
-    private class ForgeModApiResponse
-    {
-        public bool Success { get; set; }
-        public ForgeModApiData? Mod { get; set; }
-        public string? Error { get; set; }
-    }
-
-    private class ForgeSearchApiResponse
-    {
-        public bool Success { get; set; }
-        public List<ForgeSearchModApiData>? Mods { get; set; }
-        public string? Error { get; set; }
-    }
-
-    private class ForgeSearchModApiData
-    {
-        public int Id { get; set; }
-        public string? Name { get; set; }
-        public string? Slug { get; set; }
-        public string? Thumbnail { get; set; }
-        public long Downloads { get; set; }
-        public string? Teaser { get; set; }
-        public string? DetailUrl { get; set; }
-    }
-
-    private class ForgeModApiData
-    {
-        public int Id { get; set; }
-        public string? Guid { get; set; }
-        public string? Name { get; set; }
-        public string? Teaser { get; set; }
-        public string? Thumbnail { get; set; }
-        public long Downloads { get; set; }
-        public string? Owner { get; set; }
-        public string? Category { get; set; }
-        public string? CategoryColor { get; set; }
-        public string? License { get; set; }
-        public string? DetailUrl { get; set; }
-        public List<ForgeVersionApiData>? Versions { get; set; }
-    }
-
-    private class ForgeVersionApiData
-    {
-        public int Id { get; set; }
-        public string? Version { get; set; }
-        public string? SptVersionConstraint { get; set; }
-        public long Downloads { get; set; }
-        public string? PublishedAt { get; set; }
-        public string? DownloadUrl { get; set; }
-    }
+    // Forge API response classes moved to ViewModels.cs
 
     private static int? ExtractModIdFromForgeUrl(string url)
     {
