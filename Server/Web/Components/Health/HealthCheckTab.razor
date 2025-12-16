@@ -1,0 +1,367 @@
+@using ModGod.Models
+@using ModGod.Services
+@using MudBlazor
+
+<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="d-flex justify-space-between align-center mb-3">
+        <div>
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.HealthAndSafety" Class="mr-2" Style="vertical-align: middle;" />
+                Mod Health Check
+            </MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Scans all installed mods for updates and compatibility issues using the Forge API.
+            </MudText>
+        </div>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   Style="background: var(--accent-cyan); color: #000; font-weight: 600;"
+                   StartIcon="@(_isChecking ? null : Icons.Material.Filled.Refresh)"
+                   Disabled="_isChecking || !HasApiKey"
+                   OnClick="RunHealthCheckAsync">
+            @if (_isChecking)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Scanning...</span>
+            }
+            else
+            {
+                <span>Check for Updates</span>
+            }
+        </MudButton>
+    </div>
+
+    @if (!HasApiKey)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <MudText>No Forge API key configured. Set up your API key in Settings to use the health check feature.</MudText>
+            <MudText Typo="Typo.caption" Class="mt-1">
+                Get an API key from <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank">forge.sp-tarkov.com</MudLink>
+            </MudText>
+        </MudAlert>
+    }
+    else if (_result != null)
+    {
+        <!-- SPT Version Info -->
+        <MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="d-flex justify-space-between align-center">
+                <div class="d-flex align-center gap-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Memory" Style="color: var(--accent-cyan);" />
+                    <MudText Typo="Typo.body1" Style="color: var(--text-primary);">
+                        <strong>SPT Version:</strong> @(_result.SptVersion ?? "Unknown")
+                    </MudText>
+                </div>
+                @if (_result.SptUpdateAvailable)
+                {
+                    <MudChip T="string" Color="Color.Warning" Size="Size.Small" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.NewReleases" Size="Size.Small" Class="mr-1" />
+                        Update available: @_result.LatestSptVersion
+                    </MudChip>
+                }
+                else if (!string.IsNullOrEmpty(_result.LatestSptVersion))
+                {
+                    <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" />
+                        Up to date
+                    </MudChip>
+                }
+            </div>
+        </MudPaper>
+
+        <!-- Stats Summary -->
+        <div class="d-flex gap-3 mb-4 flex-wrap">
+            <MudPaper Class="pa-3 flex-grow-1" Style="@GetStatCardStyle("total")">
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@_result.TotalMods</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Total Mods</MudText>
+            </MudPaper>
+            <MudPaper Class="pa-3 flex-grow-1 cursor-pointer" Style="@GetStatCardStyle("uptodate")" @onclick="@(() => SetFilter("uptodate"))">
+                <MudText Typo="Typo.h4" Style="color: var(--accent-green);">@_result.UpToDateCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Up to Date</MudText>
+            </MudPaper>
+            <MudPaper Class="pa-3 flex-grow-1 cursor-pointer" Style="@GetStatCardStyle("updates")" @onclick="@(() => SetFilter("updates"))">
+                <MudText Typo="Typo.h4" Style="color: var(--accent-orange);">@_result.UpdatesAvailableCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Updates Available</MudText>
+            </MudPaper>
+            <MudPaper Class="pa-3 flex-grow-1 cursor-pointer" Style="@GetStatCardStyle("untracked")" @onclick="@(() => SetFilter("untracked"))">
+                <MudText Typo="Typo.h4" Style="color: var(--accent-purple);">@_result.UntrackedCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Untracked</MudText>
+            </MudPaper>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_result.Error))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_result.Error</MudAlert>
+        }
+
+        <!-- Filter bar -->
+        @if (_activeFilter != null)
+        {
+            <div class="d-flex align-center gap-2 mb-3">
+                <MudChip T="string" Color="Color.Primary" OnClose="ClearFilter" CloseIcon="@Icons.Material.Filled.Close">
+                    Filter: @GetFilterLabel(_activeFilter)
+                </MudChip>
+            </div>
+        }
+
+        <!-- Mod List -->
+        @if (_result.Mods.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">No mods found. Make sure you have mods installed in BepInEx/plugins or SPT/user/mods.</MudAlert>
+        }
+        else
+        {
+            var filteredMods = GetFilteredMods();
+            
+            @if (filteredMods.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">No mods match the current filter.</MudAlert>
+            }
+            else
+            {
+                <MudTable Items="@filteredMods" 
+                          Dense="true" 
+                          Hover="true"
+                          Striped="true"
+                          Style="background: var(--secondary-bg);">
+                    <HeaderContent>
+                        <MudTh>Mod Name</MudTh>
+                        <MudTh>Installed</MudTh>
+                        <MudTh>Latest</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh Style="width: 100px;">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Mod Name">
+                            <div class="d-flex align-center gap-2">
+                                @if (!string.IsNullOrEmpty(context.ForgeUrl))
+                                {
+                                    <MudLink Href="@context.ForgeUrl" Target="_blank" Style="color: var(--text-primary); font-weight: 500;">
+                                        @context.DisplayName
+                                    </MudLink>
+                                }
+                                else
+                                {
+                                    <MudText Style="color: var(--text-primary); font-weight: 500;">@context.DisplayName</MudText>
+                                }
+                                @if (!context.IsTracked)
+                                {
+                                    <MudTooltip Text="This mod is not tracked by ModGod. It may have been installed manually or before ModGod was set up.">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Style="color: var(--accent-purple); border-color: var(--accent-purple);">
+                                            <MudIcon Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small" Class="mr-1" />
+                                            Untracked
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                else if (context.TrackedMod?.Optional == true)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Style="color: var(--text-secondary);">Optional</MudChip>
+                                }
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Installed">
+                            <code style="color: var(--text-secondary);">@(context.InstalledVersion ?? "?")</code>
+                        </MudTd>
+                        <MudTd DataLabel="Latest">
+                            @if (!string.IsNullOrEmpty(context.LatestVersion))
+                            {
+                                <code style="@GetVersionStyle(context)">@context.LatestVersion</code>
+                            }
+                            else
+                            {
+                                <span style="color: var(--text-secondary);">—</span>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Status">
+                            @switch (context.Status)
+                            {
+                                case ModHealthStatus.UpToDate:
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" />
+                                        Up to date
+                                    </MudChip>
+                                    break;
+                                case ModHealthStatus.UpdateAvailable:
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
+                                        <MudIcon Icon="@Icons.Material.Filled.NewReleases" Size="Size.Small" Class="mr-1" />
+                                        Update
+                                    </MudChip>
+                                    break;
+                                case ModHealthStatus.NewerThanForge:
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                                        <MudIcon Icon="@Icons.Material.Filled.Science" Size="Size.Small" Class="mr-1" />
+                                        Dev/Beta
+                                    </MudChip>
+                                    break;
+                                case ModHealthStatus.NotOnForge:
+                                    <MudTooltip Text="This mod was not found on Forge">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                                            <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Class="mr-1" />
+                                            Not on Forge
+                                        </MudChip>
+                                    </MudTooltip>
+                                    break;
+                                case ModHealthStatus.Incompatible:
+                                    <MudTooltip Text="@(context.ErrorMessage ?? "Incompatible with current SPT version")">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">
+                                            <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Class="mr-1" />
+                                            Incompatible
+                                        </MudChip>
+                                    </MudTooltip>
+                                    break;
+                                case ModHealthStatus.Error:
+                                    <MudTooltip Text="@(context.ErrorMessage ?? "Error checking this mod")">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">
+                                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" />
+                                            Error
+                                        </MudChip>
+                                    </MudTooltip>
+                                    break;
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Actions">
+                            @if (!string.IsNullOrEmpty(context.ForgeUrl))
+                            {
+                                <MudTooltip Text="View on Forge">
+                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                   Size="Size.Small"
+                                                   Href="@context.ForgeUrl"
+                                                   Target="_blank" />
+                                </MudTooltip>
+                            }
+                            @if (context.HasUpdate && !string.IsNullOrEmpty(context.LatestDownloadUrl))
+                            {
+                                <MudTooltip Text="Download latest version">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                                   Size="Size.Small"
+                                                   Color="Color.Warning"
+                                                   Href="@context.LatestDownloadUrl"
+                                                   Target="_blank" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
+
+        <!-- Last checked timestamp -->
+        <MudText Typo="Typo.caption" Class="mt-3" Style="color: var(--text-secondary);">
+            Last checked: @_result.CheckedAt.ToLocalTime().ToString("g")
+        </MudText>
+    }
+    else if (!_isChecking)
+    {
+        <MudAlert Severity="Severity.Info">
+            Click "Check for Updates" to scan your installed mods for updates and compatibility issues.
+        </MudAlert>
+    }
+</MudPaper>
+
+@code {
+    [Inject] private ModHealthService HealthService { get; set; } = default!;
+    [Inject] private ForgeService ForgeService { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    private bool _isChecking = false;
+    private HealthCheckResult? _result;
+    private string? _activeFilter = null;
+
+    private bool HasApiKey => ForgeService.HasApiKey;
+
+    private async Task RunHealthCheckAsync()
+    {
+        _isChecking = true;
+        _activeFilter = null;
+        StateHasChanged();
+
+        try
+        {
+            _result = await HealthService.RunHealthCheckAsync(forceRefresh: true);
+            
+            if (!_result.Success)
+            {
+                Snackbar.Add(_result.Error ?? "Health check failed", Severity.Error);
+            }
+            else if (_result.UpdatesAvailableCount > 0)
+            {
+                Snackbar.Add($"Found {_result.UpdatesAvailableCount} mod(s) with updates available!", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("All mods are up to date!", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isChecking = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetFilter(string filter)
+    {
+        _activeFilter = _activeFilter == filter ? null : filter;
+    }
+
+    private void ClearFilter()
+    {
+        _activeFilter = null;
+    }
+
+    private string GetFilterLabel(string? filter) => filter switch
+    {
+        "uptodate" => "Up to Date",
+        "updates" => "Updates Available",
+        "untracked" => "Untracked",
+        "issues" => "Issues",
+        _ => filter ?? ""
+    };
+
+    private List<ModHealthInfo> GetFilteredMods()
+    {
+        if (_result == null) return [];
+
+        var mods = _result.Mods.AsEnumerable();
+
+        mods = _activeFilter switch
+        {
+            "uptodate" => mods.Where(m => m.Status == ModHealthStatus.UpToDate),
+            "updates" => mods.Where(m => m.Status == ModHealthStatus.UpdateAvailable || m.Status == ModHealthStatus.NewerThanForge),
+            "untracked" => mods.Where(m => !m.IsTracked),
+            "issues" => mods.Where(m => m.Status == ModHealthStatus.Incompatible || m.Status == ModHealthStatus.NotOnForge || m.Status == ModHealthStatus.Error),
+            _ => mods
+        };
+
+        // Sort alphabetically by name
+        return mods
+            .OrderBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private string GetStatCardStyle(string type)
+    {
+        var baseStyle = "background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px; min-width: 100px; text-align: center;";
+        
+        if (_activeFilter == type)
+        {
+            baseStyle += " border-color: var(--accent-cyan); box-shadow: 0 0 0 1px var(--accent-cyan);";
+        }
+        
+        return baseStyle;
+    }
+
+    private string GetVersionStyle(ModHealthInfo info)
+    {
+        return info.Status switch
+        {
+            ModHealthStatus.UpToDate => "color: var(--accent-green);",
+            ModHealthStatus.UpdateAvailable => "color: var(--accent-orange); font-weight: 600;",
+            ModHealthStatus.NewerThanForge => "color: var(--accent-cyan);",
+            _ => "color: var(--text-secondary);"
+        };
+    }
+}

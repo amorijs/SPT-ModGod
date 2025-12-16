@@ -185,6 +185,140 @@ public class ForgeService : IOnLoad
     }
 
     /// <summary>
+    /// Get mod details from Forge by GUID, trying multiple variations to handle naming inconsistencies
+    /// </summary>
+    public async Task<ForgeModResponse?> GetModByGuidAsync(string guid, string? sptVersion = null)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot fetch mod by GUID - no Forge API key configured");
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(guid))
+        {
+            return null;
+        }
+
+        // Generate GUID variations to try (handles inconsistent naming between DLLs and Forge)
+        var guidVariations = GenerateGuidVariations(guid);
+        
+        foreach (var variation in guidVariations)
+        {
+            var result = await TryLookupGuidAsync(variation);
+            if (result?.Success == true && result.Mod != null)
+            {
+                if (variation != guid)
+                {
+                    _logger.Info($"Found mod using normalized GUID: '{guid}' -> '{variation}'");
+                }
+                return result;
+            }
+        }
+
+        // No variation found the mod
+        return new ForgeModResponse
+        {
+            Success = false,
+            Error = $"GUID not registered on Forge (tried: {string.Join(", ", guidVariations)})"
+        };
+    }
+
+    /// <summary>
+    /// Generate variations of a GUID to try for lookup (handles naming inconsistencies)
+    /// </summary>
+    private static List<string> GenerateGuidVariations(string guid)
+    {
+        var variations = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal); // Case-sensitive to allow both cases
+        
+        void AddVariation(string v)
+        {
+            if (!string.IsNullOrWhiteSpace(v) && seen.Add(v))
+                variations.Add(v);
+        }
+        
+        // 1. Lowercase version first (most common convention on Forge)
+        var lowercase = guid.ToLowerInvariant();
+        AddVariation(lowercase);
+        
+        // 2. Original as-is (in case it's already correct)
+        AddVariation(guid);
+        
+        // 3. If doesn't start with "com.", add com. prefix (common convention)
+        if (!lowercase.StartsWith("com."))
+        {
+            // Convert "Author.ModName" -> "com.author.modname"
+            AddVariation($"com.{lowercase}");
+        }
+        
+        // 4. If it's a simple "Author.ModName" pattern, also try extracting just the mod name part
+        // e.g., "Tyfon.UIFixes" -> try "com.tyfon.uifixes"
+        var parts = guid.Split('.');
+        if (parts.Length == 2 && !guid.StartsWith("com.", StringComparison.OrdinalIgnoreCase))
+        {
+            // "Author.ModName" -> "com.author.modname"
+            var author = parts[0].ToLowerInvariant();
+            var modName = parts[1].ToLowerInvariant();
+            AddVariation($"com.{author}.{modName}");
+        }
+
+        return variations;
+    }
+
+    /// <summary>
+    /// Try to lookup a single GUID on Forge
+    /// </summary>
+    private async Task<ForgeModResponse?> TryLookupGuidAsync(string guid)
+    {
+        try
+        {
+            var url = $"{ApiBaseUrl}/mods?filter[guid]={Uri.EscapeDataString(guid)}&include=versions";
+            
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                return null; // Try next variation
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ForgeSearchApiResponse>(json, JsonOptions);
+            
+            if (result?.Success != true || result.Data == null || result.Data.Count == 0)
+            {
+                return null; // Try next variation
+            }
+
+            // Found a match!
+            var searchResult = result.Data[0];
+            return new ForgeModResponse
+            {
+                Success = true,
+                Mod = new ForgeModData
+                {
+                    Id = searchResult.Id,
+                    Name = searchResult.Name,
+                    Slug = searchResult.Slug,
+                    Thumbnail = searchResult.Thumbnail,
+                    Downloads = searchResult.Downloads,
+                    Teaser = searchResult.Teaser,
+                    DetailUrl = searchResult.DetailUrl,
+                    Versions = searchResult.Versions
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"Error trying GUID variation '{guid}': {ex.Message}");
+            return null; // Try next variation
+        }
+    }
+
+    /// <summary>
     /// Extract mod ID from a Forge URL
     /// Supports this format: https://forge.sp-tarkov.com/mod/861/morecheckmarks
     /// </summary>
@@ -391,6 +525,150 @@ public class ForgeService : IOnLoad
             return new ForgeAddonVersionsResponse { Success = false, Error = ex.Message };
         }
     }
+
+    /// <summary>
+    /// Get all available SPT versions from Forge
+    /// </summary>
+    public async Task<ForgeSptVersionsResponse?> GetSptVersionsAsync()
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot fetch SPT versions - no Forge API key configured");
+            return null;
+        }
+
+        try
+        {
+            var url = $"{ApiBaseUrl}/spt/versions?sort=-version&per_page=10";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge SPT versions API returned {response.StatusCode}");
+                return new ForgeSptVersionsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeSptVersionData>>>(json, JsonOptions);
+            
+            return new ForgeSptVersionsResponse
+            {
+                Success = true,
+                Versions = result?.Data ?? []
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching SPT versions: {ex.Message}");
+            return new ForgeSptVersionsResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Batch check for mod updates
+    /// </summary>
+    /// <param name="modUpdates">List of (modId, currentVersion) pairs</param>
+    /// <param name="sptVersion">Current SPT version</param>
+    public async Task<ForgeModUpdatesResponse?> GetModUpdatesAsync(
+        IEnumerable<(int ModId, string CurrentVersion)> modUpdates, 
+        string sptVersion)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot check mod updates - no Forge API key configured");
+            return null;
+        }
+
+        var modList = modUpdates.ToList();
+        if (modList.Count == 0)
+        {
+            return new ForgeModUpdatesResponse { Success = true };
+        }
+
+        try
+        {
+            // Build mods query parameter as comma-separated "id:version" pairs
+            var modsParam = string.Join(",", 
+                modList.Select(m => $"{m.ModId}:{Uri.EscapeDataString(m.CurrentVersion)}"));
+            
+            var url = $"{ApiBaseUrl}/mods/updates?mods={modsParam}&spt_version={Uri.EscapeDataString(sptVersion)}";
+            
+            _logger.Debug($"Checking mod updates: {url}");
+            
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge mod updates API returned {response.StatusCode}");
+                return new ForgeModUpdatesResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ForgeApiResponse<ForgeModUpdatesData>>(json, JsonOptions);
+            
+            if (result?.Success != true || result.Data == null)
+            {
+                return new ForgeModUpdatesResponse { Success = false, Error = "Invalid API response" };
+            }
+
+            return new ForgeModUpdatesResponse
+            {
+                Success = true,
+                Data = result.Data
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error checking mod updates: {ex.Message}");
+            return new ForgeModUpdatesResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Extract mod ID, slug, and version from a Forge download URL
+    /// Format: https://forge.sp-tarkov.com/mod/download/{modId}/{slug}/{version}
+    /// </summary>
+    public static (int? ModId, string? Slug, string? Version) ParseDownloadUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return (null, null, null);
+
+        try
+        {
+            var uri = new Uri(url);
+            if (!uri.Host.Contains("forge.sp-tarkov.com"))
+                return (null, null, null);
+
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            
+            // Look for "mod/download/{id}/{slug}/{version}" pattern
+            for (int i = 0; i < segments.Length - 3; i++)
+            {
+                if (segments[i].Equals("mod", StringComparison.OrdinalIgnoreCase) &&
+                    segments[i + 1].Equals("download", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(segments[i + 2], out var modId))
+                    {
+                        var slug = segments[i + 3];
+                        var version = segments.Length > i + 4 ? segments[i + 4] : null;
+                        return (modId, slug, version);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Invalid URL
+        }
+
+        return (null, null, null);
+    }
 }
 
 #region Forge API Models
@@ -452,6 +730,9 @@ public class ForgeSearchModData
 
     [JsonPropertyName("detail_url")]
     public string? DetailUrl { get; set; }
+
+    [JsonPropertyName("versions")]
+    public List<ForgeModVersion>? Versions { get; set; }
 }
 
 public class ForgeModData
@@ -636,6 +917,174 @@ public class ForgeAddonVersionData
 
     [JsonPropertyName("published_at")]
     public string? PublishedAt { get; set; }
+}
+
+// SPT Version Models
+
+public class ForgeSptVersionsResponse
+{
+    public bool Success { get; set; }
+    public List<ForgeSptVersionData> Versions { get; set; } = [];
+    public string? Error { get; set; }
+}
+
+public class ForgeSptVersionData
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("color_class")]
+    public string? ColorClass { get; set; }
+
+    [JsonPropertyName("mod_count")]
+    public int ModCount { get; set; }
+
+    [JsonPropertyName("link")]
+    public string? Link { get; set; }
+}
+
+// Mod Updates Models (Batch Update Check)
+
+public class ForgeModUpdatesResponse
+{
+    public bool Success { get; set; }
+    public ForgeModUpdatesData? Data { get; set; }
+    public string? Error { get; set; }
+}
+
+public class ForgeModUpdatesData
+{
+    [JsonPropertyName("updates")]
+    public List<ForgeModUpdateInfo>? SafeToUpdate { get; set; }
+
+    [JsonPropertyName("blocked_updates")]
+    public List<ForgeBlockedUpdate>? Blocked { get; set; }
+
+    [JsonPropertyName("up_to_date")]
+    public List<ForgeUpToDateMod>? UpToDate { get; set; }
+
+    [JsonPropertyName("incompatible_with_spt")]
+    public List<ForgeIncompatibleMod>? Incompatible { get; set; }
+}
+
+public class ForgeModUpdateInfo
+{
+    [JsonPropertyName("current_version")]
+    public ForgeVersionInfo? CurrentVersion { get; set; }
+
+    [JsonPropertyName("recommended_version")]
+    public ForgeVersionInfo? RecommendedVersion { get; set; }
+
+    [JsonPropertyName("update_reason")]
+    public string? UpdateReason { get; set; }
+}
+
+public class ForgeBlockedUpdate
+{
+    [JsonPropertyName("current_version")]
+    public ForgeVersionInfo? CurrentVersion { get; set; }
+
+    [JsonPropertyName("latest_version")]
+    public ForgeVersionInfo? LatestVersion { get; set; }
+
+    [JsonPropertyName("block_reason")]
+    public string? BlockReason { get; set; }
+
+    [JsonPropertyName("blocking_mods")]
+    public List<ForgeBlockingMod>? BlockingMods { get; set; }
+}
+
+public class ForgeBlockingMod
+{
+    [JsonPropertyName("mod_id")]
+    public int ModId { get; set; }
+
+    [JsonPropertyName("mod_guid")]
+    public string? ModGuid { get; set; }
+
+    [JsonPropertyName("mod_name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("current_version")]
+    public string? CurrentVersion { get; set; }
+
+    [JsonPropertyName("constraint")]
+    public string Constraint { get; set; } = string.Empty;
+}
+
+public class ForgeUpToDateMod
+{
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
+
+    [JsonPropertyName("mod_id")]
+    public int ModId { get; set; }
+
+    [JsonPropertyName("guid")]
+    public string? Guid { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("spt_versions")]
+    public List<string>? SptVersions { get; set; }
+}
+
+public class ForgeIncompatibleMod
+{
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
+
+    [JsonPropertyName("mod_id")]
+    public int ModId { get; set; }
+
+    [JsonPropertyName("guid")]
+    public string? Guid { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
+
+    [JsonPropertyName("latest_compatible_version")]
+    public ForgeVersionInfo? LatestCompatibleVersion { get; set; }
+}
+
+public class ForgeVersionInfo
+{
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
+
+    [JsonPropertyName("mod_id")]
+    public int ModId { get; set; }
+
+    [JsonPropertyName("guid")]
+    public string? Guid { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("slug")]
+    public string? Slug { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("link")]
+    public string? Link { get; set; }
+
+    [JsonPropertyName("spt_versions")]
+    public List<string>? SptVersions { get; set; }
 }
 
 #endregion

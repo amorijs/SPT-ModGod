@@ -28,19 +28,22 @@
     <ItemGroup>
         <!-- SharpCompress for multi-format archive extraction (.zip, .7z, .rar, etc.) -->
         <PackageReference Include="SharpCompress" Version="0.38.0" />
+        <!-- For DLL metadata scanning without loading assemblies (must be 8.0.x for SPT compatibility) -->
+        <PackageReference Include="System.Reflection.MetadataLoadContext" Version="8.0.1" />
         <PackageReference Include="SPTarkov.Common" Version="4.0.0" PrivateAssets="all" />
         <PackageReference Include="SPTarkov.DI" Version="4.0.0" PrivateAssets="all" />
         <PackageReference Include="SPTarkov.Server.Core" Version="4.0.0" PrivateAssets="all" />
         <PackageReference Include="SPTarkov.Server.Web" Version="4.0.0" PrivateAssets="all" />
     </ItemGroup>
 
-    <!-- Copy SharpCompress and its dependencies to output -->
-    <Target Name="CopySharpCompress" AfterTargets="Build">
+    <!-- Copy SharpCompress and other dependencies to output -->
+    <Target Name="CopyDependencies" AfterTargets="Build">
         <ItemGroup>
-            <SharpCompressFiles Include="$(NuGetPackageRoot)sharpcompress\0.38.0\lib\net8.0\SharpCompress.dll" />
-            <SharpCompressFiles Include="$(NuGetPackageRoot)zstdsharp.port\0.8.1\lib\net7.0\ZstdSharp.dll" />
+            <DependencyFiles Include="$(NuGetPackageRoot)sharpcompress\0.38.0\lib\net8.0\SharpCompress.dll" />
+            <DependencyFiles Include="$(NuGetPackageRoot)zstdsharp.port\0.8.1\lib\net7.0\ZstdSharp.dll" />
+            <DependencyFiles Include="$(NuGetPackageRoot)system.reflection.metadataloadcontext\8.0.1\lib\net8.0\System.Reflection.MetadataLoadContext.dll" />
         </ItemGroup>
-        <Copy SourceFiles="@(SharpCompressFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+        <Copy SourceFiles="@(DependencyFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
     </Target>
 
     <!-- Copy wwwroot to output -->
