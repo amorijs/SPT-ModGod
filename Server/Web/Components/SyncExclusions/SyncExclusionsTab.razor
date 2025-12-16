@@ -1,0 +1,575 @@
+@using ModGod.Web.Models
+@using ModGod.Web.Components.SyncExclusions
+@using ModGod.Services
+@using ModGod.Models
+
+<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <div>
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" Style="vertical-align: middle;" />
+                Default Exclusion Patterns
+            </MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+            </MudText>
+        </div>
+        <MudSwitch T="bool" 
+                   Value="@_useDefaultExclusions" 
+                   ValueChanged="OnUseDefaultExclusionsChanged"
+                   Color="Color.Success"
+                   Label="@(_useDefaultExclusions ? "Enabled" : "Disabled")" />
+    </div>
+    
+    @if (_useDefaultExclusions)
+    {
+        <MudExpansionPanels Class="mt-3">
+            <MudExpansionPanel Text="@($"View/Edit Default Patterns ({_defaultExclusionPatterns.Count} patterns)")" 
+                               Style="background: var(--secondary-bg);">
+                <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                    Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
+                </MudText>
+                <MudTextField T="string"
+                              Value="@_defaultExclusionPatternsText"
+                              ValueChanged="OnDefaultExclusionPatternsChanged"
+                              Lines="12"
+                              Variant="Variant.Outlined"
+                              Placeholder="One pattern per line..."
+                              Style="font-family: monospace; font-size: 12px;"
+                              HelperText="Edit patterns above. Changes save automatically." />
+                <div class="d-flex gap-2 mt-2">
+                    <MudButton Variant="Variant.Text" 
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               OnClick="ResetDefaultExclusionsToBuiltIn">
+                        Reset to Built-in Defaults
+                    </MudButton>
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
+</MudPaper>
+
+<!-- File Tree Exclusions Section -->
+<MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="vertical-align: middle;" />
+        File/Folder Exclusions
+    </MudText>
+    <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+        Browse files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> and uncheck items to exclude them.
+    </MudText>
+
+    <div class="d-flex gap-2 mb-3">
+        <MudButton Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.Refresh"
+                   Disabled="_loading"
+                   OnClick="LoadTreeAsync">
+            Refresh
+        </MudButton>
+        <MudText Typo="Typo.caption" Style="color: var(--text-secondary); align-self: center;">
+            Changes are saved automatically. Click "Apply Changes" to commit.
+        </MudText>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="d-flex align-center mb-2">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            <MudText Typo="Typo.body2">Scanning mod folders...</MudText>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_error))
+    {
+        <MudAlert Severity="Severity.Warning">@_error</MudAlert>
+    }
+    else if (_treeRoot != null && _treeRoot.Children != null && _treeRoot.Children.Any())
+    {
+        <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 420px; overflow-y: auto;">
+            <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
+                ✓ Checked = sync to client &nbsp;|&nbsp; ☐ Unchecked = exclude
+            </div>
+            @foreach (var (node, depth) in GetFlattenedTree())
+            {
+                var state = GetNodeState(node);
+                var indent = depth * 18;
+                var capturedNode = node;
+                var isExpanded = node.IsDirectory && _expandedDirs.Contains(node.RelativePath);
+                var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                <div class="d-flex align-center" style="padding-left:@(indent)px; margin-bottom:2px;">
+                    @* Expand/collapse button for directories *@
+                    @if (hasChildren)
+                    {
+                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                                       Size="Size.Small"
+                                       Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                       OnClick="() => ToggleExpand(capturedNode)" />
+                    }
+                    else
+                    {
+                        <div style="width: 28px;"></div>
+                    }
+                    @* Checkbox for sync state *@
+                    @{
+                        var checkIcon = state switch
+                        {
+                            SyncNodeState.Included => Icons.Material.Filled.CheckBox,
+                            SyncNodeState.Excluded => Icons.Material.Filled.CheckBoxOutlineBlank,
+                            _ => Icons.Material.Filled.IndeterminateCheckBox
+                        };
+                        var iconColor = state switch
+                        {
+                            SyncNodeState.Included => "var(--accent-green)",
+                            SyncNodeState.Excluded => "var(--text-secondary)",
+                            _ => "var(--accent-orange)"
+                        };
+                    }
+                    <MudIconButton Icon="@checkIcon"
+                                   Size="Size.Small"
+                                   Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
+                                   OnClick="() => OnNodeClick(capturedNode)" />
+                    @* Directory/file name (click to expand/collapse for directories) *@
+                    @if (node.IsDirectory && hasChildren)
+                    {
+                        <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleExpand(capturedNode)">
+                            📁 @(node.Name)
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="ml-1 mono" style="color: var(--text-primary);">
+                            @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                        </span>
+                    }
+                </div>
+            }
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info">
+            No files found in the tracked directories. Install mods or refresh.
+        </MudAlert>
+    }
+</MudPaper>
+
+@code {
+    [Inject] private ConfigService ConfigService { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    // State
+    private bool _initialized = false;
+    private bool _loading = false;
+    private string? _error;
+    
+    // Default exclusions
+    private bool _useDefaultExclusions = true;
+    private List<string> _defaultExclusionPatterns = new();
+    private string _defaultExclusionPatternsText = "";
+    
+    // File tree
+    private FileNode? _treeRoot;
+    private HashSet<string> _exclusionSet = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Initialize the component (called automatically on first render)
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        if (_initialized) return;
+        
+        // Initialize default exclusions state
+        _useDefaultExclusions = ConfigService.StagedConfig.UseDefaultExclusions;
+        _defaultExclusionPatterns = ConfigService.StagedConfig.CustomDefaultExclusions?.ToList() 
+            ?? DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+        
+        await LoadTreeAsync();
+        _initialized = true;
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        _loading = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            _exclusionSet = new HashSet<string>(
+                (ConfigService.StagedConfig.SyncExclusions ?? new List<string>())
+                    .Select(NormalizePath)
+                    .Where(p => !string.IsNullOrWhiteSpace(p)),
+                StringComparer.OrdinalIgnoreCase);
+
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+            AddRoot(ConfigService.BepInExPluginsPath, "BepInEx/plugins", root);
+            AddRoot(ConfigService.SptUserModsPath, "SPT/user/mods", root);
+
+            _treeRoot = root;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load exclusions: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AddRoot(string absolutePath, string relativePath, FileNode root)
+    {
+        if (!Directory.Exists(absolutePath)) return;
+
+        var node = BuildNodeRecursive(absolutePath, NormalizePath(relativePath), relativePath);
+        root.Children.Add(node);
+    }
+
+    private FileNode BuildNodeRecursive(string fullPath, string relativePath, string? displayName = null)
+    {
+        var node = new FileNode
+        {
+            Name = displayName ?? Path.GetFileName(fullPath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        foreach (var dir in Directory.GetDirectories(fullPath))
+        {
+            var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(dir)));
+            node.Children.Add(BuildNodeRecursive(dir, childRel));
+        }
+
+        foreach (var file in Directory.GetFiles(fullPath))
+        {
+            var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(file)));
+            node.Children.Add(new FileNode
+            {
+                Name = Path.GetFileName(file),
+                RelativePath = childRel,
+                IsDirectory = false
+            });
+        }
+
+        return node;
+    }
+
+    private SyncNodeState GetNodeState(FileNode? node)
+    {
+        if (node == null) return SyncNodeState.Included;
+
+        var rel = NormalizePath(node.RelativePath);
+
+        if (!node.IsDirectory)
+        {
+            var isExcluded = IsExcluded(rel);
+            return isExcluded ? SyncNodeState.Excluded : SyncNodeState.Included;
+        }
+
+        // For directories: derive state from all leaf nodes
+        var leaves = GetLeafNodes(node).ToList();
+        if (leaves.Count == 0) return SyncNodeState.Included;
+        
+        var leafStates = leaves
+            .Select(leaf => IsExcluded(NormalizePath(leaf.RelativePath)) ? SyncNodeState.Excluded : SyncNodeState.Included)
+            .Distinct()
+            .ToList();
+        
+        if (leafStates.Count == 1) return leafStates[0];
+        return SyncNodeState.Mixed;
+    }
+
+    private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!node.IsDirectory)
+        {
+            yield return node;
+            yield break;
+        }
+
+        var children = node.Children;
+        if (children == null) yield break;
+
+        foreach (var child in children)
+        {
+            foreach (var leaf in GetLeafNodes(child))
+                yield return leaf;
+        }
+    }
+
+    private bool IsExcluded(string relativePath)
+    {
+        var norm = NormalizePath(relativePath);
+        return _exclusionSet.Any(ex =>
+            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task OnNodeClick(FileNode node)
+    {
+        await ToggleNodeAsync(node);
+    }
+
+    private void ToggleExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        
+        var path = node.RelativePath;
+        if (_expandedDirs.Contains(path))
+            _expandedDirs.Remove(path);
+        else
+            _expandedDirs.Add(path);
+        
+        StateHasChanged();
+    }
+
+    private async Task ToggleNodeAsync(FileNode? node)
+    {
+        if (node == null) return;
+
+        var current = GetNodeState(node);
+        var next = current == SyncNodeState.Excluded ? SyncNodeState.Included : SyncNodeState.Excluded;
+
+        if (node.IsDirectory)
+        {
+            ApplyDirectoryState(node, next);
+        }
+        else
+        {
+            ApplyFileState(node, next);
+        }
+
+        // Immediately save to staged config
+        await SaveExclusionsAsync();
+        
+        StateHasChanged();
+    }
+
+    private void ApplyDirectoryState(FileNode? node, SyncNodeState state)
+    {
+        if (node == null) return;
+        var rel = NormalizePath(node.RelativePath);
+
+        // Clear this directory and all its descendants from exclusions
+        foreach (var path in EnumerateAllPaths(node).ToList())
+            _exclusionSet.Remove(path);
+
+        if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
+        {
+            _exclusionSet.Add(rel);
+        }
+        else if (state == SyncNodeState.Included && !string.IsNullOrEmpty(rel))
+        {
+            // Check if a PROPER ANCESTOR (not self) is excluded - need to lift it
+            var ancestorExclusion = _exclusionSet
+                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorExclusion != null)
+            {
+                _exclusionSet.Remove(ancestorExclusion);
+                var ancestorNode = FindNodeByPath(_treeRoot, ancestorExclusion);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in EnumerateLeafPaths(ancestorNode))
+                    {
+                        var leafNorm = NormalizePath(leaf);
+                        if (!leafNorm.StartsWith(rel + "/", StringComparison.OrdinalIgnoreCase) &&
+                            !leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _exclusionSet.Add(leafNorm);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void ApplyFileState(FileNode? node, SyncNodeState state)
+    {
+        if (node == null) return;
+        var rel = NormalizePath(node.RelativePath);
+
+        if (state == SyncNodeState.Excluded)
+        {
+            _exclusionSet.Add(rel);
+        }
+        else
+        {
+            var ancestorExclusion = _exclusionSet
+                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            
+            if (ancestorExclusion != null)
+            {
+                _exclusionSet.Remove(ancestorExclusion);
+                var ancestorNode = FindNodeByPath(_treeRoot, ancestorExclusion);
+                if (ancestorNode != null)
+                {
+                    foreach (var leaf in EnumerateLeafPaths(ancestorNode))
+                    {
+                        var leafNorm = NormalizePath(leaf);
+                        if (!leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _exclusionSet.Add(leafNorm);
+                        }
+                    }
+                }
+            }
+            _exclusionSet.Remove(rel);
+        }
+    }
+
+    private IEnumerable<string> EnumerateAllPaths(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!string.IsNullOrEmpty(node.RelativePath))
+            yield return NormalizePath(node.RelativePath);
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+            foreach (var p in EnumerateAllPaths(child))
+                yield return p;
+    }
+
+    private FileNode? FindNodeByPath(FileNode? node, string relativePath)
+    {
+        if (node == null) return null;
+        var norm = NormalizePath(relativePath);
+        if (NormalizePath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
+            return node;
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+        {
+            var found = FindNodeByPath(child, relativePath);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private IEnumerable<string> EnumerateLeafPaths(FileNode? node)
+    {
+        if (node == null) yield break;
+
+        if (!node.IsDirectory)
+        {
+            if (!string.IsNullOrEmpty(node.RelativePath))
+                yield return NormalizePath(node.RelativePath);
+            yield break;
+        }
+
+        var children = node.Children ?? Enumerable.Empty<FileNode>();
+        foreach (var child in children)
+        {
+            foreach (var leaf in EnumerateLeafPaths(child))
+                yield return leaf;
+        }
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_treeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            // Only recurse into children if this directory is expanded
+            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath))
+                return;
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _treeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private async Task SaveExclusionsAsync()
+    {
+        try
+        {
+            ConfigService.StagedConfig.SyncExclusions = _exclusionSet
+                .Select(NormalizePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p)
+                .ToList();
+
+            await ConfigService.SaveStagedConfigAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to save exclusions: {ex.Message}", Severity.Error);
+        }
+    }
+    
+    private async Task OnUseDefaultExclusionsChanged(bool value)
+    {
+        _useDefaultExclusions = value;
+        ConfigService.StagedConfig.UseDefaultExclusions = value;
+        await ConfigService.SaveStagedConfigAsync();
+        StateHasChanged();
+    }
+    
+    private async Task OnDefaultExclusionPatternsChanged(string text)
+    {
+        _defaultExclusionPatternsText = text;
+        _defaultExclusionPatterns = text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+        
+        // Save to staged config (null means use built-in defaults)
+        ConfigService.StagedConfig.CustomDefaultExclusions = _defaultExclusionPatterns.Count > 0 
+            ? _defaultExclusionPatterns 
+            : null;
+        
+        await ConfigService.SaveStagedConfigAsync();
+    }
+    
+    private async Task ResetDefaultExclusionsToBuiltIn()
+    {
+        _defaultExclusionPatterns = DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+        ConfigService.StagedConfig.CustomDefaultExclusions = null; // null = use built-in
+        await ConfigService.SaveStagedConfigAsync();
+        Snackbar.Add("Reset to built-in default patterns.", Severity.Info);
+        StateHasChanged();
+    }
+
+    private static string NormalizePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace("\\", "/").TrimStart('/');
+    }
+}
+
