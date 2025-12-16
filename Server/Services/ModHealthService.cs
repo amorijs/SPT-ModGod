@@ -120,6 +120,10 @@ public class ModHealthService(
             await CheckModHealthAsync(healthInfo, result.SptVersion);
         }
 
+        // Step 6: Check dependencies for mods that were found on Forge
+        logger.Info("Checking mod dependencies...");
+        await CheckAllDependenciesAsync(result.Mods, scannedMods);
+
         // Sort: tracked first, then by name
         result.Mods.Sort((a, b) =>
         {
@@ -130,7 +134,9 @@ public class ModHealthService(
             return string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
         });
 
-        logger.Success($"Health check complete: {result.UpToDateCount} up-to-date, {result.UpdatesAvailableCount} updates, {result.NotOnForgeCount} not on Forge, {result.UntrackedCount} untracked");
+        var depIssues = result.DependencyIssuesCount;
+        var depMessage = depIssues > 0 ? $", {depIssues} with dependency issues" : "";
+        logger.Success($"Health check complete: {result.UpToDateCount} up-to-date, {result.UpdatesAvailableCount} updates, {result.NotOnForgeCount} not on Forge, {result.UntrackedCount} untracked{depMessage}");
 
         _cachedResult = result;
         _cacheTime = DateTime.UtcNow;
@@ -511,6 +517,128 @@ public class ModHealthService(
     private static string NormalizePath(string path)
     {
         return Path.GetFullPath(path).Replace('/', Path.DirectorySeparatorChar);
+    }
+
+    /// <summary>
+    /// Check dependencies for all mods that have a Forge mod ID.
+    /// Calls the API for each mod individually (as per Forge API design).
+    /// </summary>
+    private async Task CheckAllDependenciesAsync(List<ModHealthInfo> mods, List<ScannedMod> scannedMods)
+    {
+        // Build a map of GUIDs to installed versions for quick lookup
+        var installedGuids = scannedMods
+            .Where(m => !string.IsNullOrEmpty(m.Guid))
+            .ToDictionary(
+                m => m.Guid.ToLowerInvariant(),
+                m => m.Version,
+                StringComparer.OrdinalIgnoreCase
+            );
+
+        // Get mods that are on Forge and have a version
+        var modsToCheck = mods
+            .Where(m => m.ForgeModId.HasValue && !string.IsNullOrEmpty(m.InstalledVersion))
+            .ToList();
+
+        if (modsToCheck.Count == 0)
+        {
+            logger.Info("No mods to check for dependencies (none have Forge IDs)");
+            return;
+        }
+
+        logger.Info($"Checking dependencies for {modsToCheck.Count} mods (one API call per mod)...");
+
+        var modsWithDeps = 0;
+        var totalDeps = 0;
+
+        // Check each mod individually (Forge API returns dependency tree per mod)
+        foreach (var healthInfo in modsToCheck)
+        {
+            var modId = healthInfo.ForgeModId!.Value;
+            var version = healthInfo.InstalledVersion!;
+            
+            // Extra logging for ItemInfo
+            var isItemInfo = healthInfo.DisplayName.Contains("ItemInfo", StringComparison.OrdinalIgnoreCase);
+            if (isItemInfo)
+            {
+                logger.Info($"*** Checking ItemInfo: ID={modId}, Version={version}");
+            }
+
+            var response = await forgeService.GetModDependenciesAsync([(modId, version)]);
+            
+            if (response == null || !response.Success)
+            {
+                continue;
+            }
+            
+            // The API returns the DEPENDENCIES as the mods list (not the requesting mod with dependencies array)
+            // So if we query ItemInfo, the API returns [ColorConverterAPI] directly
+            // We need to treat ALL returned mods as dependencies of the mod we queried
+            
+            // Filter out the queried mod itself if it appears in the response
+            var dependencies = response.Mods.Where(m => m.Id != modId).ToList();
+            
+            if (dependencies.Count == 0)
+            {
+                continue;
+            }
+
+            modsWithDeps++;
+            totalDeps += dependencies.Count;
+            logger.Info($"[{healthInfo.DisplayName}] Has {dependencies.Count} dependencies: {string.Join(", ", dependencies.Select(d => d.Name))}");
+
+            foreach (var dep in dependencies)
+            {
+                var depInfo = new DependencyInfo
+                {
+                    ModId = dep.Id,
+                    Guid = dep.Guid,
+                    Name = dep.Name,
+                    Slug = dep.Slug,
+                    // LatestCompatibleVersion contains the recommended version info
+                    LatestVersion = dep.LatestCompatibleVersion?.Version,
+                    DownloadLink = dep.LatestCompatibleVersion?.Link
+                };
+
+                // Check if this dependency is installed by looking up its GUID
+                var depGuidLower = dep.Guid?.ToLowerInvariant();
+                
+                if (!string.IsNullOrEmpty(depGuidLower) && installedGuids.TryGetValue(depGuidLower, out var installedVersion))
+                {
+                    depInfo.InstalledVersion = installedVersion;
+                    depInfo.Status = DependencyStatus.Satisfied;
+                }
+                else
+                {
+                    depInfo.Status = DependencyStatus.Missing;
+                    logger.Warning($"[{healthInfo.DisplayName}] MISSING dependency: {dep.Name} (GUID: {dep.Guid})");
+                }
+
+                healthInfo.Dependencies.Add(depInfo);
+            }
+        }
+
+        logger.Info($"Dependency check complete: {modsWithDeps} mods have dependencies ({totalDeps} total deps)");
+    }
+
+    /// <summary>
+    /// Check if an installed version satisfies a version constraint
+    /// </summary>
+    private static bool IsVersionSatisfied(string? installed, string? constraint)
+    {
+        if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(constraint))
+            return true;
+
+        try
+        {
+            var range = new SemanticVersioning.Range(constraint);
+            var version = new SemanticVersioning.Version(CleanVersion(installed));
+            return range.IsSatisfied(version);
+        }
+        catch
+        {
+            // Can't parse, assume satisfied
+            return true;
+        }
     }
 
     /// <summary>

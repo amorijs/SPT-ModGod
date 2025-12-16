@@ -631,6 +631,80 @@ public class ForgeService : IOnLoad
     }
 
     /// <summary>
+    /// Get dependencies for a list of mods
+    /// </summary>
+    /// <param name="modVersions">List of (modId, version) pairs to check</param>
+    public async Task<ForgeDependenciesResponse?> GetModDependenciesAsync(
+        IEnumerable<(int ModId, string Version)> modVersions)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot check mod dependencies - no Forge API key configured");
+            return null;
+        }
+
+        var modList = modVersions.ToList();
+        if (modList.Count == 0)
+        {
+            return new ForgeDependenciesResponse { Success = true };
+        }
+
+        try
+        {
+            // Build mods query parameter as comma-separated "id:version" pairs
+            // API expects: mods=791:4.3.0,902:1.4.0
+            // Note: Reference project escapes both identifier and version
+            var modsParam = string.Join(",", 
+                modList.Select(m => $"{m.ModId}:{Uri.EscapeDataString(m.Version)}"));
+            
+            var url = $"{ApiBaseUrl}/mods/dependencies?mods={modsParam}";
+            
+            _logger.Debug($"Dependency API URL: {url}");
+            
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge dependencies API returned {response.StatusCode}");
+                return new ForgeDependenciesResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            
+            var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeModDependencyData>>>(json, JsonOptions);
+            
+            if (result?.Success != true)
+            {
+                _logger.Warning($"Dependency API returned success=false or null. Response: {json[..Math.Min(300, json.Length)]}");
+                return new ForgeDependenciesResponse { Success = false, Error = "Invalid API response" };
+            }
+
+            // Log if any mods have dependencies
+            var modsWithDeps = result.Data?.Where(m => m.Dependencies?.Count > 0).ToList() ?? [];
+            if (modsWithDeps.Count > 0)
+            {
+                foreach (var m in modsWithDeps)
+                {
+                    _logger.Info($"API found: {m.Name} (ID:{m.Id}) has {m.Dependencies!.Count} deps: {string.Join(", ", m.Dependencies.Select(d => d.Name))}");
+                }
+            }
+            return new ForgeDependenciesResponse
+            {
+                Success = true,
+                Mods = result.Data ?? []
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error checking mod dependencies: {ex.Message}");
+            return new ForgeDependenciesResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
     /// Extract mod ID, slug, and version from a Forge download URL
     /// Format: https://forge.sp-tarkov.com/mod/download/{modId}/{slug}/{version}
     /// </summary>
@@ -907,7 +981,7 @@ public class ForgeAddonVersionData
     public string? Link { get; set; }
 
     [JsonPropertyName("content_length")]
-    public long ContentLength { get; set; }
+    public long? ContentLength { get; set; }
 
     [JsonPropertyName("mod_version_constraint")]
     public string? ModVersionConstraint { get; set; }
@@ -1085,6 +1159,97 @@ public class ForgeVersionInfo
 
     [JsonPropertyName("spt_versions")]
     public List<string>? SptVersions { get; set; }
+}
+
+// Dependency Models
+
+public class ForgeDependenciesResponse
+{
+    public bool Success { get; set; }
+    public List<ForgeModDependencyData> Mods { get; set; } = [];
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Response item from /mods/dependencies API
+/// Each item represents a mod and its dependencies
+/// </summary>
+public class ForgeModDependencyData
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("guid")]
+    public string? Guid { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("slug")]
+    public string? Slug { get; set; }
+
+    [JsonPropertyName("latest_compatible_version")]
+    public ForgeCompatibleVersion? LatestCompatibleVersion { get; set; }
+
+    [JsonPropertyName("dependencies")]
+    public List<ForgeDependency>? Dependencies { get; set; }
+
+    [JsonPropertyName("conflict")]
+    public bool Conflict { get; set; }
+}
+
+/// <summary>
+/// Version info from dependencies API
+/// </summary>
+public class ForgeCompatibleVersion
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("link")]
+    public string? Link { get; set; }
+
+    [JsonPropertyName("content_length")]
+    public long? ContentLength { get; set; }
+
+    [JsonPropertyName("spt_version_constraint")]
+    public string? SptVersionConstraint { get; set; }
+
+    [JsonPropertyName("downloads")]
+    public long Downloads { get; set; }
+
+    [JsonPropertyName("fika_compatibility")]
+    public string? FikaCompatibility { get; set; }
+
+    [JsonPropertyName("published_at")]
+    public string? PublishedAt { get; set; }
+}
+
+/// <summary>
+/// A dependency entry - this is a mod that the parent mod depends on
+/// </summary>
+public class ForgeDependency
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("guid")]
+    public string? Guid { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("slug")]
+    public string? Slug { get; set; }
+
+    [JsonPropertyName("version_constraint")]
+    public string? VersionConstraint { get; set; }
+
+    [JsonPropertyName("latest_compatible_version")]
+    public ForgeCompatibleVersion? LatestCompatibleVersion { get; set; }
 }
 
 #endregion

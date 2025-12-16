@@ -82,6 +82,13 @@
                 <MudText Typo="Typo.h4" Style="color: var(--accent-orange);">@_result.UpdatesAvailableCount</MudText>
                 <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Updates Available</MudText>
             </MudPaper>
+            @if (_result.DependencyIssuesCount > 0)
+            {
+                <MudPaper Class="pa-3 flex-grow-1 cursor-pointer" Style="@GetStatCardStyle("deps")" @onclick="@(() => SetFilter("deps"))">
+                    <MudText Typo="Typo.h4" Style="color: var(--accent-red);">@_result.DependencyIssuesCount</MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Dep Issues</MudText>
+                </MudPaper>
+            }
             <MudPaper Class="pa-3 flex-grow-1 cursor-pointer" Style="@GetStatCardStyle("untracked")" @onclick="@(() => SetFilter("untracked"))">
                 <MudText Typo="Typo.h4" Style="color: var(--accent-purple);">@_result.UntrackedCount</MudText>
                 <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Untracked</MudText>
@@ -145,7 +152,7 @@
                                 }
                                 @if (!context.IsTracked)
                                 {
-                                    <MudTooltip Text="This mod is not tracked by ModGod. It may have been installed manually or before ModGod was set up.">
+                                    <MudTooltip Text="This mod is not tracked by ModGod. It may have been installed manually, or before ModGod was set up, or on an older version of ModGod.">
                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Style="color: var(--accent-purple); border-color: var(--accent-purple);">
                                             <MudIcon Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small" Class="mr-1" />
                                             Untracked
@@ -155,6 +162,15 @@
                                 else if (context.TrackedMod?.Optional == true)
                                 {
                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Style="color: var(--text-secondary);">Optional</MudChip>
+                                }
+                                @if (context.HasDependencyIssues)
+                                {
+                                    <MudTooltip Text="@GetDependencyTooltip(context)">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Style="background: var(--accent-red); color: #fff;">
+                                            <MudIcon Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small" Class="mr-1" />
+                                            @(context.MissingDependencyCount > 0 ? $"{context.MissingDependencyCount} missing" : $"{context.VersionMismatchCount} mismatch")
+                                        </MudChip>
+                                    </MudTooltip>
                                 }
                             </div>
                         </MudTd>
@@ -219,6 +235,15 @@
                             }
                         </MudTd>
                         <MudTd DataLabel="Actions">
+                            @if (context.HasDependencyIssues)
+                            {
+                                <MudTooltip Text="View dependency details">
+                                    <MudIconButton Icon="@Icons.Material.Filled.AccountTree"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => ShowDependencyDialog(context))" />
+                                </MudTooltip>
+                            }
                             @if (!string.IsNullOrEmpty(context.ForgeUrl))
                             {
                                 <MudTooltip Text="View on Forge">
@@ -257,6 +282,101 @@
     }
 </MudPaper>
 
+<!-- Dependency Dialog -->
+<MudDialog @bind-Visible="_showDependencyDialog" Options="new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true }">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
+            <MudText Typo="Typo.h6">Dependencies: @(_selectedMod?.DisplayName ?? "Unknown")</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (_selectedMod != null && _selectedMod.Dependencies.Count > 0)
+        {
+            <MudList T="DependencyInfo" Dense="true">
+                @foreach (var dep in _selectedMod.Dependencies)
+                {
+                    <MudListItem>
+                        <div class="d-flex justify-space-between align-center" style="width: 100%;">
+                            <div class="d-flex align-center gap-2">
+                                @switch (dep.Status)
+                                {
+                                    case DependencyStatus.Satisfied:
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+                                        break;
+                                    case DependencyStatus.Missing:
+                                        <MudIcon Icon="@Icons.Material.Filled.Cancel" Color="Color.Error" Size="Size.Small" />
+                                        break;
+                                    case DependencyStatus.VersionMismatch:
+                                        <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Small" />
+                                        break;
+                                    default:
+                                        <MudIcon Icon="@Icons.Material.Filled.Help" Color="Color.Default" Size="Size.Small" />
+                                        break;
+                                }
+                                <div>
+                                    @if (!string.IsNullOrEmpty(dep.ForgeUrl))
+                                    {
+                                        <MudLink Href="@dep.ForgeUrl" Target="_blank" Style="color: var(--text-primary); font-weight: 500;">
+                                            @dep.Name
+                                        </MudLink>
+                                    }
+                                    else
+                                    {
+                                        <MudText Style="color: var(--text-primary); font-weight: 500;">@dep.Name</MudText>
+                                    }
+                                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                        @GetDependencyStatusText(dep)
+                                    </MudText>
+                                </div>
+                            </div>
+                            <div class="d-flex align-center gap-1">
+                                @if (dep.Status == DependencyStatus.Missing && !string.IsNullOrEmpty(dep.DownloadLink))
+                                {
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Download"
+                                               Href="@dep.DownloadLink"
+                                               Target="_blank">
+                                        Install @(dep.LatestVersion ?? "")
+                                    </MudButton>
+                                }
+                                else if (dep.Status == DependencyStatus.VersionMismatch && !string.IsNullOrEmpty(dep.DownloadLink))
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Warning"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Upgrade"
+                                               Href="@dep.DownloadLink"
+                                               Target="_blank">
+                                        Update to @(dep.LatestVersion ?? "latest")
+                                    </MudButton>
+                                }
+                                @if (!string.IsNullOrEmpty(dep.ForgeUrl))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                   Size="Size.Small"
+                                                   Href="@dep.ForgeUrl"
+                                                   Target="_blank" />
+                                }
+                            </div>
+                        </div>
+                    </MudListItem>
+                    <MudDivider />
+                }
+            </MudList>
+        }
+        else
+        {
+            <MudText>No dependencies found.</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseDependencyDialog">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     [Inject] private ModHealthService HealthService { get; set; } = default!;
     [Inject] private ForgeService ForgeService { get; set; } = default!;
@@ -265,6 +385,8 @@
     private bool _isChecking = false;
     private HealthCheckResult? _result;
     private string? _activeFilter = null;
+    private bool _showDependencyDialog = false;
+    private ModHealthInfo? _selectedMod;
 
     private bool HasApiKey => ForgeService.HasApiKey;
 
@@ -281,6 +403,10 @@
             if (!_result.Success)
             {
                 Snackbar.Add(_result.Error ?? "Health check failed", Severity.Error);
+            }
+            else if (_result.DependencyIssuesCount > 0)
+            {
+                Snackbar.Add($"Found {_result.DependencyIssuesCount} mod(s) with dependency issues!", Severity.Warning);
             }
             else if (_result.UpdatesAvailableCount > 0)
             {
@@ -317,6 +443,7 @@
         "uptodate" => "Up to Date",
         "updates" => "Updates Available",
         "untracked" => "Untracked",
+        "deps" => "Dependency Issues",
         "issues" => "Issues",
         _ => filter ?? ""
     };
@@ -332,6 +459,7 @@
             "uptodate" => mods.Where(m => m.Status == ModHealthStatus.UpToDate),
             "updates" => mods.Where(m => m.Status == ModHealthStatus.UpdateAvailable || m.Status == ModHealthStatus.NewerThanForge),
             "untracked" => mods.Where(m => !m.IsTracked),
+            "deps" => mods.Where(m => m.HasDependencyIssues),
             "issues" => mods.Where(m => m.Status == ModHealthStatus.Incompatible || m.Status == ModHealthStatus.NotOnForge || m.Status == ModHealthStatus.Error),
             _ => mods
         };
@@ -363,5 +491,42 @@
             ModHealthStatus.NewerThanForge => "color: var(--accent-cyan);",
             _ => "color: var(--text-secondary);"
         };
+    }
+
+    private string GetDependencyTooltip(ModHealthInfo info)
+    {
+        var missing = info.Dependencies.Where(d => d.Status == DependencyStatus.Missing).ToList();
+        var mismatch = info.Dependencies.Where(d => d.Status == DependencyStatus.VersionMismatch).ToList();
+        
+        var parts = new List<string>();
+        if (missing.Count > 0)
+            parts.Add($"Missing: {string.Join(", ", missing.Select(d => d.Name))}");
+        if (mismatch.Count > 0)
+            parts.Add($"Version mismatch: {string.Join(", ", mismatch.Select(d => d.Name))}");
+        
+        return string.Join(" | ", parts);
+    }
+
+    private string GetDependencyStatusText(DependencyInfo dep)
+    {
+        return dep.Status switch
+        {
+            DependencyStatus.Satisfied => $"Installed: {dep.InstalledVersion ?? "unknown"}",
+            DependencyStatus.Missing => $"Required: {dep.VersionConstraint ?? "any"} — Not installed",
+            DependencyStatus.VersionMismatch => $"Required: {dep.VersionConstraint} — Installed: {dep.InstalledVersion}",
+            _ => "Unknown status"
+        };
+    }
+
+    private void ShowDependencyDialog(ModHealthInfo mod)
+    {
+        _selectedMod = mod;
+        _showDependencyDialog = true;
+    }
+
+    private void CloseDependencyDialog()
+    {
+        _showDependencyDialog = false;
+        _selectedMod = null;
     }
 }

@@ -94,6 +94,75 @@ public class ModHealthInfo
     
     /// <summary>Whether an update is available</summary>
     public bool HasUpdate => Status == ModHealthStatus.UpdateAvailable;
+    
+    /// <summary>Dependencies required by this mod</summary>
+    public List<DependencyInfo> Dependencies { get; set; } = [];
+    
+    /// <summary>Whether all dependencies are satisfied</summary>
+    public bool HasDependencyIssues => Dependencies.Any(d => !d.IsSatisfied);
+    
+    /// <summary>Count of missing dependencies</summary>
+    public int MissingDependencyCount => Dependencies.Count(d => d.Status == DependencyStatus.Missing);
+    
+    /// <summary>Count of version mismatch dependencies</summary>
+    public int VersionMismatchCount => Dependencies.Count(d => d.Status == DependencyStatus.VersionMismatch);
+}
+
+/// <summary>
+/// Status of a dependency
+/// </summary>
+public enum DependencyStatus
+{
+    /// <summary>Dependency is installed and version is compatible</summary>
+    Satisfied,
+    
+    /// <summary>Dependency is not installed</summary>
+    Missing,
+    
+    /// <summary>Dependency is installed but version doesn't match constraint</summary>
+    VersionMismatch,
+    
+    /// <summary>Unknown - couldn't determine status</summary>
+    Unknown
+}
+
+/// <summary>
+/// Information about a mod dependency
+/// </summary>
+public class DependencyInfo
+{
+    /// <summary>Forge mod ID of the dependency</summary>
+    public int ModId { get; set; }
+    
+    /// <summary>GUID of the dependency</summary>
+    public string? Guid { get; set; }
+    
+    /// <summary>Name of the dependency</summary>
+    public required string Name { get; set; }
+    
+    /// <summary>Slug for the mod page URL</summary>
+    public string? Slug { get; set; }
+    
+    /// <summary>Version constraint (e.g., "~1.4.0", ">=2.0.0")</summary>
+    public string? VersionConstraint { get; set; }
+    
+    /// <summary>Installed version (null if not installed)</summary>
+    public string? InstalledVersion { get; set; }
+    
+    /// <summary>Latest compatible version available</summary>
+    public string? LatestVersion { get; set; }
+    
+    /// <summary>Download link for the latest compatible version</summary>
+    public string? DownloadLink { get; set; }
+    
+    /// <summary>Status of this dependency</summary>
+    public DependencyStatus Status { get; set; } = DependencyStatus.Unknown;
+    
+    /// <summary>Whether this dependency is satisfied</summary>
+    public bool IsSatisfied => Status == DependencyStatus.Satisfied;
+    
+    /// <summary>URL to the mod page on Forge</summary>
+    public string? ForgeUrl => !string.IsNullOrEmpty(Slug) ? $"https://forge.sp-tarkov.com/mod/{ModId}/{Slug}" : null;
 }
 
 /// <summary>
@@ -142,6 +211,12 @@ public class HealthCheckResult
     
     /// <summary>Mods incompatible with current SPT</summary>
     public int IncompatibleCount => Mods.Count(m => m.Status == ModHealthStatus.Incompatible);
+    
+    /// <summary>Mods with dependency issues</summary>
+    public int DependencyIssuesCount => Mods.Count(m => m.HasDependencyIssues);
+    
+    /// <summary>Total missing dependencies across all mods</summary>
+    public int TotalMissingDependencies => Mods.Sum(m => m.MissingDependencyCount);
     
     /// <summary>Overall error message if the check failed</summary>
     public string? Error { get; set; }
