@@ -404,8 +404,10 @@
             return;
         }
         
-            _editingMod = mod;
-            _editDialogVisible = true;
+        // Ensure uninstall dialog is closed before opening edit dialog
+        _uninstallDialogVisible = false;
+        _editingMod = mod;
+        _editDialogVisible = true;
     }
 
     private async Task HandleEditModSave(EditModResult result)
@@ -440,6 +442,8 @@
 
     private void OpenUninstallDialog(ModEntry mod)
     {
+        // Ensure edit dialog is closed before opening uninstall dialog
+        _editDialogVisible = false;
         _uninstallMod = mod;
         _uninstallDialogVisible = true;
     }

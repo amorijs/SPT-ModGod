@@ -275,6 +275,192 @@
                                                  Color="Color.Primary"
                                                  Class="mt-3" />
                                 </MudPaper>
+                                
+                                @* Addons Section *@
+                                <MudPaper Class="pa-4 mt-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                                    <div class="d-flex align-center justify-space-between mb-2">
+                                        <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary); font-weight: 600;">
+                                            <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                            Addons
+                                        </MudText>
+                                        @if (_addonsLoading)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                        }
+                                        else if (_addons.Count > 0)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Style="background: var(--accent-cyan); color: #000;">
+                                                @_addons.Count available
+                                            </MudChip>
+                                        }
+                                    </div>
+                                    
+                                    @if (_addonsLoading)
+                                    {
+                                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                            Loading available addons...
+                                        </MudText>
+                                    }
+                                    else if (!string.IsNullOrEmpty(_addonsError))
+                                    {
+                                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Style="vertical-align: middle; color: var(--accent-orange);" />
+                                            @_addonsError
+                                        </MudText>
+                                    }
+                                    else if (_addons.Count == 0)
+                                    {
+                                        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                            No addons available for this mod.
+                                        </MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                                            Select optional addons to install with this mod. Each addon will be staged as a separate mod.
+                                        </MudText>
+                                        
+                                        <div style="max-height: 300px; overflow-y: auto;">
+                                            @foreach (var addon in _addons)
+                                            {
+                                                <MudPaper Class="pa-3 mb-2" 
+                                                          Style="@($"background: var(--card-bg); border: 1px solid {(addon.IsSelected ? "var(--accent-cyan)" : "var(--border-color)")}; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;")"
+                                                          @onclick="@(() => ToggleAddonSelection(addon))">
+                                                    <div class="d-flex gap-2 align-start">
+                                                        <MudCheckBox T="bool" 
+                                                                     Value="@addon.IsSelected" 
+                                                                     ValueChanged="@((bool _) => ToggleAddonSelection(addon))"
+                                                                     Color="Color.Primary"
+                                                                     Style="margin-top: -8px;" />
+                                                        
+                                                        @if (!string.IsNullOrEmpty(addon.Thumbnail))
+                                                        {
+                                                            <MudImage Src="@addon.Thumbnail" Width="48" Height="48" ObjectFit="ObjectFit.Cover" Style="border-radius: 6px; flex-shrink: 0;" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <div style="width: 48px; height: 48px; background: var(--secondary-bg); border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                                                <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Small" Style="color: var(--text-secondary);" />
+                                                            </div>
+                                                        }
+                                                        
+                                                        <div style="flex: 1; min-width: 0;">
+                                                            <div class="d-flex align-center gap-2">
+                                                                <MudText Typo="Typo.body1" Style="color: var(--text-primary); font-weight: 500;">
+                                                                    @addon.Name
+                                                                </MudText>
+                                                                @if (!string.IsNullOrEmpty(addon.DetailUrl))
+                                                                {
+                                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" 
+                                                                                   Size="Size.Small" 
+                                                                                   Href="@addon.DetailUrl"
+                                                                                   Target="_blank"
+                                                                                   Style="color: var(--accent-cyan); padding: 2px;"
+                                                                                   @onclick:stopPropagation="true" />
+                                                                }
+                                                            </div>
+                                                            @if (!string.IsNullOrEmpty(addon.Teaser))
+                                                            {
+                                                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                                                    @addon.Teaser
+                                                                </MudText>
+                                                            }
+                                                            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                                                @if (!string.IsNullOrEmpty(addon.Owner))
+                                                                {
+                                                                    <span>by @addon.Owner • </span>
+                                                                }
+                                                                @FormatDownloadCount(addon.Downloads) downloads
+                                                            </MudText>
+                                                            
+                                                            @* Version selector when addon is selected *@
+                                                            @if (addon.IsSelected)
+                                                            {
+                                                                <div class="mt-2" @onclick:stopPropagation="true">
+                                                                    @if (addon.IsLoadingVersions)
+                                                                    {
+                                                                        <div class="d-flex align-center gap-2">
+                                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                                                            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">Loading versions...</MudText>
+                                                                        </div>
+                                                                    }
+                                                                    else if (!string.IsNullOrEmpty(addon.VersionsError))
+                                                                    {
+                                                                        <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                                                            @addon.VersionsError
+                                                                        </MudText>
+                                                                    }
+                                                                    else if (addon.Versions.Count > 0)
+                                                                    {
+                                                                        @* Sort versions: compatible first, then by downloads *@
+                                                                        var sortedVersions = addon.Versions
+                                                                            .Select(v => (Version: v, Score: GetVersionCompatibilityScore(v.ModVersionConstraint, ParseVersion(_forgeSelectedVersion) ?? (0, 0, 0))))
+                                                                            .OrderByDescending(x => x.Score)
+                                                                            .ThenByDescending(x => x.Version.Downloads)
+                                                                            .Select(x => x.Version)
+                                                                            .ToList();
+                                                                        
+                                                                        <MudSelect T="string" 
+                                                                                   @bind-Value="addon.SelectedVersion"
+                                                                                   Label="Version"
+                                                                                   Variant="Variant.Outlined"
+                                                                                   Dense="true"
+                                                                                   Style="max-width: 350px;">
+                                                                            @foreach (var version in sortedVersions)
+                                                                            {
+                                                                                var compat = GetAddonVersionCompatibility(version);
+                                                                                <MudSelectItem T="string" Value="@version.Version">
+                                                                                    <div class="d-flex justify-space-between align-center gap-2" style="width: 100%;">
+                                                                                        <span>v@(version.Version)</span>
+                                                                                        <span style="font-size: 0.75rem; color: @compat.Color; white-space: nowrap;">
+                                                                                            @compat.Text
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </MudSelectItem>
+                                                                            }
+                                                                        </MudSelect>
+                                                                        @if (addon.Versions.FirstOrDefault(v => v.Version == addon.SelectedVersion) is { } selectedAddonVer)
+                                                                        {
+                                                                            var selectedCompat = GetAddonVersionCompatibility(selectedAddonVer);
+                                                                            <MudText Typo="Typo.caption" Class="mt-1" Style="@($"color: {selectedCompat.Color};")">
+                                                                                @if (!string.IsNullOrEmpty(selectedAddonVer.ModVersionConstraint))
+                                                                                {
+                                                                                    @if (IsAddonVersionCompatible(selectedAddonVer.ModVersionConstraint))
+                                                                                    {
+                                                                                        <span>✓ Compatible with @_forgeMod?.Name v@_forgeSelectedVersion • </span>
+                                                                                    }
+                                                                                    else
+                                                                                    {
+                                                                                        <span>⚠ Requires mod @selectedAddonVer.ModVersionConstraint (you selected v@_forgeSelectedVersion) • </span>
+                                                                                    }
+                                                                                }
+                                                                                <span style="color: var(--text-secondary);">@FormatDownloadCount(selectedAddonVer.Downloads) downloads</span>
+                                                                            </MudText>
+                                                                        }
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                                                            No versions available
+                                                                        </MudText>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </MudPaper>
+                                            }
+                                        </div>
+                                        
+                                        @if (GetSelectedAddons() is { Count: > 0 } selectedAddonsInfo)
+                                        {
+                                            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
+                                                @selectedAddonsInfo.Count addon(s) will be staged for installation.
+                                            </MudAlert>
+                                        }
+                                    }
+                                </MudPaper>
                             }
                         }
                     </div>
@@ -508,6 +694,11 @@
     private bool _forgeShowSearchResults;
     private System.Threading.Timer? _forgeSearchDebounceTimer;
     private const int ForgeSearchDebounceMs = 400;
+    
+    // Addon state
+    private bool _addonsLoading;
+    private string? _addonsError;
+    private List<ForgeAddonViewModel> _addons = new();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -544,6 +735,11 @@
         _forgeSearchResults.Clear();
         _forgeShowSearchResults = false;
         _forgeSearchDebounceTimer?.Dispose();
+        
+        // Reset addon state
+        _addonsLoading = false;
+        _addonsError = null;
+        _addons.Clear();
     }
 
     private async Task CheckForgeApiKeyStatus()
@@ -756,6 +952,11 @@
         _forgeSearchInput = "";
         _forgeSearchResults.Clear();
         _forgeShowSearchResults = false;
+        
+        // Clear addon state
+        _addonsLoading = false;
+        _addonsError = null;
+        _addons.Clear();
     }
 
     private async Task FetchForgeModById(int modId)
@@ -763,6 +964,9 @@
         _forgeModLoading = true;
         _forgeModError = null;
         _forgeMod = null;
+        _addons.Clear();
+        _addonsLoading = false;
+        _addonsError = null;
         StateHasChanged();
 
         try
@@ -807,6 +1011,9 @@
                     };
 
                     _forgeSelectedVersion = _forgeMod.Versions.FirstOrDefault()?.Version;
+                    
+                    // Fetch addons in background (fire-and-forget, don't block the UI)
+                    _ = FetchAddonsForModAsync(modId);
                 }
                 else
                 {
@@ -829,6 +1036,255 @@
             _forgeModLoading = false;
             StateHasChanged();
         }
+    }
+    
+    private async Task FetchAddonsForModAsync(int modId)
+    {
+        _addonsLoading = true;
+        _addonsError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/mod/{modId}/addons");
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<InternalForgeAddonsResponse>(json, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Success == true && result.Addons != null)
+                {
+                    _addons = result.Addons.Select(a => new ForgeAddonViewModel
+                    {
+                        Id = a.Id,
+                        Name = a.Name ?? "Unknown Addon",
+                        Slug = a.Slug ?? "",
+                        Teaser = a.Teaser,
+                        Thumbnail = a.Thumbnail,
+                        Downloads = a.Downloads,
+                        DetailUrl = a.DetailUrl,
+                        ModId = a.ModId,
+                        Owner = a.Owner
+                    }).ToList();
+                }
+            }
+            else
+            {
+                _addonsError = "Failed to load addons";
+            }
+        }
+        catch (Exception ex)
+        {
+            _addonsError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _addonsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+    
+    private async Task ToggleAddonSelection(ForgeAddonViewModel addon)
+    {
+        addon.IsSelected = !addon.IsSelected;
+        
+        if (addon.IsSelected && addon.Versions.Count == 0 && !addon.IsLoadingVersions)
+        {
+            // Fetch versions when first selected
+            await FetchAddonVersionsAsync(addon);
+        }
+        
+        StateHasChanged();
+    }
+    
+    private async Task FetchAddonVersionsAsync(ForgeAddonViewModel addon)
+    {
+        addon.IsLoadingVersions = true;
+        addon.VersionsError = null;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/addon/{addon.Id}/versions");
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<InternalForgeAddonVersionsResponse>(json, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Success == true && result.Versions != null)
+                {
+                    addon.Versions = result.Versions.Select(v => new ForgeAddonVersionViewModel
+                    {
+                        Id = v.Id,
+                        Version = v.Version ?? "",
+                        Description = v.Description,
+                        DownloadUrl = v.DownloadUrl ?? "",
+                        ContentLength = v.ContentLength,
+                        ModVersionConstraint = v.ModVersionConstraint,
+                        Downloads = v.Downloads,
+                        PublishedAt = v.PublishedAt
+                    }).ToList();
+                    
+                    // Auto-select the best matching version based on base mod version
+                    addon.SelectedVersion = GetBestAddonVersion(addon.Versions)?.Version 
+                        ?? addon.Versions.FirstOrDefault()?.Version;
+                }
+            }
+            else
+            {
+                addon.VersionsError = "Failed to load versions";
+            }
+        }
+        catch (Exception ex)
+        {
+            addon.VersionsError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            addon.IsLoadingVersions = false;
+            StateHasChanged();
+        }
+    }
+    
+    private List<ForgeAddonViewModel> GetSelectedAddons()
+    {
+        return _addons.Where(a => a.IsSelected && !string.IsNullOrEmpty(a.SelectedVersion)).ToList();
+    }
+    
+    /// <summary>
+    /// Get the best matching addon version based on the selected base mod version.
+    /// Prioritizes versions where ModVersionConstraint matches the major.minor of the selected mod version.
+    /// </summary>
+    private ForgeAddonVersionViewModel? GetBestAddonVersion(List<ForgeAddonVersionViewModel> versions)
+    {
+        if (versions.Count == 0 || string.IsNullOrEmpty(_forgeSelectedVersion))
+            return null;
+        
+        var baseVersion = ParseVersion(_forgeSelectedVersion);
+        if (baseVersion == null)
+            return versions.FirstOrDefault();
+        
+        // Score each version by compatibility
+        var scored = versions
+            .Select(v => (Version: v, Score: GetVersionCompatibilityScore(v.ModVersionConstraint, baseVersion.Value)))
+            .OrderByDescending(x => x.Score)
+            .ThenByDescending(x => x.Version.Downloads) // Tie-breaker: more downloads = more popular
+            .ToList();
+        
+        return scored.FirstOrDefault().Version;
+    }
+    
+    /// <summary>
+    /// Check if an addon version is compatible with the selected base mod version.
+    /// </summary>
+    private bool IsAddonVersionCompatible(string? modVersionConstraint)
+    {
+        if (string.IsNullOrEmpty(_forgeSelectedVersion) || string.IsNullOrEmpty(modVersionConstraint))
+            return true; // Can't determine, assume compatible
+        
+        var baseVersion = ParseVersion(_forgeSelectedVersion);
+        if (baseVersion == null)
+            return true;
+        
+        return GetVersionCompatibilityScore(modVersionConstraint, baseVersion.Value) > 0;
+    }
+    
+    /// <summary>
+    /// Get a compatibility score for an addon version constraint against a base version.
+    /// Higher score = better match. 0 = incompatible.
+    /// </summary>
+    private static int GetVersionCompatibilityScore(string? constraint, (int Major, int Minor, int Patch) baseVersion)
+    {
+        if (string.IsNullOrEmpty(constraint))
+            return 1; // No constraint = wildcard, low priority
+        
+        // Parse constraint like "~2.2" or "~1.9.0"
+        var constraintVersion = ParseVersion(constraint.TrimStart('~', '^', '>', '<', '=', ' '));
+        if (constraintVersion == null)
+            return 1;
+        
+        var (cMajor, cMinor, cPatch) = constraintVersion.Value;
+        
+        // Exact major.minor match = highest score
+        if (cMajor == baseVersion.Major && cMinor == baseVersion.Minor)
+            return 100;
+        
+        // Same major, constraint minor <= base minor = good (e.g., addon ~2.2 works with mod 2.5)
+        if (cMajor == baseVersion.Major && cMinor <= baseVersion.Minor)
+            return 50 + (10 - Math.Abs(baseVersion.Minor - cMinor)); // Closer = better
+        
+        // Same major but constraint minor > base minor = might work but risky
+        if (cMajor == baseVersion.Major)
+            return 10;
+        
+        // Different major = incompatible
+        return 0;
+    }
+    
+    /// <summary>
+    /// Parse a version string like "2.5.3" or "2.2" into (major, minor, patch).
+    /// </summary>
+    private static (int Major, int Minor, int Patch)? ParseVersion(string? version)
+    {
+        if (string.IsNullOrEmpty(version))
+            return null;
+        
+        // Remove any prefix characters
+        version = version.TrimStart('v', 'V', '~', '^', '>', '<', '=', ' ');
+        
+        var parts = version.Split('.');
+        if (parts.Length < 2)
+            return null;
+        
+        if (!int.TryParse(parts[0], out var major))
+            return null;
+        if (!int.TryParse(parts[1], out var minor))
+            return null;
+        
+        var patch = 0;
+        if (parts.Length > 2)
+            int.TryParse(parts[2], out patch);
+        
+        return (major, minor, patch);
+    }
+    
+    /// <summary>
+    /// Get the compatibility status text/style for an addon version.
+    /// </summary>
+    private (string Text, string Color) GetAddonVersionCompatibility(ForgeAddonVersionViewModel version)
+    {
+        if (string.IsNullOrEmpty(version.ModVersionConstraint))
+            return ("Any version", "var(--text-secondary)");
+        
+        if (string.IsNullOrEmpty(_forgeSelectedVersion))
+            return (version.ModVersionConstraint, "var(--text-secondary)");
+        
+        var baseVersion = ParseVersion(_forgeSelectedVersion);
+        if (baseVersion == null)
+            return (version.ModVersionConstraint, "var(--text-secondary)");
+        
+        var score = GetVersionCompatibilityScore(version.ModVersionConstraint, baseVersion.Value);
+        
+        if (score >= 50)
+            return ($"✓ {version.ModVersionConstraint}", "var(--accent-green)");
+        else if (score > 0)
+            return ($"⚠ {version.ModVersionConstraint}", "var(--accent-orange)");
+        else
+            return ($"✗ {version.ModVersionConstraint}", "var(--accent-red)");
     }
 
     private static int? ExtractModIdFromForgeUrl(string url)
@@ -950,57 +1406,80 @@
             return;
         }
 
-        _urlsToProcess = new List<string> { selectedVersion.DownloadUrl };
+        // Build list of downloads: main mod + selected addons
+        var downloadsToProcess = new List<(string Url, string Name, bool IsAddon)>
+        {
+            (selectedVersion.DownloadUrl, _forgeMod.Name, false)
+        };
+        
+        // Add selected addons with formatted name: "<ModName> (Addon) <AddonName>"
+        foreach (var addon in GetSelectedAddons())
+        {
+            var addonVersion = addon.Versions.FirstOrDefault(v => v.Version == addon.SelectedVersion);
+            if (addonVersion != null && !string.IsNullOrEmpty(addonVersion.DownloadUrl))
+            {
+                var addonDisplayName = $"{_forgeMod.Name} [Addon] - {addon.Name}";
+                downloadsToProcess.Add((addonVersion.DownloadUrl, addonDisplayName, true));
+            }
+        }
+
+        _urlsToProcess = downloadsToProcess.Select(d => d.Url).ToList();
         _downloadResults = new();
         _currentDownloadIndex = 0;
         _step = AddDialogStep.Downloading;
         await InvokeAsync(StateHasChanged);
 
-        _currentDownloadUrl = selectedVersion.DownloadUrl;
-        await InvokeAsync(StateHasChanged);
-
-        try
+        // Process each download
+        foreach (var (url, name, isAddon) in downloadsToProcess)
         {
-            var result = await ModDownloadService.DownloadAndAnalyzeModAsync(selectedVersion.DownloadUrl);
-            
-            if (result.Success)
-            {
-                result.ModName = _forgeMod.Name;
-            }
+            _currentDownloadUrl = url;
+            await InvokeAsync(StateHasChanged);
 
-            _downloadResults.Add(result);
-
-            if (result.Success)
+            try
             {
-                var installPaths = result.SuggestedInstallPaths.Count > 0 
-                    ? result.SuggestedInstallPaths 
-                    : result.TopLevelDirectories.Count > 0
-                        ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
-                        : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                var result = await ModDownloadService.DownloadAndAnalyzeModAsync(url);
                 
-                var mod = new ModEntry
+                if (result.Success)
                 {
-                    ModName = _forgeMod.Name,
-                    DownloadUrl = selectedVersion.DownloadUrl,
-                    Optional = _forgeOptional,
-                    LastUpdated = DateTime.UtcNow.ToString("o"),
-                    InstallPaths = installPaths,
-                    Status = ModStatus.Installed
-                };
-                await ConfigService.AddModToStagedAsync(mod);
+                    result.ModName = name;
+                }
+
+                _downloadResults.Add(result);
+
+                if (result.Success)
+                {
+                    var installPaths = result.SuggestedInstallPaths.Count > 0 
+                        ? result.SuggestedInstallPaths 
+                        : result.TopLevelDirectories.Count > 0
+                            ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
+                            : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                    
+                    var mod = new ModEntry
+                    {
+                        ModName = name,
+                        DownloadUrl = url,
+                        Optional = _forgeOptional, // Addons inherit the optional flag from the main mod
+                        LastUpdated = DateTime.UtcNow.ToString("o"),
+                        InstallPaths = installPaths,
+                        Status = ModStatus.Installed
+                    };
+                    await ConfigService.AddModToStagedAsync(mod);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _downloadResults.Add(new ModDownloadResult
+            catch (Exception ex)
             {
-                Url = selectedVersion.DownloadUrl,
-                Success = false,
-                Error = ex.Message
-            });
+                _downloadResults.Add(new ModDownloadResult
+                {
+                    Url = url,
+                    Success = false,
+                    Error = ex.Message
+                });
+            }
+
+            _currentDownloadIndex++;
+            await InvokeAsync(StateHasChanged);
         }
 
-        _currentDownloadIndex++;
         _step = AddDialogStep.Results;
         await OnModsAdded.InvokeAsync();
         await InvokeAsync(StateHasChanged);

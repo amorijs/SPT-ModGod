@@ -35,19 +35,19 @@ public partial class ConfigService
     /// </summary>
     private async Task ApplyPendingOperationsOnStartupAsync()
     {
-        var pendingDeletions = PendingOps.PathsToDelete.Count;
+        // FIRST: Check if the auto-installer script already handled operations
+        // This clears PendingOps.PathsToDelete for any removals the script completed
+        await CheckAndMarkInstalledModsAsync();
 
-        // Apply any queued deletions from previous session
-        if (pendingDeletions > 0)
+        // SECOND: Apply any remaining queued deletions as a fallback
+        // This handles cases where the script didn't run (e.g., user closed the window)
+        if (PendingOps.PathsToDelete.Count > 0)
         {
             _logger.Info("========================================");
-            _logger.Info("ModGod: Processing pending deletions...");
+            _logger.Info("ModGod: Processing remaining pending deletions...");
             _logger.Info("========================================");
             await ApplyPendingDeletionsAsync();
         }
-
-        // Check if any operations completed by the auto-installer
-        await CheckAndMarkInstalledModsAsync();
 
         // Check for staged changes that need applying
         var stagedChanges = CalculateStagedChanges();

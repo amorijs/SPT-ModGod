@@ -204,3 +204,97 @@ public class InternalForgeVersionData
 
 #endregion
 
+#region Forge Addon Models
+
+/// <summary>
+/// Addon information displayed in the UI
+/// </summary>
+public class ForgeAddonViewModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Slug { get; set; } = "";
+    public string? Teaser { get; set; }
+    public string? Thumbnail { get; set; }
+    public long Downloads { get; set; }
+    public string? DetailUrl { get; set; }
+    public int ModId { get; set; }
+    public string? Owner { get; set; }
+    
+    // UI state
+    public bool IsSelected { get; set; }
+    public bool IsLoadingVersions { get; set; }
+    public string? VersionsError { get; set; }
+    public List<ForgeAddonVersionViewModel> Versions { get; set; } = new();
+    public string? SelectedVersion { get; set; }
+}
+
+/// <summary>
+/// Addon version information displayed in the UI
+/// </summary>
+public class ForgeAddonVersionViewModel
+{
+    public int Id { get; set; }
+    public string Version { get; set; } = "";
+    public string? Description { get; set; }
+    public string DownloadUrl { get; set; } = "";
+    public long ContentLength { get; set; }
+    public string? ModVersionConstraint { get; set; }
+    public long Downloads { get; set; }
+    public string? PublishedAt { get; set; }
+}
+
+/// <summary>
+/// Response from the ModGod internal API addons endpoint
+/// </summary>
+public class InternalForgeAddonsResponse
+{
+    public bool Success { get; set; }
+    public List<InternalForgeAddonData>? Addons { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Addon data from the internal API
+/// </summary>
+public class InternalForgeAddonData
+{
+    public int Id { get; set; }
+    public string? Name { get; set; }
+    public string? Slug { get; set; }
+    public string? Teaser { get; set; }
+    public string? Thumbnail { get; set; }
+    public long Downloads { get; set; }
+    public string? DetailUrl { get; set; }
+    public int ModId { get; set; }
+    public string? Owner { get; set; }
+    public string? PublishedAt { get; set; }
+}
+
+/// <summary>
+/// Response from the ModGod internal API addon versions endpoint
+/// </summary>
+public class InternalForgeAddonVersionsResponse
+{
+    public bool Success { get; set; }
+    public List<InternalForgeAddonVersionData>? Versions { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Addon version data from the internal API
+/// </summary>
+public class InternalForgeAddonVersionData
+{
+    public int Id { get; set; }
+    public string? Version { get; set; }
+    public string? Description { get; set; }
+    public string? DownloadUrl { get; set; }
+    public long ContentLength { get; set; }
+    public string? ModVersionConstraint { get; set; }
+    public long Downloads { get; set; }
+    public string? PublishedAt { get; set; }
+}
+
+#endregion
+

@@ -293,12 +293,17 @@
     private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
     private bool _fileTreeLoading;
     private string? _fileTreeError;
+    
+    // Track which mod we initialized for
+    private string? _initializedForUrl;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (Visible && Mod != null && string.IsNullOrEmpty(_modName))
+        // Re-initialize when a different mod is passed or when dialog opens fresh
+        if (Visible && Mod != null && _initializedForUrl != Mod.DownloadUrl)
         {
             // Initialize from mod
+            _initializedForUrl = Mod.DownloadUrl;
             _modName = Mod.ModName ?? "";
             _downloadUrl = Mod.DownloadUrl ?? "";
             _isOptional = Mod.Optional;
@@ -338,6 +343,7 @@
         else if (!Visible)
         {
             // Reset state
+            _initializedForUrl = null;
             _modName = "";
             _downloadUrl = "";
             _isOptional = false;

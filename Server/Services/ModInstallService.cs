@@ -239,21 +239,24 @@ public class ModInstallService
         var files = Directory.GetFiles(fullSourcePath, "*", SearchOption.AllDirectories);
         foreach (var file in files)
         {
+            var relativeFromSource = Path.GetRelativePath(fullSourcePath, file);
+            var targetFile = Path.Combine(fullTargetPath, relativeFromSource);
+            
+            // Track ALL files that would be installed (relative path from SPT root using forward slashes)
+            // This includes ignored files so we know what files the mod "owns" for uninstall purposes
+            var relativePath = Path.GetRelativePath(_configService.SptRoot, targetFile).Replace('\\', '/');
+            installedFiles.Add(relativePath);
+            
+            // Check if this file should be skipped (user chose not to overwrite)
             var relative = Path.GetRelativePath(extractedRoot, file);
             if (IsIgnored(relative, ignoreRules))
                 continue;
 
-            var relativeFromSource = Path.GetRelativePath(fullSourcePath, file);
-            var targetFile = Path.Combine(fullTargetPath, relativeFromSource);
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
 
             try
             {
                 File.Copy(file, targetFile, true);
-                
-                // Track the installed file (relative path from SPT root using forward slashes)
-                var relativePath = Path.GetRelativePath(_configService.SptRoot, targetFile).Replace('\\', '/');
-                installedFiles.Add(relativePath);
             }
             catch (IOException ex) when (IsFileLockedException(ex))
             {
@@ -264,6 +267,12 @@ public class ModInstallService
 
     private void CopyFileWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles, List<string> installedFiles)
     {
+        // Track ALL files that would be installed (relative path from SPT root using forward slashes)
+        // This includes ignored files so we know what files the mod "owns" for uninstall purposes
+        var relativePath = Path.GetRelativePath(_configService.SptRoot, fullTargetPath).Replace('\\', '/');
+        installedFiles.Add(relativePath);
+        
+        // Check if this file should be skipped (user chose not to overwrite)
         var relative = Path.GetRelativePath(extractedRoot, fullSourcePath);
         if (IsIgnored(relative, ignoreRules))
             return;
@@ -272,10 +281,6 @@ public class ModInstallService
         try
         {
             File.Copy(fullSourcePath, fullTargetPath, true);
-            
-            // Track the installed file (relative path from SPT root using forward slashes)
-            var relativePath = Path.GetRelativePath(_configService.SptRoot, fullTargetPath).Replace('\\', '/');
-            installedFiles.Add(relativePath);
         }
         catch (IOException ex) when (IsFileLockedException(ex))
         {

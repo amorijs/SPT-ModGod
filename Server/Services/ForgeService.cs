@@ -293,6 +293,104 @@ public class ForgeService : IOnLoad
     {
         return $"{ForgeBaseUrl}/mod/download/{modId}/{slug}/{version}";
     }
+
+    /// <summary>
+    /// Get addons for a specific mod
+    /// </summary>
+    public async Task<ForgeAddonsResponse?> GetModAddonsAsync(int modId)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot fetch addons - no Forge API key configured");
+            return null;
+        }
+
+        try
+        {
+            var url = $"{ApiBaseUrl}/addons?filter[mod_id]={modId}";
+            _logger.Info($"[ForgeService] Fetching addons from: {url}");
+            
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
+            
+            _logger.Info($"[ForgeService] Addons API response status: {response.StatusCode}");
+            _logger.Info($"[ForgeService] Addons API response (first 500 chars): {json.Substring(0, Math.Min(500, json.Length))}");
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge API returned {response.StatusCode} for mod {modId} addons");
+                return new ForgeAddonsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+            }
+
+            var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeAddonData>>>(json, JsonOptions);
+            _logger.Info($"[ForgeService] Deserialized result - Success: {result?.Success}, Data count: {result?.Data?.Count ?? 0}");
+            
+            if (result?.Data == null)
+            {
+                return new ForgeAddonsResponse { Success = true, Addons = new List<ForgeAddonData>() };
+            }
+
+            return new ForgeAddonsResponse
+            {
+                Success = true,
+                Addons = result.Data
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching addons for mod {modId}: {ex.Message}");
+            return new ForgeAddonsResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Get versions for a specific addon
+    /// </summary>
+    public async Task<ForgeAddonVersionsResponse?> GetAddonVersionsAsync(int addonId)
+    {
+        if (!HasApiKey)
+        {
+            _logger.Warning("Cannot fetch addon versions - no Forge API key configured");
+            return null;
+        }
+
+        try
+        {
+            var url = $"{ApiBaseUrl}/addon/{addonId}/versions";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warning($"Forge API returned {response.StatusCode} for addon {addonId} versions");
+                return new ForgeAddonVersionsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeAddonVersionData>>>(json, JsonOptions);
+            
+            if (result?.Data == null)
+            {
+                return new ForgeAddonVersionsResponse { Success = true, Versions = new List<ForgeAddonVersionData>() };
+            }
+
+            return new ForgeAddonVersionsResponse
+            {
+                Success = true,
+                Versions = result.Data
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching versions for addon {addonId}: {ex.Message}");
+            return new ForgeAddonVersionsResponse { Success = false, Error = ex.Message };
+        }
+    }
 }
 
 #region Forge API Models
@@ -462,6 +560,82 @@ public class ForgeCategory
 
     [JsonPropertyName("color_class")]
     public string? ColorClass { get; set; }
+}
+
+// Addon Models
+
+public class ForgeAddonsResponse
+{
+    public bool Success { get; set; }
+    public List<ForgeAddonData> Addons { get; set; } = new();
+    public string? Error { get; set; }
+}
+
+public class ForgeAddonVersionsResponse
+{
+    public bool Success { get; set; }
+    public List<ForgeAddonVersionData> Versions { get; set; } = new();
+    public string? Error { get; set; }
+}
+
+public class ForgeAddonData
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("slug")]
+    public string Slug { get; set; } = string.Empty;
+
+    [JsonPropertyName("teaser")]
+    public string? Teaser { get; set; }
+
+    [JsonPropertyName("thumbnail")]
+    public string? Thumbnail { get; set; }
+
+    [JsonPropertyName("downloads")]
+    public long Downloads { get; set; }
+
+    [JsonPropertyName("detail_url")]
+    public string? DetailUrl { get; set; }
+
+    [JsonPropertyName("mod_id")]
+    public int ModId { get; set; }
+
+    [JsonPropertyName("owner")]
+    public ForgeUser? Owner { get; set; }
+
+    [JsonPropertyName("published_at")]
+    public string? PublishedAt { get; set; }
+}
+
+public class ForgeAddonVersionData
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("link")]
+    public string? Link { get; set; }
+
+    [JsonPropertyName("content_length")]
+    public long ContentLength { get; set; }
+
+    [JsonPropertyName("mod_version_constraint")]
+    public string? ModVersionConstraint { get; set; }
+
+    [JsonPropertyName("downloads")]
+    public long Downloads { get; set; }
+
+    [JsonPropertyName("published_at")]
+    public string? PublishedAt { get; set; }
 }
 
 #endregion

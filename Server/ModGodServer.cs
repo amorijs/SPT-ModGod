@@ -521,8 +521,13 @@ public class ForgeModDetailsHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value ?? "";
-        return context.Request.Method == "GET" && 
-               path.StartsWith("/modgod/api/forge/mod/", StringComparison.OrdinalIgnoreCase);
+        // Only match /modgod/api/forge/mod/{modId} - NOT paths with additional segments like /addons
+        if (context.Request.Method != "GET") return false;
+        if (!path.StartsWith("/modgod/api/forge/mod/", StringComparison.OrdinalIgnoreCase)) return false;
+        
+        // Exclude sub-paths like /addons
+        var remainder = path.Substring("/modgod/api/forge/mod/".Length).TrimEnd('/');
+        return !remainder.Contains('/'); // Only match if there's no additional path segment
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)
@@ -590,6 +595,209 @@ public class ForgeModDetailsHttpListener : IHttpListener
         catch (Exception ex)
         {
             _logger.Error($"Error fetching mod details: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = "Internal error" });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener for fetching addons for a mod
+/// GET /modgod/api/forge/mod/{modId}/addons
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeModAddonsHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeModAddonsHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public ForgeModAddonsHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeModAddonsHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? "";
+        return context.Request.Method == "GET" && 
+               path.Contains("/modgod/api/forge/mod/") && 
+               path.EndsWith("/addons", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            var path = context.Request.Path.Value ?? "";
+            _logger.Info($"[AddonsHandler] Handling request: {path}");
+            
+            // Extract modId from /modgod/api/forge/mod/{modId}/addons
+            var startIndex = "/modgod/api/forge/mod/".Length;
+            var endIndex = path.LastIndexOf("/addons", StringComparison.OrdinalIgnoreCase);
+            var modIdStr = path.Substring(startIndex, endIndex - startIndex);
+
+            if (!int.TryParse(modIdStr, out var modId))
+            {
+                _logger.Warning($"[AddonsHandler] Invalid mod ID: {modIdStr}");
+                await SendJsonResponse(context, 400, new { success = false, error = "Invalid mod ID" });
+                return;
+            }
+
+            if (!_forgeService.HasApiKey)
+            {
+                _logger.Warning("[AddonsHandler] No Forge API key configured");
+                await SendJsonResponse(context, 400, new { success = false, error = "No Forge API key configured" });
+                return;
+            }
+
+            _logger.Info($"[AddonsHandler] Fetching addons for mod ID: {modId}");
+            var result = await _forgeService.GetModAddonsAsync(modId);
+            _logger.Info($"[AddonsHandler] API result - Success: {result?.Success}, Addons count: {result?.Addons?.Count ?? 0}, Error: {result?.Error ?? "none"}");
+
+            if (result?.Success == true)
+            {
+                await SendJsonResponse(context, 200, new
+                {
+                    success = true,
+                    addons = result.Addons.Select(a => new
+                    {
+                        a.Id,
+                        a.Name,
+                        a.Slug,
+                        a.Teaser,
+                        a.Thumbnail,
+                        a.Downloads,
+                        a.DetailUrl,
+                        a.ModId,
+                        Owner = a.Owner?.Name,
+                        a.PublishedAt
+                    })
+                });
+            }
+            else
+            {
+                await SendJsonResponse(context, 500, new { success = false, error = result?.Error ?? "Failed to fetch addons" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching mod addons: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = "Internal error" });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener for fetching versions for an addon
+/// GET /modgod/api/forge/addon/{addonId}/versions
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeAddonVersionsHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+    private readonly ISptLogger<ForgeAddonVersionsHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public ForgeAddonVersionsHttpListener(
+        ForgeService forgeService,
+        ISptLogger<ForgeAddonVersionsHttpListener> logger)
+    {
+        _forgeService = forgeService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? "";
+        return context.Request.Method == "GET" && 
+               path.Contains("/modgod/api/forge/addon/") && 
+               path.EndsWith("/versions", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            var path = context.Request.Path.Value ?? "";
+            // Extract addonId from /modgod/api/forge/addon/{addonId}/versions
+            var startIndex = "/modgod/api/forge/addon/".Length;
+            var endIndex = path.LastIndexOf("/versions", StringComparison.OrdinalIgnoreCase);
+            var addonIdStr = path.Substring(startIndex, endIndex - startIndex);
+
+            if (!int.TryParse(addonIdStr, out var addonId))
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "Invalid addon ID" });
+                return;
+            }
+
+            if (!_forgeService.HasApiKey)
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "No Forge API key configured" });
+                return;
+            }
+
+            _logger.Info($"Fetching versions for addon ID: {addonId}");
+            var result = await _forgeService.GetAddonVersionsAsync(addonId);
+
+            if (result?.Success == true)
+            {
+                await SendJsonResponse(context, 200, new
+                {
+                    success = true,
+                    versions = result.Versions.Select(v => new
+                    {
+                        v.Id,
+                        v.Version,
+                        v.Description,
+                        DownloadUrl = v.Link, // Rename 'link' to 'downloadUrl' for consistency
+                        v.ContentLength,
+                        v.ModVersionConstraint,
+                        v.Downloads,
+                        v.PublishedAt
+                    })
+                });
+            }
+            else
+            {
+                await SendJsonResponse(context, 500, new { success = false, error = result?.Error ?? "Failed to fetch addon versions" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error fetching addon versions: {ex.Message}");
             await SendJsonResponse(context, 500, new { success = false, error = "Internal error" });
         }
     }
