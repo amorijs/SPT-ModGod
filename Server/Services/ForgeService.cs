@@ -868,6 +868,9 @@ public class ForgeModVersion
     [JsonPropertyName("version")]
     public string Version { get; set; } = string.Empty;
 
+    [JsonPropertyName("link")]
+    public string? Link { get; set; }
+
     [JsonPropertyName("spt_version_constraint")]
     public string? SptVersionConstraint { get; set; }
 

@@ -1,6 +1,7 @@
 @using ModGod.Models
 @using ModGod.Services
 @using MudBlazor
+@using System.Text.Json
 
 <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <div class="d-flex justify-space-between align-center mb-3">
@@ -10,7 +11,7 @@
                 Mod Health Check
             </MudText>
             <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                Scans all installed mods for updates and compatibility issues using the Forge API.
+                Scans all installed mods for dependencies, updates, and compatibility issues using the Forge API.
             </MudText>
         </div>
         <MudButton Variant="Variant.Filled"
@@ -255,12 +256,12 @@
                             }
                             @if (context.HasUpdate && !string.IsNullOrEmpty(context.LatestDownloadUrl))
                             {
-                                <MudTooltip Text="Download latest version">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                <MudTooltip Text="Download & Stage update">
+                                    <MudIconButton Icon="@(_isDownloading && _downloadingItem == context.DisplayName ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Download)"
                                                    Size="Size.Small"
                                                    Color="Color.Warning"
-                                                   Href="@context.LatestDownloadUrl"
-                                                   Target="_blank" />
+                                                   Disabled="_isDownloading"
+                                                   OnClick="@(() => DownloadAndStageUpdate(context))" />
                                 </MudTooltip>
                             }
                         </MudTd>
@@ -336,9 +337,13 @@
                                     <MudButton Variant="Variant.Filled"
                                                Color="Color.Primary"
                                                Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Download"
-                                               Href="@dep.DownloadLink"
-                                               Target="_blank">
+                                               StartIcon="@(_isDownloading && _downloadingItem == dep.Name ? null : Icons.Material.Filled.Download)"
+                                               Disabled="_isDownloading"
+                                               OnClick="@(() => DownloadAndStageDependency(dep))">
+                                        @if (_isDownloading && _downloadingItem == dep.Name)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-1" />
+                                        }
                                         Install @(dep.LatestVersion ?? "")
                                     </MudButton>
                                 }
@@ -347,18 +352,24 @@
                                     <MudButton Variant="Variant.Outlined"
                                                Color="Color.Warning"
                                                Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Upgrade"
-                                               Href="@dep.DownloadLink"
-                                               Target="_blank">
+                                               StartIcon="@(_isDownloading && _downloadingItem == dep.Name ? null : Icons.Material.Filled.Upgrade)"
+                                               Disabled="_isDownloading"
+                                               OnClick="@(() => DownloadAndStageDependency(dep))">
+                                        @if (_isDownloading && _downloadingItem == dep.Name)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-1" />
+                                        }
                                         Update to @(dep.LatestVersion ?? "latest")
                                     </MudButton>
                                 }
                                 @if (!string.IsNullOrEmpty(dep.ForgeUrl))
                                 {
-                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                                   Size="Size.Small"
-                                                   Href="@dep.ForgeUrl"
-                                                   Target="_blank" />
+                                    <MudTooltip Text="View on Forge">
+                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                       Size="Size.Small"
+                                                       Href="@dep.ForgeUrl"
+                                                       Target="_blank" />
+                                    </MudTooltip>
                                 }
                             </div>
                         </div>
@@ -380,6 +391,8 @@
 @code {
     [Inject] private ModHealthService HealthService { get; set; } = default!;
     [Inject] private ForgeService ForgeService { get; set; } = default!;
+    [Inject] private ModDownloadService ModDownloadService { get; set; } = default!;
+    [Inject] private ConfigService ConfigService { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
 
     private bool _isChecking = false;
@@ -387,6 +400,10 @@
     private string? _activeFilter = null;
     private bool _showDependencyDialog = false;
     private ModHealthInfo? _selectedMod;
+    
+    // Download state
+    private bool _isDownloading = false;
+    private string? _downloadingItem = null;
 
     private bool HasApiKey => ForgeService.HasApiKey;
 
@@ -528,5 +545,87 @@
     {
         _showDependencyDialog = false;
         _selectedMod = null;
+    }
+
+    /// <summary>
+    /// Downloads and stages a dependency using the API-provided download link
+    /// </summary>
+    private async Task DownloadAndStageDependency(DependencyInfo dep)
+    {
+        // Use the download link from the API response (latest_compatible_version.link)
+        if (string.IsNullOrEmpty(dep.DownloadLink))
+        {
+            Snackbar.Add($"Cannot download {dep.Name}: no download link available", Severity.Error);
+            return;
+        }
+
+        await DownloadAndStageModAsync(dep.DownloadLink, dep.Name);
+    }
+
+    /// <summary>
+    /// Downloads and stages a mod update using the API-provided download URL
+    /// </summary>
+    private async Task DownloadAndStageUpdate(ModHealthInfo mod)
+    {
+        if (string.IsNullOrEmpty(mod.LatestDownloadUrl))
+        {
+            Snackbar.Add($"Cannot download {mod.DisplayName}: no download URL available", Severity.Error);
+            return;
+        }
+
+        await DownloadAndStageModAsync(mod.LatestDownloadUrl, mod.DisplayName);
+    }
+
+    /// <summary>
+    /// Core download and stage logic
+    /// </summary>
+    private async Task DownloadAndStageModAsync(string downloadUrl, string modName)
+    {
+        _isDownloading = true;
+        _downloadingItem = modName;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ModDownloadService.DownloadAndAnalyzeModAsync(downloadUrl);
+
+            if (result.Success)
+            {
+                result.ModName = modName;
+                
+                var installPaths = result.SuggestedInstallPaths.Count > 0 
+                    ? result.SuggestedInstallPaths 
+                    : result.TopLevelDirectories.Count > 0
+                        ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
+                        : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                
+                var mod = new ModEntry
+                {
+                    ModName = modName,
+                    DownloadUrl = downloadUrl,
+                    Optional = false,
+                    LastUpdated = DateTime.UtcNow.ToString("o"),
+                    InstallPaths = installPaths,
+                    Status = ModStatus.Installed
+                };
+                
+                await ConfigService.AddModToStagedAsync(mod);
+                Snackbar.Add($"✓ {modName} downloaded and staged! Go to 'Staged Mods' to review.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Failed to download {modName}: {result.Error}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error downloading {modName}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDownloading = false;
+            _downloadingItem = null;
+            StateHasChanged();
+        }
     }
 }

@@ -122,7 +122,7 @@ public class ModHealthService(
 
         // Step 6: Check dependencies for mods that were found on Forge
         logger.Info("Checking mod dependencies...");
-        await CheckAllDependenciesAsync(result.Mods, scannedMods);
+        await CheckAllDependenciesAsync(result.Mods, scannedMods, result.SptVersion ?? "4.0.0");
 
         // Sort: tracked first, then by name
         result.Mods.Sort((a, b) =>
@@ -426,13 +426,18 @@ public class ModHealthService(
             {
                 healthInfo.LatestVersion = latestCompatible.Version;
                 healthInfo.LatestSptConstraint = latestCompatible.SptVersionConstraint;
-                healthInfo.LatestDownloadUrl = ForgeService.BuildDownloadUrl(forgeMod.Id, forgeMod.Slug, latestCompatible.Version);
+                // Use valid link from API, or fall back to constructed URL
+                healthInfo.LatestDownloadUrl = GetValidDownloadLink(
+                    latestCompatible.Link, forgeMod.Id, forgeMod.Slug, latestCompatible.Version);
             }
             else if (latestOverall != null)
             {
                 // No compatible version found, show latest anyway
                 healthInfo.LatestVersion = latestOverall.Version;
                 healthInfo.LatestSptConstraint = latestOverall.SptVersionConstraint;
+                // Use valid link from API, or fall back to constructed URL
+                healthInfo.LatestDownloadUrl = GetValidDownloadLink(
+                    latestOverall.Link, forgeMod.Id, forgeMod.Slug, latestOverall.Version);
             }
 
             // Determine status
@@ -523,7 +528,7 @@ public class ModHealthService(
     /// Check dependencies for all mods that have a Forge mod ID.
     /// Calls the API for each mod individually (as per Forge API design).
     /// </summary>
-    private async Task CheckAllDependenciesAsync(List<ModHealthInfo> mods, List<ScannedMod> scannedMods)
+    private async Task CheckAllDependenciesAsync(List<ModHealthInfo> mods, List<ScannedMod> scannedMods, string sptVersion)
     {
         // Build a map of GUIDs to installed versions for quick lookup
         var installedGuids = scannedMods
@@ -588,15 +593,19 @@ public class ModHealthService(
 
             foreach (var dep in dependencies)
             {
+                // The dependency API may return outdated version info
+                // Fetch actual mod details to get the real latest compatible version
+                var (latestVersion, downloadLink) = await GetLatestVersionForDependency(
+                    dep.Id, dep.Slug, dep.LatestCompatibleVersion, sptVersion);
+                
                 var depInfo = new DependencyInfo
                 {
                     ModId = dep.Id,
                     Guid = dep.Guid,
                     Name = dep.Name,
                     Slug = dep.Slug,
-                    // LatestCompatibleVersion contains the recommended version info
-                    LatestVersion = dep.LatestCompatibleVersion?.Version,
-                    DownloadLink = dep.LatestCompatibleVersion?.Link
+                    LatestVersion = latestVersion,
+                    DownloadLink = downloadLink
                 };
 
                 // Check if this dependency is installed by looking up its GUID
@@ -618,6 +627,104 @@ public class ModHealthService(
         }
 
         logger.Info($"Dependency check complete: {modsWithDeps} mods have dependencies ({totalDeps} total deps)");
+    }
+
+    /// <summary>
+    /// Fetches the actual latest compatible version for a dependency from the mod details API
+    /// </summary>
+    private async Task<(string? Version, string? DownloadLink)> GetLatestVersionForDependency(
+        int modId, string? slug, ForgeCompatibleVersion? fallbackVersion, string sptVersion)
+    {
+        // Try to get actual mod details with all versions
+        try
+        {
+            var modResponse = await forgeService.GetModDetailsAsync(modId);
+            if (modResponse?.Success == true && modResponse.Mod?.Versions != null)
+            {
+                // Find latest version compatible with current SPT
+                var versions = modResponse.Mod.Versions.OrderByDescending(v => v.PublishedAt).ToList();
+                
+                foreach (var version in versions)
+                {
+                    if (IsVersionCompatible(version.SptVersionConstraint, sptVersion))
+                    {
+                        var link = !string.IsNullOrEmpty(version.Link)
+                            ? version.Link
+                            : $"https://forge.sp-tarkov.com/mod/download/{modId}/{modResponse.Mod.Slug}/{version.Version}";
+                        
+                        logger.Debug($"Found latest compatible version for {modResponse.Mod.Name}: {version.Version}");
+                        return (version.Version, link);
+                    }
+                }
+                
+                // No compatible version found, use latest anyway
+                var latest = versions.FirstOrDefault();
+                if (latest != null)
+                {
+                    var link = !string.IsNullOrEmpty(latest.Link)
+                        ? latest.Link
+                        : $"https://forge.sp-tarkov.com/mod/download/{modId}/{modResponse.Mod.Slug}/{latest.Version}";
+                    return (latest.Version, link);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Debug($"Failed to fetch mod details for dependency {modId}: {ex.Message}");
+        }
+
+        // Fallback to dependency API response
+        if (fallbackVersion != null)
+        {
+            var link = GetValidDownloadLink(fallbackVersion.Link, modId, slug, fallbackVersion.Version);
+            return (fallbackVersion.Version, link);
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Gets a valid download link - prefers external links (GitHub), uses Forge constructed URL otherwise
+    /// </summary>
+    private string? GetValidDownloadLink(string? apiLink, int modId, string? slug, string? version)
+    {
+        // Invalid patterns that should be rejected:
+        var invalidPatterns = new[]
+        {
+            "dev.sp-tarkov.com/attachments",
+            "sp-tarkov.com/attachments"
+        };
+
+        // Check if API link is a valid external link (GitHub, GitLab, etc.)
+        if (!string.IsNullOrEmpty(apiLink))
+        {
+            var isInvalid = invalidPatterns.Any(p => apiLink.Contains(p, StringComparison.OrdinalIgnoreCase));
+            
+            // If it's a valid external link (not Forge internal, not attachment), use it
+            if (!isInvalid && !apiLink.Contains("forge.sp-tarkov.com/mod/download"))
+            {
+                // External link (GitHub, etc.) - use as-is
+                logger.Debug($"Using external API link: {apiLink}");
+                return apiLink;
+            }
+        }
+
+        // Construct Forge download URL - this is the reliable method used by AddModsDialog
+        if (modId > 0 && !string.IsNullOrEmpty(slug) && !string.IsNullOrEmpty(version))
+        {
+            var constructedUrl = $"https://forge.sp-tarkov.com/mod/download/{modId}/{slug}/{version}";
+            logger.Debug($"Using constructed Forge download URL: {constructedUrl}");
+            return constructedUrl;
+        }
+
+        // Last resort: use API link even if it looks suspicious
+        if (!string.IsNullOrEmpty(apiLink))
+        {
+            logger.Warning($"Using potentially invalid API link as last resort: {apiLink}");
+            return apiLink;
+        }
+
+        return null;
     }
 
     /// <summary>
