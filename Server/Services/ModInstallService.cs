@@ -48,7 +48,9 @@ public class ModInstallService
                     $"{stagedChanges.ModsToRemove.Count} removals, {stagedChanges.ModsToUpdate.Count} updates" +
                     (hasStagedFile && !stagedChanges.HasChanges ? " (config-only changes)" : ""));
 
-        // First, handle removals (queue them for next startup since DLLs may be locked)
+        // First, handle removals
+        // On Linux: Delete files immediately (Linux doesn't lock files in use)
+        // On Windows: Queue for deletion on shutdown (files are locked while server runs)
         foreach (var mod in stagedChanges.ModsToRemove)
         {
             // Skip protected mods
@@ -58,14 +60,27 @@ public class ModInstallService
                 continue;
             }
             
-            var removalResult = await QueueModForRemovalAsync(mod);
+            var removalResult = await RemoveModAsync(mod);
             if (removalResult.Success)
             {
-                result.QueuedForRemoval.Add(mod.ModName);
+                if (removalResult.WasImmediate)
+                {
+                    result.RemovedMods.Add(mod.ModName);
+                    
+                    // Collect any files that couldn't be deleted
+                    if (removalResult.FailedPaths.Count > 0)
+                    {
+                        result.FailedDeletions.AddRange(removalResult.FailedPaths);
+                    }
+                }
+                else
+                {
+                    result.QueuedForRemoval.Add(mod.ModName);
+                }
             }
             else
             {
-                result.Errors.Add($"Failed to queue removal for {mod.ModName}: {removalResult.Error}");
+                result.Errors.Add($"Failed to remove {mod.ModName}: {removalResult.Error}");
             }
         }
 
@@ -130,10 +145,11 @@ public class ModInstallService
             }
         }
 
-        result.RequiresRestart = result.QueuedForRemoval.Count > 0 || result.QueuedForInstall.Count > 0;
+        result.RequiresRestart = result.QueuedForRemoval.Count > 0 || result.QueuedForInstall.Count > 0 || result.RemovedMods.Count > 0;
         result.Success = result.Errors.Count == 0;
 
         _logger.Info($"Apply complete. Installed: {result.InstalledMods.Count}, " +
+                     $"Removed: {result.RemovedMods.Count}, " +
                      $"Queued for install: {result.QueuedForInstall.Count}, " +
                      $"Queued for removal: {result.QueuedForRemoval.Count}, " +
                      $"Errors: {result.Errors.Count}");
@@ -316,15 +332,17 @@ public class ModInstallService
     }
 
     /// <summary>
-    /// Queue a mod's files for removal on next startup
+    /// Remove a mod's files. On Linux, deletes immediately. On Windows, queues for removal on shutdown.
     /// </summary>
-    private async Task<ModOperationResult> QueueModForRemovalAsync(ModEntry mod)
+    private async Task<ModRemovalResult> RemoveModAsync(ModEntry mod)
     {
-        var result = new ModOperationResult { ModName = mod.ModName };
+        var result = new ModRemovalResult { ModName = mod.ModName };
+        var isWindows = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+            System.Runtime.InteropServices.OSPlatform.Windows);
 
         try
         {
-            _logger.Info($"Queuing mod for removal: {mod.ModName}");
+            _logger.Info($"Removing mod: {mod.ModName} (OS: {(isWindows ? "Windows" : "Linux")})");
 
             var hasUserSelection = _configService.StagedConfig.RemovalSelections?.ContainsKey(mod.DownloadUrl) == true;
             var selectedPaths = hasUserSelection
@@ -340,14 +358,76 @@ public class ModInstallService
 
             if (pathsToDelete.Count > 0)
             {
-                await _configService.QueueDeletionsAsync(pathsToDelete);
-                result.Success = true;
-                _logger.Info($"Queued {pathsToDelete.Count} path(s) for deletion");
+                if (isWindows)
+                {
+                    // Windows: Queue for deletion on shutdown (files are locked)
+                    await _configService.QueueDeletionsAsync(pathsToDelete);
+                    result.Success = true;
+                    result.WasQueued = true;
+                    _logger.Info($"Queued {pathsToDelete.Count} path(s) for deletion on shutdown");
+                }
+                else
+                {
+                    // Linux: Delete immediately (files can be deleted while in use)
+                    var deletedCount = 0;
+                    var failedPaths = new List<string>();
+                    
+                    // First pass: delete files
+                    foreach (var path in pathsToDelete)
+                    {
+                        try
+                        {
+                            var fullPath = path.Replace("<SPT_ROOT>", _configService.SptRoot);
+                            if (File.Exists(fullPath))
+                            {
+                                File.Delete(fullPath);
+                                deletedCount++;
+                                _logger.Info($"  Deleted file: {fullPath}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Warning($"  Failed to delete {path}: {ex.Message}");
+                            failedPaths.Add(path);
+                        }
+                    }
+                    
+                    // Second pass: try to delete empty directories
+                    foreach (var path in pathsToDelete)
+                    {
+                        try
+                        {
+                            var fullPath = path.Replace("<SPT_ROOT>", _configService.SptRoot);
+                            if (Directory.Exists(fullPath) && !Directory.EnumerateFileSystemEntries(fullPath).Any())
+                            {
+                                Directory.Delete(fullPath);
+                                _logger.Info($"  Deleted empty directory: {fullPath}");
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore directory deletion failures
+                        }
+                    }
+                    
+                    // Store any failed paths so user can be notified to manually delete them
+                    result.FailedPaths = failedPaths;
+                    result.Success = true;
+                    result.WasImmediate = true;
+                    result.DeletedCount = deletedCount;
+                    
+                    if (failedPaths.Count > 0)
+                    {
+                        _logger.Warning($"  {failedPaths.Count} file(s) could not be deleted - user should manually remove them");
+                    }
+                    _logger.Success($"Deleted {deletedCount} file(s) for {mod.ModName}");
+                }
             }
             else
             {
                 // No specific paths found - just remove from config
                 result.Success = true;
+                result.WasImmediate = true;
                 _logger.Warning($"No specific paths selected for {mod.ModName}, will just remove from config");
             }
 
@@ -358,7 +438,7 @@ public class ModInstallService
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to queue removal for {mod.ModName}: {ex.Message}");
+            _logger.Error($"Failed to remove {mod.ModName}: {ex.Message}");
             result.Error = ex.Message;
         }
 
@@ -519,8 +599,11 @@ public class ApplyChangesResult
     public List<string> InstalledMods { get; set; } = new();
     public List<string> QueuedForInstall { get; set; } = new();
     public List<string> QueuedForRemoval { get; set; } = new();
+    public List<string> RemovedMods { get; set; } = new(); // Mods removed immediately (Linux)
+    public List<string> FailedDeletions { get; set; } = new(); // Files that couldn't be deleted (user should manually remove)
     public List<string> Errors { get; set; } = new();
     public string? InstallScriptPath { get; set; }
+    public bool IsWindows { get; set; } = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
 }
 
 public class ModOperationResult
@@ -530,4 +613,15 @@ public class ModOperationResult
     public bool NeedsRestart { get; set; }
     public string? Error { get; set; }
     public List<string> LockedFiles { get; set; } = new();
+}
+
+public class ModRemovalResult
+{
+    public string ModName { get; set; } = string.Empty;
+    public bool Success { get; set; }
+    public bool WasImmediate { get; set; } // True if files were deleted immediately (Linux)
+    public bool WasQueued { get; set; } // True if files are queued for shutdown (Windows)
+    public int DeletedCount { get; set; }
+    public List<string> FailedPaths { get; set; } = new(); // Files that couldn't be deleted (for user to manually remove)
+    public string? Error { get; set; }
 }

@@ -311,6 +311,7 @@
 
     private async Task ToggleModOptional(ModEntry mod)
     {
+        CloseAllDialogs();
         mod.Optional = !mod.Optional;
         await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"'{mod.ModName}' is now {(mod.Optional ? "optional" : "required")}", Severity.Info);
@@ -339,6 +340,7 @@
     // Apply Changes
     private async Task ApplyChanges()
     {
+        CloseAllDialogs();
         _isApplying = true;
         StateHasChanged();
 
@@ -361,6 +363,8 @@
     // Discard Changes - reset staged config to match live config
     private async Task DiscardChanges()
     {
+        CloseAllDialogs(); // Must be BEFORE showing message box to prevent edit dialog from reopening
+        
         var result = await DialogService.ShowMessageBox(
             "Discard Changes",
             "This will discard all unsaved changes and reset to the last applied state. Continue?",
@@ -377,6 +381,7 @@
     // Reload config from disk (useful if edited externally)
     private async Task ReloadFromDisk()
     {
+        CloseAllDialogs();
         await ConfigService.ReloadConfigFromDiskAsync();
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();
@@ -387,11 +392,22 @@
     {
         _addDialogVisible = true;
     }
-
+    
     // Tab change handler
     private void OnTabChanged(int index)
     {
         _activeTabIndex = index;
+        CloseAllDialogs();
+    }
+    
+    // Helper to close all dialogs - prevents dialogs from reopening on state changes
+    private void CloseAllDialogs()
+    {
+        _editDialogVisible = false;
+        _editingMod = null;
+        _uninstallDialogVisible = false;
+        _uninstallMod = null;
+        _addDialogVisible = false;
     }
 
     // Edit Mod Dialog Methods
@@ -406,8 +422,8 @@
         
         // Ensure uninstall dialog is closed before opening edit dialog
         _uninstallDialogVisible = false;
-        _editingMod = mod;
-        _editDialogVisible = true;
+            _editingMod = mod;
+            _editDialogVisible = true;
     }
 
     private async Task HandleEditModSave(EditModResult result)
@@ -480,6 +496,8 @@
         if (isPending)
         {
             // Not yet installed - just remove from staged config
+            CloseAllDialogs(); // Must be BEFORE showing message box
+            
             var result = await DialogService.ShowMessageBox(
                 "Remove Mod",
                 $"Remove '{mod.ModName}' from the mod list? (It hasn't been installed yet)",
@@ -494,10 +512,12 @@
         }
         else if (isRemoval)
         {
+            CloseAllDialogs(); // Close before opening uninstall dialog
             OpenUninstallDialog(mod);
         }
         else
         {
+            CloseAllDialogs(); // Close before opening uninstall dialog
             OpenUninstallDialog(mod);
         }
     }
@@ -696,6 +716,7 @@
 
     private async Task UndoRemoval(ModEntry mod)
     {
+        CloseAllDialogs();
         try
         {
             var liveMod = ConfigService.Config.ModList.FirstOrDefault(m => m.DownloadUrl == mod.DownloadUrl);

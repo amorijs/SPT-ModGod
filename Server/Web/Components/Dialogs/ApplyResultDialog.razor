@@ -31,14 +31,31 @@
                 </MudAlert>
             }
             
+            @if (Result.RemovedMods.Count > 0)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">🗑️ Removed @Result.RemovedMods.Count mod(s):</MudText>
+                    @foreach (var mod in Result.RemovedMods)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• @mod</MudText>
+                    }
+                    <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--text-secondary);">
+                        Files have been deleted. Changes will take effect on server restart.
+                    </MudText>
+                </MudAlert>
+            }
+            
             @if (Result.QueuedForRemoval.Count > 0)
             {
                 <MudAlert Severity="Severity.Info" Class="mb-3">
-                    <MudText Typo="Typo.subtitle2">🗑️ @Result.QueuedForRemoval.Count mod(s) will be removed on server restart:</MudText>
+                    <MudText Typo="Typo.subtitle2">🗑️ @Result.QueuedForRemoval.Count mod(s) queued for removal:</MudText>
                     @foreach (var mod in Result.QueuedForRemoval)
                     {
                         <MudText Typo="Typo.body2" Class="ml-3">• @mod</MudText>
                     }
+                    <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--text-secondary);">
+                        A PowerShell script will run when you close the server to complete the removal.
+                    </MudText>
                 </MudAlert>
             }
             
@@ -53,16 +70,38 @@
                 </MudAlert>
             }
             
-            @if (Result.AutoInstallerLaunched)
+            @if (Result.FailedDeletions.Count > 0)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">⚠️ Some files could not be deleted:</MudText>
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        Please manually delete the following files:
+                    </MudText>
+                    @foreach (var path in Result.FailedDeletions.Take(10))
+                    {
+                        <MudText Typo="Typo.caption" Class="ml-3" Style="font-family: monospace; word-break: break-all;">
+                            • @path.Replace("<SPT_ROOT>", "")
+                        </MudText>
+                    }
+                    @if (Result.FailedDeletions.Count > 10)
+                    {
+                        <MudText Typo="Typo.caption" Class="ml-3" Style="color: var(--text-secondary);">
+                            ...and @(Result.FailedDeletions.Count - 10) more file(s)
+                        </MudText>
+                    }
+                </MudAlert>
+            }
+            
+            @if (Result.AutoInstallerLaunched && Result.IsWindows)
             {
                 <MudAlert Severity="Severity.Success" Class="mt-4">
                     <MudText Typo="Typo.subtitle2">🚀 Auto-Installer Launched!</MudText>
                     <MudText Typo="Typo.body2" Class="mt-2">
-                        A PowerShell window has opened that will automatically install the pending mods
+                        A PowerShell window has opened that will automatically complete the pending operations
                         when you stop the SPT server.
                     </MudText>
                     <MudText Typo="Typo.body2" Class="mt-2">
-                        <strong>Just stop the server normally</strong> - the installer will detect it and complete the installation.
+                        <strong>Just stop the server normally</strong> - the installer will detect it and complete the process.
                     </MudText>
                 </MudAlert>
             }
