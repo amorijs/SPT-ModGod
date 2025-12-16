@@ -459,7 +459,7 @@ public class ModInstallService
         var pathsToDelete = new List<string>();
 
         // Use InstalledFiles if available (new system - accurate per-file tracking)
-        if (mod.InstalledFiles != null && mod.InstalledFiles.Count > 0)
+        if (mod.InstalledFiles.Count > 0)
         {
             _logger.Info($"  Using tracked InstalledFiles list ({mod.InstalledFiles.Count} files)");
 

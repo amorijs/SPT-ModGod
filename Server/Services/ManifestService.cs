@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
-using System.Linq;
 using ModGod.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
@@ -12,24 +11,15 @@ namespace ModGod.Services;
 /// Reads directly from the SPT installation folders, not staging/cache
 /// </summary>
 [Injectable(InjectionType = InjectionType.Singleton)]
-public class ManifestService
+public class ManifestService(
+    ConfigService configService,
+    ISptLogger<ManifestService> logger)
 {
-    private readonly ConfigService _configService;
-    private readonly ISptLogger<ManifestService> _logger;
-
     private static readonly string[] ManifestAllowedRoots =
-    {
+    [
         "BepInEx/plugins",
         "SPT/user/mods"
-    };
-
-    public ManifestService(
-        ConfigService configService,
-        ISptLogger<ManifestService> logger)
-    {
-        _configService = configService;
-        _logger = logger;
-    }
+    ];
 
     /// <summary>
     /// Generate a file manifest for all installed mods
@@ -45,11 +35,11 @@ public class ManifestService
         var allExclusions = new List<string>();
         
         // Add default exclusions if enabled
-        allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(_configService.Config));
+        allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(configService.Config));
         
         // Add custom exclusions
         allExclusions.AddRange(
-            (_configService.Config.SyncExclusions ?? new List<string>())
+            configService.Config.SyncExclusions
                 .Select(NormalizePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p)));
         
@@ -60,14 +50,14 @@ public class ManifestService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        _logger.Info($"Generating file manifest with {exclusions.Count} exclusion patterns...");
+        logger.Info($"Generating file manifest with {exclusions.Count} exclusion patterns...");
 
         // Only include installed mods (not pending or pending removal)
-        var installedMods = _configService.Config.ModList
+        var installedMods = configService.Config.ModList
             .Where(m => m.Status == ModStatus.Installed)
             .ToList();
 
-        _logger.Info($"Processing {installedMods.Count} installed mods...");
+        logger.Info($"Processing {installedMods.Count} installed mods...");
 
         foreach (var mod in installedMods)
         {
@@ -77,7 +67,7 @@ public class ManifestService
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Failed to process mod '{mod.ModName}' for manifest: {ex.Message}");
+                logger.Warning($"Failed to process mod '{mod.ModName}' for manifest: {ex.Message}");
             }
         }
 
@@ -87,38 +77,70 @@ public class ManifestService
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
         manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
 
-        _logger.Success($"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
+        logger.Success($"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
 
         return manifest;
     }
 
     private void AddModToManifest(FileManifest manifest, ModEntry mod, List<string> exclusions)
     {
-        // Process each install path - read from ACTUAL installed location
+        // PREFER InstalledFiles if available - this tracks the exact files installed by this mod
+        // This prevents the bug where shared directories (e.g., BepInEx/plugins) cause files
+        // from other mods to be attributed to the wrong mod.
+        if (mod.InstalledFiles.Count > 0)
+        {
+            logger.Debug($"Using InstalledFiles for mod '{mod.ModName}' ({mod.InstalledFiles.Count} files)");
+            
+            foreach (var relativePath in mod.InstalledFiles)
+            {
+                var fullPath = Path.Combine(configService.SptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                
+                if (File.Exists(fullPath))
+                {
+                    AddFileToManifest(manifest, fullPath, relativePath, mod, exclusions);
+                }
+                else
+                {
+                    logger.Debug($"InstalledFile not found (may have been removed): {relativePath}");
+                }
+            }
+            return;
+        }
+        
+        // FALLBACK: Scan InstallPaths directories for legacy mods without InstalledFiles tracking
+        // Use a generic mod name since we can't reliably attribute files to specific mods
+        logger.Warning($"Mod '{mod.ModName}' has no InstalledFiles tracked - using legacy fallback");
+        
+        // Create a temporary mod entry with a generic name for attribution
+        var legacyMod = new ModEntry
+        {
+            ModName = "Unknown (Installed on old ModGod version, or manually installed)",
+            Optional = mod.Optional
+        };
+        
         foreach (var installPath in mod.InstallPaths)
         {
-            var sourcePath = installPath[0]; // e.g., "BepInEx" (relative path in original archive)
             var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx" (where it was installed)
 
             // The actual installed path on the server
-            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
+            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", configService.SptRoot);
             
             if (!Directory.Exists(actualInstalledPath))
             {
                 // Might be a file, not a directory
                 if (File.Exists(actualInstalledPath))
                 {
-                    AddFileToManifest(manifest, actualInstalledPath, targetPath, mod, exclusions);
+                    AddFileToManifest(manifest, actualInstalledPath, targetPath, legacyMod, exclusions);
                 }
                 else
                 {
-                    _logger.Warning($"Install path not found for mod '{mod.ModName}': {actualInstalledPath}");
+                    logger.Warning($"Install path not found for mod '{mod.ModName}': {actualInstalledPath}");
                 }
                 continue;
             }
 
             // Recursively add all files from this installed directory
-            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, mod, exclusions);
+            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, legacyMod, exclusions);
         }
     }
 
@@ -140,7 +162,7 @@ public class ManifestService
         }
         catch (Exception ex)
         {
-            _logger.Warning($"Error scanning directory '{installedDir}': {ex.Message}");
+            logger.Warning($"Error scanning directory '{installedDir}': {ex.Message}");
         }
     }
 
@@ -151,20 +173,20 @@ public class ManifestService
 
         if (!IsAllowedPath(targetPath))
         {
-            _logger.Debug($"Skipping non-sync path: {targetPath}");
+            logger.Debug($"Skipping non-sync path: {targetPath}");
             return;
         }
 
         if (IsExcluded(targetPath, exclusions))
         {
-            _logger.Debug($"Excluded from manifest: {targetPath}");
+            logger.Debug($"Excluded from manifest: {targetPath}");
             return;
         }
 
         // Skip if already in manifest (another mod may have the same file)
         if (manifest.Files.ContainsKey(targetPath))
         {
-            _logger.Debug($"File already in manifest from another mod, skipping: {targetPath}");
+            logger.Debug($"File already in manifest from another mod, skipping: {targetPath}");
             return;
         }
 
@@ -183,7 +205,7 @@ public class ManifestService
         }
         catch (Exception ex)
         {
-            _logger.Warning($"Failed to hash file '{sourceFile}': {ex.Message}");
+            logger.Warning($"Failed to hash file '{sourceFile}': {ex.Message}");
         }
     }
 
