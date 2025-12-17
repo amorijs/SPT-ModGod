@@ -27,19 +27,14 @@
             }
             else
             {
-                <span>Check for Updates</span>
+                <span>Check Mod Health</span>
             }
         </MudButton>
     </div>
 
     @if (!HasApiKey)
     {
-        <MudAlert Severity="Severity.Warning" Class="mb-3">
-            <MudText>No Forge API key configured. Set up your API key in Settings to use the health check feature.</MudText>
-            <MudText Typo="Typo.caption" Class="mt-1">
-                Get an API key from <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank">forge.sp-tarkov.com</MudLink>
-            </MudText>
-        </MudAlert>
+        <ForgeApiKeyInput OnApiKeyChanged="OnApiKeyChanged" />
     }
     else if (_result != null)
     {
@@ -167,7 +162,7 @@
                                 @if (context.HasDependencyIssues)
                                 {
                                     <MudTooltip Text="@GetDependencyTooltip(context)">
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Style="background: var(--accent-red); color: #fff;">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Style="background: var(--accent-red); color: #fff; cursor: pointer;" OnClick="@(() => ShowDependencyDialog(context))">
                                             <MudIcon Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small" Class="mr-1" />
                                             @(context.MissingDependencyCount > 0 ? $"{context.MissingDependencyCount} missing" : $"{context.VersionMismatchCount} mismatch")
                                         </MudChip>
@@ -198,10 +193,12 @@
                                     </MudChip>
                                     break;
                                 case ModHealthStatus.UpdateAvailable:
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
-                                        <MudIcon Icon="@Icons.Material.Filled.NewReleases" Size="Size.Small" Class="mr-1" />
-                                        Update
-                                    </MudChip>
+                                    <MudTooltip Text="Remove the old version and reinstall to update">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
+                                            <MudIcon Icon="@Icons.Material.Filled.NewReleases" Size="Size.Small" Class="mr-1" />
+                                            Update
+                                        </MudChip>
+                                    </MudTooltip>
                                     break;
                                 case ModHealthStatus.NewerThanForge:
                                     <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
@@ -213,7 +210,7 @@
                                     <MudTooltip Text="This mod was not found on Forge">
                                         <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
                                             <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Class="mr-1" />
-                                            Not on Forge
+                                            Not found on Forge
                                         </MudChip>
                                     </MudTooltip>
                                     break;
@@ -252,16 +249,6 @@
                                                    Size="Size.Small"
                                                    Href="@context.ForgeUrl"
                                                    Target="_blank" />
-                                </MudTooltip>
-                            }
-                            @if (context.HasUpdate && !string.IsNullOrEmpty(context.LatestDownloadUrl))
-                            {
-                                <MudTooltip Text="Download & Stage update">
-                                    <MudIconButton Icon="@(_isDownloading && _downloadingItem == context.DisplayName ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Download)"
-                                                   Size="Size.Small"
-                                                   Color="Color.Warning"
-                                                   Disabled="_isDownloading"
-                                                   OnClick="@(() => DownloadAndStageUpdate(context))" />
                                 </MudTooltip>
                             }
                         </MudTd>
@@ -392,8 +379,12 @@
     [Inject] private ModHealthService HealthService { get; set; } = default!;
     [Inject] private ForgeService ForgeService { get; set; } = default!;
     [Inject] private ModDownloadService ModDownloadService { get; set; } = default!;
-    [Inject] private ConfigService ConfigService { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    /// <summary>
+    /// Called when mods are staged (e.g., dependency installed) - use to refresh parent UI
+    /// </summary>
+    [Parameter] public EventCallback OnModsStaged { get; set; }
 
     private bool _isChecking = false;
     private HealthCheckResult? _result;
@@ -406,6 +397,18 @@
     private string? _downloadingItem = null;
 
     private bool HasApiKey => ForgeService.HasApiKey;
+
+    private void OnApiKeyChanged()
+    {
+        // Refresh state when API key is added/removed
+        StateHasChanged();
+    }
+
+    protected override void OnInitialized()
+    {
+        // Load cached result so switching tabs doesn't lose the health check
+        _result = HealthService.GetCachedResult();
+    }
 
     private async Task RunHealthCheckAsync()
     {
@@ -563,21 +566,7 @@
     }
 
     /// <summary>
-    /// Downloads and stages a mod update using the API-provided download URL
-    /// </summary>
-    private async Task DownloadAndStageUpdate(ModHealthInfo mod)
-    {
-        if (string.IsNullOrEmpty(mod.LatestDownloadUrl))
-        {
-            Snackbar.Add($"Cannot download {mod.DisplayName}: no download URL available", Severity.Error);
-            return;
-        }
-
-        await DownloadAndStageModAsync(mod.LatestDownloadUrl, mod.DisplayName);
-    }
-
-    /// <summary>
-    /// Core download and stage logic
+    /// Core download and stage logic - delegates to ModDownloadService
     /// </summary>
     private async Task DownloadAndStageModAsync(string downloadUrl, string modName)
     {
@@ -587,34 +576,17 @@
 
         try
         {
-            var result = await ModDownloadService.DownloadAndAnalyzeModAsync(downloadUrl);
+            var (success, error) = await ModDownloadService.DownloadAndStageAsync(downloadUrl, modName);
 
-            if (result.Success)
+            if (success)
             {
-                result.ModName = modName;
-                
-                var installPaths = result.SuggestedInstallPaths.Count > 0 
-                    ? result.SuggestedInstallPaths 
-                    : result.TopLevelDirectories.Count > 0
-                        ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
-                        : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
-                
-                var mod = new ModEntry
-                {
-                    ModName = modName,
-                    DownloadUrl = downloadUrl,
-                    Optional = false,
-                    LastUpdated = DateTime.UtcNow.ToString("o"),
-                    InstallPaths = installPaths,
-                    Status = ModStatus.Installed
-                };
-                
-                await ConfigService.AddModToStagedAsync(mod);
                 Snackbar.Add($"✓ {modName} downloaded and staged! Go to 'Staged Mods' to review.", Severity.Success);
+                // Notify parent to refresh UI (e.g., show "Apply Changes" button)
+                await OnModsStaged.InvokeAsync();
             }
             else
             {
-                Snackbar.Add($"Failed to download {modName}: {result.Error}", Severity.Error);
+                Snackbar.Add($"Failed to download {modName}: {error}", Severity.Error);
             }
         }
         catch (Exception ex)

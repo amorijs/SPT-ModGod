@@ -1,0 +1,164 @@
+@using ModGod.Services
+@using System.Text.Json
+
+<MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <MudText Typo="Typo.subtitle2" Style="color: var(--text-primary);">
+            <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            Forge API Key
+        </MudText>
+        @if (_hasApiKey && !_isValidating)
+        {
+            <MudChip T="string" Size="Size.Small" Style="background: var(--accent-green); color: #000;">
+                <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="mr-1" /> Configured
+            </MudChip>
+        }
+    </div>
+
+    @if (!_hasApiKey)
+    {
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+            Enter your Forge API key to search mods and check for updates.
+        </MudText>
+
+        <div class="d-flex gap-2 align-end">
+            <MudTextField @bind-Value="_apiKeyInput"
+                          Label="API Key"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Password"
+                          Immediate="true"
+                          Disabled="_isValidating"
+                          Style="flex: 1;"
+                          HelperText="@(_error ?? "")"
+                          Error="@(_error != null)" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@(string.IsNullOrWhiteSpace(_apiKeyInput) || _isValidating)"
+                       OnClick="ValidateApiKey"
+                       Style="height: 56px;">
+                @if (_isValidating)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                }
+                else
+                {
+                    <span>Validate</span>
+                }
+            </MudButton>
+        </div>
+
+        <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank" Typo="Typo.caption" Class="mt-2 d-block">
+            <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            Get your API key here
+        </MudLink>
+    }
+    else
+    {
+        <div class="d-flex justify-end">
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Error"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Delete"
+                       OnClick="RemoveApiKey">
+                Remove Key
+            </MudButton>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Inject] private ForgeService ForgeService { get; set; } = default!;
+
+    /// <summary>
+    /// Called when the API key status changes (added or removed)
+    /// </summary>
+    [Parameter] public EventCallback OnApiKeyChanged { get; set; }
+
+    private bool _hasApiKey;
+    private string _apiKeyInput = "";
+    private bool _isValidating;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _hasApiKey = ForgeService.HasApiKey;
+    }
+
+    private async Task ValidateApiKey()
+    {
+        if (string.IsNullOrWhiteSpace(_apiKeyInput))
+            return;
+
+        _isValidating = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            });
+
+            var content = new StringContent(
+                JsonSerializer.Serialize(new { apiKey = _apiKeyInput }),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            var response = await client.PostAsync("https://127.0.0.1:6969/modgod/api/forge/validate-key", content);
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ValidateResponse>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (result?.Success == true)
+            {
+                _hasApiKey = true;
+                _apiKeyInput = "";
+                await OnApiKeyChanged.InvokeAsync();
+            }
+            else
+            {
+                _error = result?.Error ?? "Failed to validate API key";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Connection error: {ex.Message}";
+        }
+        finally
+        {
+            _isValidating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveApiKey()
+    {
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            });
+
+            var response = await client.DeleteAsync("https://127.0.0.1:6969/modgod/api/forge/api-key");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _hasApiKey = false;
+                await OnApiKeyChanged.InvokeAsync();
+            }
+        }
+        catch
+        {
+            // Ignore errors on remove
+        }
+    }
+
+    private class ValidateResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+}
+

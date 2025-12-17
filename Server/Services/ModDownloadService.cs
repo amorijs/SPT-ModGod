@@ -24,6 +24,55 @@ public class ModDownloadService
         _httpClient.Timeout = TimeSpan.FromMinutes(30); // Allow 30 min for large files
     }
 
+    /// <summary>
+    /// Downloads a mod, analyzes it, and adds it to staged mods in one operation.
+    /// This is the preferred method for automated downloads (health check, dependency installs).
+    /// </summary>
+    public async Task<(bool Success, string? Error)> DownloadAndStageAsync(
+        string url, string modName, bool optional = false)
+    {
+        var result = await DownloadAndAnalyzeModAsync(url);
+
+        if (!result.Success)
+        {
+            return (false, result.Error);
+        }
+
+        await StageDownloadedModAsync(result, url, modName, optional);
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Takes an already-downloaded mod result and stages it.
+    /// Use this when you need to track individual download results (e.g., batch downloads with progress).
+    /// </summary>
+    public async Task StageDownloadedModAsync(ModDownloadResult result, string url, string modName, bool optional = false)
+    {
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"Cannot stage failed download: {result.Error}");
+        }
+
+        var installPaths = result.SuggestedInstallPaths.Count > 0
+            ? result.SuggestedInstallPaths
+            : result.TopLevelDirectories.Count > 0
+                ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
+                : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+
+        var mod = new ModEntry
+        {
+            ModName = modName,
+            DownloadUrl = url,
+            Optional = optional,
+            LastUpdated = DateTime.UtcNow.ToString("o"),
+            InstallPaths = installPaths,
+            Status = ModStatus.Installed
+        };
+
+        await _configService.AddModToStagedAsync(mod);
+        _logger.Info($"Mod '{modName}' staged successfully");
+    }
+
     public async Task<ModDownloadResult> DownloadAndAnalyzeModAsync(string url)
     {
         var result = new ModDownloadResult { Url = url };

@@ -4,7 +4,6 @@
 @using Color = MudBlazor.Color
 @using System.Text.Json
 
-@inject ConfigService ConfigService
 @inject ModDownloadService ModDownloadService
 @inject ISnackbar Snackbar
 
@@ -1347,32 +1346,13 @@
             try
             {
                 var result = await ModDownloadService.DownloadAndAnalyzeModAsync(url);
-                
-                if (result.Success && string.IsNullOrWhiteSpace(result.ModName))
-                {
-                    result.ModName = ExtractModNameFromUrl(url);
-                }
-
+                var modName = result.ModName ?? ExtractModNameFromUrl(url);
+                result.ModName = modName;
                 _downloadResults.Add(result);
 
                 if (result.Success)
                 {
-                    var installPaths = result.SuggestedInstallPaths.Count > 0 
-                        ? result.SuggestedInstallPaths 
-                        : result.TopLevelDirectories.Count > 0
-                            ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
-                            : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
-                    
-                    var mod = new ModEntry
-                    {
-                        ModName = result.ModName ?? ExtractModNameFromUrl(url),
-                        DownloadUrl = url,
-                        Optional = _bulkOptional,
-                        LastUpdated = DateTime.UtcNow.ToString("o"),
-                        InstallPaths = installPaths,
-                        Status = ModStatus.Installed
-                    };
-                    await ConfigService.AddModToStagedAsync(mod);
+                    await ModDownloadService.StageDownloadedModAsync(result, url, modName, _bulkOptional);
                 }
             }
             catch (Exception ex)
@@ -1438,32 +1418,12 @@
             try
             {
                 var result = await ModDownloadService.DownloadAndAnalyzeModAsync(url);
-                
-                if (result.Success)
-                {
-                    result.ModName = name;
-                }
-
+                result.ModName = name;
                 _downloadResults.Add(result);
 
                 if (result.Success)
                 {
-                    var installPaths = result.SuggestedInstallPaths.Count > 0 
-                        ? result.SuggestedInstallPaths 
-                        : result.TopLevelDirectories.Count > 0
-                            ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
-                            : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
-                    
-                    var mod = new ModEntry
-                    {
-                        ModName = name,
-                        DownloadUrl = url,
-                        Optional = _forgeOptional, // Addons inherit the optional flag from the main mod
-                        LastUpdated = DateTime.UtcNow.ToString("o"),
-                        InstallPaths = installPaths,
-                        Status = ModStatus.Installed
-                    };
-                    await ConfigService.AddModToStagedAsync(mod);
+                    await ModDownloadService.StageDownloadedModAsync(result, url, name, _forgeOptional);
                 }
             }
             catch (Exception ex)

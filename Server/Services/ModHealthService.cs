@@ -22,6 +22,11 @@ public class ModHealthService(
     private readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(5);
 
     /// <summary>
+    /// Gets the last health check result (if any), without running a new check
+    /// </summary>
+    public HealthCheckResult? GetCachedResult() => _cachedResult;
+
+    /// <summary>
     /// Run a health check on all installed mods
     /// </summary>
     public async Task<HealthCheckResult> RunHealthCheckAsync(bool forceRefresh = false)
