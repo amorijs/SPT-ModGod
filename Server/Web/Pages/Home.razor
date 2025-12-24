@@ -267,7 +267,11 @@
         </MudTabPanel>
 
         <MudTabPanel Text="Sync Exclusions" Class="mt-4">
-            <SyncExclusionsTab />
+            <SyncExclusionsTab OnConfigChanged="StateHasChanged" />
+        </MudTabPanel>
+
+        <MudTabPanel Text="Headless Syncing" Class="mt-4">
+            <HeadlessSyncingTab OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <MudTabPanel Text="Health Check (Experimental)" Class="mt-4">

@@ -128,6 +128,18 @@ public class ModInstallService
             }
         }
 
+        // Track config changes (sync exclusions, headless sync paths)
+        var liveExclusions = _configService.Config.SyncExclusions ?? new List<string>();
+        var stagedExclusions = _configService.StagedConfig.SyncExclusions ?? new List<string>();
+        var liveHeadless = _configService.Config.HeadlessSyncPaths ?? new List<string>();
+        var stagedHeadless = _configService.StagedConfig.HeadlessSyncPaths ?? new List<string>();
+        
+        result.SyncExclusionsChanged = !liveExclusions.SequenceEqual(stagedExclusions) ||
+                                       _configService.Config.UseDefaultExclusions != _configService.StagedConfig.UseDefaultExclusions;
+        result.HeadlessSyncPathsChanged = !liveHeadless.SequenceEqual(stagedHeadless);
+        result.SyncExclusionCount = stagedExclusions.Count;
+        result.HeadlessSyncPathCount = stagedHeadless.Count;
+
         // Apply staged config to live config
         await _configService.ApplyStagedToLiveAsync();
         await _configService.SaveStagingIndexAsync();
@@ -604,6 +616,12 @@ public class ApplyChangesResult
     public List<string> Errors { get; set; } = new();
     public string? InstallScriptPath { get; set; }
     public bool IsWindows { get; set; } = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+    
+    // Config changes (sync exclusions, headless sync paths, etc.)
+    public bool SyncExclusionsChanged { get; set; }
+    public bool HeadlessSyncPathsChanged { get; set; }
+    public int SyncExclusionCount { get; set; }
+    public int HeadlessSyncPathCount { get; set; }
 }
 
 public class ModOperationResult

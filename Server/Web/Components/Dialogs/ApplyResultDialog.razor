@@ -92,6 +92,21 @@
                 </MudAlert>
             }
             
+            @if (Result.SyncExclusionsChanged || Result.HeadlessSyncPathsChanged)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">⚙️ Config Updated:</MudText>
+                    @if (Result.SyncExclusionsChanged)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• Sync exclusions updated (@Result.SyncExclusionCount paths)</MudText>
+                    }
+                    @if (Result.HeadlessSyncPathsChanged)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• Headless sync paths updated (@Result.HeadlessSyncPathCount paths)</MudText>
+                    }
+                </MudAlert>
+            }
+
             @if (Result.AutoInstallerLaunched && Result.IsWindows)
             {
                 <MudAlert Severity="Severity.Success" Class="mt-4">
@@ -113,6 +128,13 @@
                     </MudText>
                 </MudAlert>
             }
+            
+            @if (!HasAnyChanges())
+            {
+                <MudText Typo="Typo.body1" Style="color: var(--text-secondary);">
+                    No changes were made.
+                </MudText>
+            }
         }
     </DialogContent>
     <DialogActions>
@@ -126,6 +148,19 @@
     [Parameter] public bool Visible { get; set; }
     [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
     [Parameter] public ApplyChangesResult? Result { get; set; }
+    
+    private bool HasAnyChanges()
+    {
+        if (Result == null) return false;
+        return Result.InstalledMods.Count > 0 ||
+               Result.QueuedForInstall.Count > 0 ||
+               Result.RemovedMods.Count > 0 ||
+               Result.QueuedForRemoval.Count > 0 ||
+               Result.SyncExclusionsChanged ||
+               Result.HeadlessSyncPathsChanged ||
+               Result.Errors.Count > 0 ||
+               Result.FailedDeletions.Count > 0;
+    }
     
     private async Task Close()
     {

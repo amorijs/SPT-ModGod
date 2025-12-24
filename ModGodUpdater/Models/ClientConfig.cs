@@ -3,6 +3,12 @@ namespace ModGod.Updater.Models;
 public class ClientConfig
 {
     public string ServerUrl { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Whether this client is a headless raid-hosting instance.
+    /// Headless clients only sync files explicitly configured for headless syncing.
+    /// </summary>
+    public bool Headless { get; set; } = false;
 }
 
 public class DownloadedMod

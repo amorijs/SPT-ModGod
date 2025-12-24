@@ -20,7 +20,7 @@ class Program
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
-    
+
     // Cache for compiled glob pattern regexes
     private static readonly Dictionary<string, System.Text.RegularExpressions.Regex?> _globCache = new();
 
@@ -135,6 +135,59 @@ class Program
         await LoadOrCreateConfigAsync();
         await LoadModsDownloadedAsync();
 
+        // Check for headless mode and show appropriate banner
+        if (_clientConfig.Headless)
+        {
+            AnsiConsole.Write(
+                new Panel(
+                        new Markup("[bold cyan] HEADLESS MODE[/]\n\n" +
+                                   "[grey]This client is configured as a headless raid-hosting instance.\n" +
+                                   "Only files explicitly configured for headless syncing will be downloaded.\n" +
+                                   "Mod downloads will be skipped.[/]"))
+                    .Header("[cyan]Headless Client[/]")
+                    .BorderColor(Color.Cyan1)
+                    .Padding(1, 1, 1, 1));
+            AnsiConsole.WriteLine();
+
+            Log("Running in HEADLESS mode");
+
+            // Confirmation prompt
+            var confirm = AnsiConsole.Confirm("[yellow]Continue in headless mode?[/]", true);
+            if (!confirm)
+            {
+                AnsiConsole.MarkupLine("[grey]Operation cancelled. Edit ModGodClient.json to change mode.[/]");
+                Log("User cancelled headless mode operation");
+                return;
+            }
+
+            AnsiConsole.WriteLine();
+        }
+        else
+        {
+            AnsiConsole.Write(
+                new Panel(
+                        new Markup("[bold green] STANDARD MODE[/]\n\n" +
+                                   "[grey]This client will download and sync all configured mods\n" +
+                                   "and files from the ModGod server.[/]"))
+                    .Header("[green]Standard Client[/]")
+                    .BorderColor(Color.Green)
+                    .Padding(1, 1, 1, 1));
+            AnsiConsole.WriteLine();
+
+            Log("Running in STANDARD mode");
+
+            // Confirmation prompt
+            var confirm = AnsiConsole.Confirm("[yellow]Continue with mod sync?[/]", true);
+            if (!confirm)
+            {
+                AnsiConsole.MarkupLine("[grey]Operation cancelled.[/]");
+                Log("User cancelled standard mode operation");
+                return;
+            }
+
+            AnsiConsole.WriteLine();
+        }
+
         // Fetch server config
         Log("Fetching server config...");
         var serverConfig = await FetchServerConfigAsync();
@@ -148,12 +201,20 @@ class Program
         AnsiConsole.MarkupLine($"[green]✓[/] Found [cyan]{serverConfig.ModList.Count}[/] mod(s) on server");
         AnsiConsole.WriteLine();
 
-        // Process mods
-        Log("Processing mods...");
-        await ProcessModsAsync(serverConfig);
+        // Process mods (skip for headless clients)
+        if (_clientConfig.Headless)
+        {
+            AnsiConsole.MarkupLine("[cyan]ℹ️[/] Skipping mod downloads (headless mode)");
+            Log("Skipping mod downloads (headless mode)");
+        }
+        else
+        {
+            Log("Processing mods...");
+            await ProcessModsAsync(serverConfig);
+        }
 
         AnsiConsole.WriteLine();
-        
+
         // File verification and sync
         Log("Starting file verification...");
         await SyncFilesAsync();
@@ -177,7 +238,7 @@ class Program
     static async Task LoadOrCreateConfigAsync()
     {
         var configPath = GetConfigPath();
-        
+
         if (File.Exists(configPath))
         {
             var json = await File.ReadAllTextAsync(configPath);
@@ -256,15 +317,18 @@ class Program
                     using var client = CreateHttpClient();
 
                     var response = await client.GetAsync(url);
-                    
+
                     if (!response.IsSuccessStatusCode)
                     {
                         var errorContent = await response.Content.ReadAsStringAsync();
-                        AnsiConsole.MarkupLine($"[red]Server returned {(int)response.StatusCode} ({response.StatusCode})[/]");
+                        AnsiConsole.MarkupLine(
+                            $"[red]Server returned {(int)response.StatusCode} ({response.StatusCode})[/]");
                         if (!string.IsNullOrWhiteSpace(errorContent))
                         {
-                            AnsiConsole.MarkupLine($"[grey]Response: {EscapeMarkup(errorContent.Substring(0, Math.Min(200, errorContent.Length)))}[/]");
+                            AnsiConsole.MarkupLine(
+                                $"[grey]Response: {EscapeMarkup(errorContent.Substring(0, Math.Min(200, errorContent.Length)))}[/]");
                         }
+
                         AnsiConsole.MarkupLine($"[grey]URL: {EscapeMarkup(url)}[/]");
                         return null;
                     }
@@ -315,19 +379,19 @@ class Program
 
             // Pre-select mods that are already installed
             var preSelected = optionalChoices.Where(c => c.Contains("[green]")).ToList();
-            
+
             var prompt = new MultiSelectionPrompt<string>()
                 .Title("Select optional mods to install:")
                 .NotRequired()
                 .PageSize(10)
                 .InstructionsText("[grey](Press [cyan]<space>[/] to toggle, [cyan]<enter>[/] to accept)[/]")
                 .AddChoices(optionalChoices);
-            
+
             foreach (var item in preSelected)
             {
                 prompt.Select(item);
             }
-            
+
             var selectedNames = AnsiConsole.Prompt(prompt);
 
             AnsiConsole.WriteLine();
@@ -364,6 +428,7 @@ class Program
             {
                 downloaded.OptIn = false;
             }
+
             AnsiConsole.MarkupLine($"  [grey]○[/] {EscapeMarkup(mod.ModName)} [grey](skipped)[/]");
             return;
         }
@@ -391,9 +456,10 @@ class Program
                     // Stream download to file (handles large files efficiently)
                     var tempExtractPath = Path.Combine(TempDownloadPath, Guid.NewGuid().ToString());
                     Directory.CreateDirectory(tempExtractPath);
-                    
+
                     var archivePath = Path.Combine(tempExtractPath, "mod.archive");
-                    await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                    await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write,
+                                     FileShare.None, 81920, true))
                     {
                         await response.Content.CopyToAsync(fileStream);
                     }
@@ -410,6 +476,7 @@ class Program
                             });
                         }
                     }
+
                     File.Delete(archivePath);
 
                     ctx.Status($"Installing {EscapeMarkup(mod.ModName)}...");
@@ -453,7 +520,8 @@ class Program
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"  [red]✗[/] {EscapeMarkup(mod.ModName)} - Failed: {EscapeMarkup(ex.Message)}");
+                    AnsiConsole.MarkupLine(
+                        $"  [red]✗[/] {EscapeMarkup(mod.ModName)} - Failed: {EscapeMarkup(ex.Message)}");
                     return;
                 }
             });
@@ -481,12 +549,22 @@ class Program
     static async Task SyncFilesAsync()
     {
         Log("Starting file sync...");
-        AnsiConsole.MarkupLine("[bold]File Verification[/]");
+
+        if (_clientConfig.Headless)
+        {
+            AnsiConsole.MarkupLine("[bold cyan]Headless File Sync[/]");
+            AnsiConsole.MarkupLine("[grey]Syncing only headless-specific files...[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[bold]File Verification[/]");
+        }
+
         AnsiConsole.WriteLine();
 
-        // Fetch manifest
-        Log("Fetching manifest...");
-        var manifest = await FetchManifestAsync();
+        // Fetch manifest (use headless endpoint if in headless mode)
+        Log($"Fetching manifest (headless={_clientConfig.Headless})...");
+        var manifest = await FetchManifestAsync(_clientConfig.Headless);
         if (manifest == null)
         {
             Log("WARNING: Could not fetch manifest");
@@ -495,7 +573,21 @@ class Program
         }
 
         Log($"Manifest received: {manifest.Files.Count} files");
-        AnsiConsole.MarkupLine($"[green]✓[/] Manifest: [cyan]{manifest.Files.Count}[/] files from server");
+
+        if (_clientConfig.Headless)
+        {
+            AnsiConsole.MarkupLine(
+                $"[green]✓[/] Headless Manifest: [cyan]{manifest.Files.Count}[/] files configured for sync");
+            if (manifest.Files.Count == 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]No files configured for headless syncing. Configure in ModGod UI.[/]");
+                return;
+            }
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[green]✓[/] Manifest: [cyan]{manifest.Files.Count}[/] files from server");
+        }
 
         // Build exclusion set
         var exclusions = new HashSet<string>(
@@ -562,30 +654,33 @@ class Program
                     }
                 }
 
-                // Scan for extra files
-                var syncDirs = new[] { "BepInEx/plugins", "SPT/user/mods" };
-                foreach (var syncDir in syncDirs)
+                // Scan for extra files (skip for headless mode - only sync specific files, don't delete extras)
+                if (!_clientConfig.Headless)
                 {
-                    var fullDir = Path.Combine(_sptRoot, syncDir.Replace('/', Path.DirectorySeparatorChar));
-                    if (!Directory.Exists(fullDir)) continue;
-
-                    foreach (var file in Directory.GetFiles(fullDir, "*", SearchOption.AllDirectories))
+                    var syncDirs = new[] { "BepInEx/plugins", "SPT/user/mods" };
+                    foreach (var syncDir in syncDirs)
                     {
-                        var relativePath = Path.GetRelativePath(_sptRoot, file).Replace('\\', '/');
+                        var fullDir = Path.Combine(_sptRoot, syncDir.Replace('/', Path.DirectorySeparatorChar));
+                        if (!Directory.Exists(fullDir)) continue;
 
-                        // Skip if in manifest
-                        if (manifest.Files.ContainsKey(relativePath)) continue;
-
-                        // Skip if excluded
-                        if (IsExcluded(relativePath, exclusions)) continue;
-
-                        issues.Add(new FileSyncIssue
+                        foreach (var file in Directory.GetFiles(fullDir, "*", SearchOption.AllDirectories))
                         {
-                            Action = FileSyncAction.Delete,
-                            RelativePath = relativePath,
-                            ModName = "Unknown",
-                            Required = false
-                        });
+                            var relativePath = Path.GetRelativePath(_sptRoot, file).Replace('\\', '/');
+
+                            // Skip if in manifest
+                            if (manifest.Files.ContainsKey(relativePath)) continue;
+
+                            // Skip if excluded
+                            if (IsExcluded(relativePath, exclusions)) continue;
+
+                            issues.Add(new FileSyncIssue
+                            {
+                                Action = FileSyncAction.Delete,
+                                RelativePath = relativePath,
+                                ModName = "Unknown",
+                                Required = false
+                            });
+                        }
                     }
                 }
 
@@ -615,7 +710,7 @@ class Program
         if (missing.Any())
         {
             AnsiConsole.MarkupLine("[bold red]Missing Files[/]");
-            
+
             // List missing files grouped by mod
             var groupedMissing = missing.GroupBy(f => f.ModName).OrderBy(g => g.Key);
             foreach (var group in groupedMissing)
@@ -628,10 +723,11 @@ class Program
                     Log($"  Missing: {file.RelativePath}");
                 }
             }
+
             AnsiConsole.WriteLine();
 
             var downloadMissing = AnsiConsole.Confirm($"Download {missing.Count} missing file(s)?", true);
-            
+
             if (downloadMissing)
             {
                 Log("Downloading missing files...");
@@ -641,6 +737,7 @@ class Program
             {
                 Log("User skipped downloading missing files");
             }
+
             AnsiConsole.WriteLine();
         }
 
@@ -656,7 +753,8 @@ class Program
                 var sizeStr = issue.ServerSize.HasValue ? $" ({issue.ServerSize.Value / 1024}KB)" : "";
                 var choice = AnsiConsole.Prompt(
                     new SelectionPrompt<string>()
-                        .Title($"[yellow]{EscapeMarkup(issue.RelativePath)}[/]{sizeStr} [grey]({EscapeMarkup(issue.ModName)})[/]")
+                        .Title(
+                            $"[yellow]{EscapeMarkup(issue.RelativePath)}[/]{sizeStr} [grey]({EscapeMarkup(issue.ModName)})[/]")
                         .AddChoices("Overwrite with server version", "Keep local version", "Skip all remaining"));
 
                 if (choice == "Overwrite with server version")
@@ -674,6 +772,7 @@ class Program
                     break;
                 }
             }
+
             AnsiConsole.WriteLine();
         }
 
@@ -701,7 +800,8 @@ class Program
                     }
                     catch (Exception ex)
                     {
-                        AnsiConsole.MarkupLine($"  [red]![/] Failed to delete: {EscapeMarkup(issue.RelativePath)} - {EscapeMarkup(ex.Message)}");
+                        AnsiConsole.MarkupLine(
+                            $"  [red]![/] Failed to delete: {EscapeMarkup(issue.RelativePath)} - {EscapeMarkup(ex.Message)}");
                     }
                 }
             }
@@ -716,7 +816,8 @@ class Program
 
                     if (choice == "Delete")
                     {
-                        var fullPath = Path.Combine(_sptRoot, issue.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                        var fullPath = Path.Combine(_sptRoot,
+                            issue.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                         try
                         {
                             File.Delete(fullPath);
@@ -745,25 +846,29 @@ class Program
         }
     }
 
-    static async Task<FileManifest?> FetchManifestAsync()
+    static async Task<FileManifest?> FetchManifestAsync(bool headless = false)
     {
-        var url = $"{_clientConfig.ServerUrl}/modgod/api/manifest";
+        var endpoint = headless ? "/modgod/api/manifest/headless" : "/modgod/api/manifest";
+        var url = $"{_clientConfig.ServerUrl}{endpoint}";
 
         try
         {
             using var client = CreateHttpClient();
+            Log($"Fetching manifest from: {url}");
             var response = await client.GetAsync(url);
 
             if (!response.IsSuccessStatusCode)
             {
+                Log($"Manifest request failed: {response.StatusCode}");
                 return null;
             }
 
             var json = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<FileManifest>(json, JsonOptions);
         }
-        catch
+        catch (Exception ex)
         {
+            Log($"Error fetching manifest: {ex.Message}");
             return null;
         }
     }
@@ -779,7 +884,7 @@ class Program
     static bool IsExcluded(string relativePath, HashSet<string> exclusions)
     {
         var norm = relativePath.Replace('\\', '/').TrimStart('/');
-        
+
         foreach (var pattern in exclusions)
         {
             // Check if it's a glob pattern (contains *, ?, or **)
@@ -796,10 +901,10 @@ class Program
                     return true;
             }
         }
-        
+
         return false;
     }
-    
+
     /// <summary>
     /// Simple glob pattern matching for exclusions.
     /// Supports: * (any chars except /), ** (any chars including /), ? (single char)
@@ -814,7 +919,7 @@ class Program
                 regex = CompileGlobPattern(pattern);
                 _globCache[pattern] = regex;
             }
-            
+
             return regex?.IsMatch(path) ?? false;
         }
         catch
@@ -822,7 +927,7 @@ class Program
             return false;
         }
     }
-    
+
     static System.Text.RegularExpressions.Regex? CompileGlobPattern(string pattern)
     {
         try
@@ -830,11 +935,11 @@ class Program
             var regexPattern = "^";
             var i = 0;
             pattern = pattern.Replace('\\', '/').TrimStart('/');
-            
+
             while (i < pattern.Length)
             {
                 var c = pattern[i];
-                
+
                 if (c == '*')
                 {
                     if (i + 1 < pattern.Length && pattern[i + 1] == '*')
@@ -882,12 +987,13 @@ class Program
                     i++;
                 }
             }
-            
+
             regexPattern += "$";
-            
+
             return new System.Text.RegularExpressions.Regex(
-                regexPattern, 
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled,
+                regexPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.Compiled,
                 TimeSpan.FromMilliseconds(100));
         }
         catch
@@ -914,7 +1020,7 @@ class Program
                 foreach (var file in files)
                 {
                     task.Description = $"Downloading: {Path.GetFileName(file.RelativePath)}";
-                    
+
                     var success = await DownloadFileAsync(file.RelativePath);
                     if (success)
                     {
@@ -950,7 +1056,7 @@ class Program
             }
 
             var fullPath = Path.Combine(_sptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            
+
             // Ensure directory exists
             var dir = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(dir))

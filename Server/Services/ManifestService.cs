@@ -33,16 +33,16 @@ public class ManifestService(
 
         // Combine default exclusions + custom exclusions
         var allExclusions = new List<string>();
-        
+
         // Add default exclusions if enabled
         allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(configService.Config));
-        
+
         // Add custom exclusions
         allExclusions.AddRange(
             configService.Config.SyncExclusions
                 .Select(NormalizePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p)));
-        
+
         // Deduplicate
         var exclusions = allExclusions
             .Select(NormalizePath)
@@ -77,9 +77,196 @@ public class ManifestService(
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
         manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
 
-        logger.Success($"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
+        logger.Success(
+            $"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
 
         return manifest;
+    }
+
+    /// <summary>
+    /// Generate a file manifest for headless clients.
+    /// Only includes files that are explicitly in the HeadlessSyncPaths list.
+    /// </summary>
+    public FileManifest GenerateHeadlessManifest()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var manifest = new FileManifest();
+
+        var headlessPaths = configService.Config.HeadlessSyncPaths
+            .Select(NormalizePath)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        if (headlessPaths.Count == 0)
+        {
+            logger.Info("No headless sync paths configured - returning empty manifest");
+            manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
+            manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
+            return manifest;
+        }
+
+        logger.Info($"Generating headless manifest with {headlessPaths.Count} inclusion paths...");
+
+        // Get all installed mods
+        var installedMods = configService.Config.ModList
+            .Where(m => m.Status == ModStatus.Installed)
+            .ToList();
+
+        // Build the full manifest first, then filter to only headless paths
+        foreach (var mod in installedMods)
+        {
+            try
+            {
+                AddModToHeadlessManifest(manifest, mod, headlessPaths);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Failed to process mod '{mod.ModName}' for headless manifest: {ex.Message}");
+            }
+        }
+
+        // Store the headless paths in the manifest for client reference
+        manifest.SyncExclusions = headlessPaths; // Reusing this field to indicate included paths for headless
+
+        stopwatch.Stop();
+        manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
+        manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
+
+        logger.Success(
+            $"Headless manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files");
+
+        return manifest;
+    }
+
+    private void AddModToHeadlessManifest(FileManifest manifest, ModEntry mod, List<string> headlessPaths)
+    {
+        // Use InstalledFiles if available
+        if (mod.InstalledFiles.Count > 0)
+        {
+            foreach (var relativePath in mod.InstalledFiles)
+            {
+                // Only include if path matches headless inclusion patterns
+                if (!IsIncludedForHeadless(relativePath, headlessPaths))
+                    continue;
+
+                var fullPath = Path.Combine(configService.SptRoot,
+                    relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                if (File.Exists(fullPath))
+                {
+                    AddFileToHeadlessManifest(manifest, fullPath, relativePath, mod);
+                }
+            }
+
+            return;
+        }
+
+        // Fallback for legacy mods without InstalledFiles tracking
+        var legacyMod = new ModEntry
+        {
+            ModName = "Unknown (Legacy)",
+            Optional = mod.Optional
+        };
+
+        foreach (var installPath in mod.InstallPaths)
+        {
+            var targetPath = installPath[1];
+            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", configService.SptRoot);
+
+            if (Directory.Exists(actualInstalledPath))
+            {
+                AddDirectoryToHeadlessManifest(manifest, actualInstalledPath, targetPath, legacyMod, headlessPaths);
+            }
+            else if (File.Exists(actualInstalledPath))
+            {
+                var relPath = targetPath.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                if (IsIncludedForHeadless(relPath, headlessPaths))
+                {
+                    AddFileToHeadlessManifest(manifest, actualInstalledPath, relPath, legacyMod);
+                }
+            }
+        }
+    }
+
+    private void AddDirectoryToHeadlessManifest(FileManifest manifest, string installedDir, string targetBase,
+        ModEntry mod, List<string> headlessPaths)
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(installedDir, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(installedDir, file);
+                var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
+
+                if (IsIncludedForHeadless(fullTargetPath, headlessPaths))
+                {
+                    AddFileToHeadlessManifest(manifest, file, fullTargetPath, mod);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Error scanning directory '{installedDir}' for headless manifest: {ex.Message}");
+        }
+    }
+
+    private void AddFileToHeadlessManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod)
+    {
+        targetPath = targetPath.Replace('\\', '/').TrimStart('/');
+
+        if (!IsAllowedPath(targetPath))
+            return;
+
+        if (manifest.Files.ContainsKey(targetPath))
+            return;
+
+        try
+        {
+            var fileInfo = new FileInfo(sourceFile);
+            var hash = ComputeFileHash(sourceFile);
+
+            manifest.Files[targetPath] = new FileEntry
+            {
+                Hash = hash,
+                Size = fileInfo.Length,
+                ModName = mod.ModName,
+                Required = !mod.Optional
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to hash file '{sourceFile}' for headless manifest: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Check if a path should be included for headless syncing
+    /// </summary>
+    private static bool IsIncludedForHeadless(string relativePath, IEnumerable<string> headlessPaths)
+    {
+        var norm = NormalizePath(relativePath);
+
+        foreach (var pattern in headlessPaths)
+        {
+            var normPattern = NormalizePath(pattern);
+
+            // Check if it's a glob pattern
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                if (GlobMatcher.IsMatch(norm, pattern))
+                    return true;
+            }
+            else
+            {
+                // Exact match or the file is under this directory
+                if (norm.Equals(normPattern, StringComparison.OrdinalIgnoreCase) ||
+                    norm.StartsWith(normPattern + "/", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private void AddModToManifest(FileManifest manifest, ModEntry mod, List<string> exclusions)
@@ -90,11 +277,12 @@ public class ManifestService(
         if (mod.InstalledFiles.Count > 0)
         {
             logger.Debug($"Using InstalledFiles for mod '{mod.ModName}' ({mod.InstalledFiles.Count} files)");
-            
+
             foreach (var relativePath in mod.InstalledFiles)
             {
-                var fullPath = Path.Combine(configService.SptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                
+                var fullPath = Path.Combine(configService.SptRoot,
+                    relativePath.Replace('/', Path.DirectorySeparatorChar));
+
                 if (File.Exists(fullPath))
                 {
                     AddFileToManifest(manifest, fullPath, relativePath, mod, exclusions);
@@ -104,27 +292,28 @@ public class ManifestService(
                     logger.Debug($"InstalledFile not found (may have been removed): {relativePath}");
                 }
             }
+
             return;
         }
-        
+
         // FALLBACK: Scan InstallPaths directories for legacy mods without InstalledFiles tracking
         // Use a generic mod name since we can't reliably attribute files to specific mods
         logger.Warning($"Mod '{mod.ModName}' has no InstalledFiles tracked - using legacy fallback");
-        
+
         // Create a temporary mod entry with a generic name for attribution
         var legacyMod = new ModEntry
         {
             ModName = "Unknown (Installed on old ModGod version, or manually installed)",
             Optional = mod.Optional
         };
-        
+
         foreach (var installPath in mod.InstallPaths)
         {
             var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx" (where it was installed)
 
             // The actual installed path on the server
             var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", configService.SptRoot);
-            
+
             if (!Directory.Exists(actualInstalledPath))
             {
                 // Might be a file, not a directory
@@ -136,6 +325,7 @@ public class ManifestService(
                 {
                     logger.Warning($"Install path not found for mod '{mod.ModName}': {actualInstalledPath}");
                 }
+
                 continue;
             }
 
@@ -144,7 +334,8 @@ public class ManifestService(
         }
     }
 
-    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod, List<string> exclusions)
+    private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod,
+        List<string> exclusions)
     {
         try
         {
@@ -152,7 +343,7 @@ public class ManifestService(
             {
                 // Calculate relative path from the installed directory
                 var relativePath = Path.GetRelativePath(installedDir, file);
-                
+
                 // Build target path (replace <SPT_ROOT> with empty to get relative path for manifest)
                 var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
                 var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
@@ -166,7 +357,8 @@ public class ManifestService(
         }
     }
 
-    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod, List<string> exclusions)
+    private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod,
+        List<string> exclusions)
     {
         // Normalize path separators
         targetPath = targetPath.Replace('\\', '/').TrimStart('/');
@@ -228,7 +420,7 @@ public class ManifestService(
     private static bool IsExcluded(string relativePath, IEnumerable<string> exclusions)
     {
         var norm = NormalizePath(relativePath);
-        
+
         foreach (var pattern in exclusions)
         {
             // Check if it's a glob pattern (contains *, ?, or **)
@@ -245,7 +437,7 @@ public class ManifestService(
                     return true;
             }
         }
-        
+
         return false;
     }
 

@@ -176,6 +176,55 @@ public class StatusHttpListener : IHttpListener
 }
 
 /// <summary>
+/// HTTP listener to serve the headless file manifest to headless clients
+/// Only includes files explicitly configured for headless syncing
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class HeadlessManifestHttpListener : IHttpListener
+{
+    private readonly ManifestService _manifestService;
+    private readonly ISptLogger<HeadlessManifestHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    public HeadlessManifestHttpListener(
+        ManifestService manifestService,
+        ISptLogger<HeadlessManifestHttpListener> logger)
+    {
+        _manifestService = manifestService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/modgod/api/manifest/headless", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        _logger.Info("Headless client requested file manifest");
+
+        var manifest = _manifestService.GenerateHeadlessManifest();
+        var json = JsonSerializer.Serialize(manifest, JsonOptions);
+
+        _logger.Info($"Headless manifest generated: {manifest.Files.Count} files in {manifest.GenerationTimeMs}ms");
+
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
 /// HTTP listener to serve individual files for client sync
 /// URL format: /modgod/api/file/{relativePath}
 /// e.g., /modgod/api/file/BepInEx/plugins/ModName/ModName.dll

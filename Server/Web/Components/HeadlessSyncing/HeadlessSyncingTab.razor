@@ -1,63 +1,39 @@
 @using ModGod.Web.Models
-@using ModGod.Web.Components.SyncExclusions
 @using ModGod.Services
 @using ModGod.Models
 
 <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-    <div class="d-flex justify-space-between align-center mb-2">
+    <div class="d-flex align-center mb-2">
+        <MudIcon Icon="@Icons.Material.Filled.Computer" Class="mr-2" Style="color: var(--accent-cyan);" />
         <div>
             <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
-                <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" Style="vertical-align: middle;" />
-                Default Exclusion Patterns
+                Headless Client Syncing
             </MudText>
             <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+                Select files/folders to sync to headless clients. By default, nothing is synced to headless clients.
             </MudText>
         </div>
-        <MudSwitch T="bool" 
-                   Value="@_useDefaultExclusions" 
-                   ValueChanged="OnUseDefaultExclusionsChanged"
-                   Color="Color.Success"
-                   Label="@(_useDefaultExclusions ? "Enabled" : "Disabled")" />
     </div>
     
-    @if (_useDefaultExclusions)
-    {
-        <MudExpansionPanels Class="mt-3">
-            <MudExpansionPanel Text="@($"View/Edit Default Patterns ({_defaultExclusionPatterns.Count} patterns)")" 
-                               Style="background: var(--secondary-bg);">
-                <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
-                    Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
-                </MudText>
-                <MudTextField T="string"
-                              Value="@_defaultExclusionPatternsText"
-                              ValueChanged="OnDefaultExclusionPatternsChanged"
-                              Lines="12"
-                              Variant="Variant.Outlined"
-                              Placeholder="One pattern per line..."
-                              Style="font-family: monospace; font-size: 12px;"
-                              HelperText="Edit patterns above. Changes save automatically." />
-                <div class="d-flex gap-2 mt-2">
-                    <MudButton Variant="Variant.Text" 
-                               Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.RestartAlt"
-                               OnClick="ResetDefaultExclusionsToBuiltIn">
-                        Reset to Built-in Defaults
-                    </MudButton>
-                </div>
-            </MudExpansionPanel>
-        </MudExpansionPanels>
-    }
+    <MudAlert Severity="Severity.Warning" Class="mb-3" Dense="true">
+        <strong>Not using headless client?</strong> You can skip this tab entirely.
+    </MudAlert>
+    
+    <MudAlert Severity="Severity.Info" Class="mb-3" Dense="true">
+        <strong>Headless clients</strong> are dedicated raid-hosting instances that don't need most mods.
+        Only check the specific files/folders that headless clients require.
+    </MudAlert>
 </MudPaper>
 
-<!-- File Tree Exclusions Section -->
+<!-- File Tree Inclusions Section -->
 <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
-        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="vertical-align: middle;" />
-        File/Folder Exclusions
+        <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
+        File/Folder Inclusions for Headless
     </MudText>
     <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-        Browse files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> and uncheck items to exclude them.
+        Browse files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> and check items to include them for headless clients.
+        <br/><em style="color: var(--text-secondary); opacity: 0.8;">💡 Headless clients only need files from <code>BepInEx/plugins</code> — the <code>SPT/user/mods</code> is not used on headless instances.</em>
     </MudText>
 
     <div class="d-flex gap-2 mb-3">
@@ -87,7 +63,7 @@
     {
         <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 420px; overflow-y: auto;">
             <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
-                ✓ Checked = sync to client &nbsp;|&nbsp; ☐ Unchecked = exclude
+                ✓ Checked = sync to headless &nbsp;|&nbsp; ☐ Unchecked = don't sync
             </div>
             @foreach (var (node, depth) in GetFlattenedTree())
             {
@@ -119,7 +95,7 @@
                         };
                         var iconColor = state switch
                         {
-                            SyncNodeState.Included => "var(--accent-green)",
+                            SyncNodeState.Included => "var(--accent-cyan)",
                             SyncNodeState.Excluded => "var(--text-secondary)",
                             _ => "var(--accent-orange)"
                         };
@@ -144,6 +120,14 @@
                 </div>
             }
         </MudPaper>
+        
+        @if (_inclusionSet.Count > 0)
+        {
+            <MudText Typo="Typo.body2" Class="mt-3" Style="color: var(--accent-cyan);">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
+                @_inclusionSet.Count path(s) selected for headless syncing
+            </MudText>
+        }
     }
     else
     {
@@ -167,14 +151,9 @@
     private bool _loading = false;
     private string? _error;
     
-    // Default exclusions
-    private bool _useDefaultExclusions = true;
-    private List<string> _defaultExclusionPatterns = new();
-    private string _defaultExclusionPatternsText = "";
-    
     // File tree
     private FileNode? _treeRoot;
-    private HashSet<string> _exclusionSet = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _inclusionSet = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -192,12 +171,6 @@
     {
         if (_initialized) return;
         
-        // Initialize default exclusions state
-        _useDefaultExclusions = ConfigService.StagedConfig.UseDefaultExclusions;
-        _defaultExclusionPatterns = ConfigService.StagedConfig.CustomDefaultExclusions?.ToList() 
-            ?? DefaultSyncExclusions.Patterns.ToList();
-        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
-        
         await LoadTreeAsync();
         _initialized = true;
     }
@@ -210,8 +183,9 @@
 
         try
         {
-            _exclusionSet = new HashSet<string>(
-                (ConfigService.StagedConfig.SyncExclusions ?? new List<string>())
+            // Load inclusion set (paths that ARE synced to headless)
+            _inclusionSet = new HashSet<string>(
+                (ConfigService.StagedConfig.HeadlessSyncPaths ?? new List<string>())
                     .Select(NormalizePath)
                     .Where(p => !string.IsNullOrWhiteSpace(p)),
                 StringComparer.OrdinalIgnoreCase);
@@ -225,7 +199,7 @@
         }
         catch (Exception ex)
         {
-            _error = $"Failed to load exclusions: {ex.Message}";
+            _error = $"Failed to load headless sync paths: {ex.Message}";
         }
         finally
         {
@@ -271,24 +245,27 @@
         return node;
     }
 
+    /// <summary>
+    /// Get the state of a node - for headless, INCLUDED means it's in the inclusion set
+    /// </summary>
     private SyncNodeState GetNodeState(FileNode? node)
     {
-        if (node == null) return SyncNodeState.Included;
+        if (node == null) return SyncNodeState.Excluded; // Default to excluded for headless
 
         var rel = NormalizePath(node.RelativePath);
 
         if (!node.IsDirectory)
         {
-            var isExcluded = IsExcluded(rel);
-            return isExcluded ? SyncNodeState.Excluded : SyncNodeState.Included;
+            var isIncluded = IsIncluded(rel);
+            return isIncluded ? SyncNodeState.Included : SyncNodeState.Excluded;
         }
 
         // For directories: derive state from all leaf nodes
         var leaves = GetLeafNodes(node).ToList();
-        if (leaves.Count == 0) return SyncNodeState.Included;
+        if (leaves.Count == 0) return SyncNodeState.Excluded;
         
         var leafStates = leaves
-            .Select(leaf => IsExcluded(NormalizePath(leaf.RelativePath)) ? SyncNodeState.Excluded : SyncNodeState.Included)
+            .Select(leaf => IsIncluded(NormalizePath(leaf.RelativePath)) ? SyncNodeState.Included : SyncNodeState.Excluded)
             .Distinct()
             .ToList();
         
@@ -316,12 +293,15 @@
         }
     }
 
-    private bool IsExcluded(string relativePath)
+    /// <summary>
+    /// Check if a path is included for headless syncing
+    /// </summary>
+    private bool IsIncluded(string relativePath)
     {
         var norm = NormalizePath(relativePath);
-        return _exclusionSet.Any(ex =>
-            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
-            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+        return _inclusionSet.Any(inc =>
+            norm.Equals(inc, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task OnNodeClick(FileNode node)
@@ -347,7 +327,8 @@
         if (node == null) return;
 
         var current = GetNodeState(node);
-        var next = current == SyncNodeState.Excluded ? SyncNodeState.Included : SyncNodeState.Excluded;
+        // Toggle: if excluded or mixed -> include, if included -> exclude
+        var next = current == SyncNodeState.Included ? SyncNodeState.Excluded : SyncNodeState.Included;
 
         if (node.IsDirectory)
         {
@@ -359,7 +340,7 @@
         }
 
         // Immediately save to staged config
-        await SaveExclusionsAsync();
+        await SaveInclusionsAsync();
         
         StateHasChanged();
     }
@@ -369,24 +350,24 @@
         if (node == null) return;
         var rel = NormalizePath(node.RelativePath);
 
-        // Clear this directory and all its descendants from exclusions
+        // Clear this directory and all its descendants from inclusions
         foreach (var path in EnumerateAllPaths(node).ToList())
-            _exclusionSet.Remove(path);
+            _inclusionSet.Remove(path);
 
-        if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
+        if (state == SyncNodeState.Included && !string.IsNullOrEmpty(rel))
         {
-            _exclusionSet.Add(rel);
+            _inclusionSet.Add(rel);
         }
-        else if (state == SyncNodeState.Included && !string.IsNullOrEmpty(rel))
+        else if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
         {
-            // Check if a PROPER ANCESTOR (not self) is excluded - need to lift it
-            var ancestorExclusion = _exclusionSet
-                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            // Check if a PROPER ANCESTOR (not self) is included - need to lift it
+            var ancestorInclusion = _inclusionSet
+                .FirstOrDefault(inc => rel.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
             
-            if (ancestorExclusion != null)
+            if (ancestorInclusion != null)
             {
-                _exclusionSet.Remove(ancestorExclusion);
-                var ancestorNode = FindNodeByPath(_treeRoot, ancestorExclusion);
+                _inclusionSet.Remove(ancestorInclusion);
+                var ancestorNode = FindNodeByPath(_treeRoot, ancestorInclusion);
                 if (ancestorNode != null)
                 {
                     foreach (var leaf in EnumerateLeafPaths(ancestorNode))
@@ -395,7 +376,7 @@
                         if (!leafNorm.StartsWith(rel + "/", StringComparison.OrdinalIgnoreCase) &&
                             !leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
                         {
-                            _exclusionSet.Add(leafNorm);
+                            _inclusionSet.Add(leafNorm);
                         }
                     }
                 }
@@ -408,19 +389,19 @@
         if (node == null) return;
         var rel = NormalizePath(node.RelativePath);
 
-        if (state == SyncNodeState.Excluded)
+        if (state == SyncNodeState.Included)
         {
-            _exclusionSet.Add(rel);
+            _inclusionSet.Add(rel);
         }
         else
         {
-            var ancestorExclusion = _exclusionSet
-                .FirstOrDefault(ex => rel.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+            var ancestorInclusion = _inclusionSet
+                .FirstOrDefault(inc => rel.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
             
-            if (ancestorExclusion != null)
+            if (ancestorInclusion != null)
             {
-                _exclusionSet.Remove(ancestorExclusion);
-                var ancestorNode = FindNodeByPath(_treeRoot, ancestorExclusion);
+                _inclusionSet.Remove(ancestorInclusion);
+                var ancestorNode = FindNodeByPath(_treeRoot, ancestorInclusion);
                 if (ancestorNode != null)
                 {
                     foreach (var leaf in EnumerateLeafPaths(ancestorNode))
@@ -428,12 +409,12 @@
                         var leafNorm = NormalizePath(leaf);
                         if (!leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
                         {
-                            _exclusionSet.Add(leafNorm);
+                            _inclusionSet.Add(leafNorm);
                         }
                     }
                 }
             }
-            _exclusionSet.Remove(rel);
+            _inclusionSet.Remove(rel);
         }
     }
 
@@ -517,11 +498,11 @@
         return result;
     }
 
-    private async Task SaveExclusionsAsync()
+    private async Task SaveInclusionsAsync()
     {
         try
         {
-            ConfigService.StagedConfig.SyncExclusions = _exclusionSet
+            ConfigService.StagedConfig.HeadlessSyncPaths = _inclusionSet
                 .Select(NormalizePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -533,46 +514,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Failed to save exclusions: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Failed to save headless sync paths: {ex.Message}", Severity.Error);
         }
-    }
-    
-    private async Task OnUseDefaultExclusionsChanged(bool value)
-    {
-        _useDefaultExclusions = value;
-        ConfigService.StagedConfig.UseDefaultExclusions = value;
-        await ConfigService.SaveStagedConfigAsync();
-        await OnConfigChanged.InvokeAsync();
-        StateHasChanged();
-    }
-    
-    private async Task OnDefaultExclusionPatternsChanged(string text)
-    {
-        _defaultExclusionPatternsText = text;
-        _defaultExclusionPatterns = text
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => p.Trim())
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .ToList();
-        
-        // Save to staged config (null means use built-in defaults)
-        ConfigService.StagedConfig.CustomDefaultExclusions = _defaultExclusionPatterns.Count > 0 
-            ? _defaultExclusionPatterns 
-            : null;
-        
-        await ConfigService.SaveStagedConfigAsync();
-        await OnConfigChanged.InvokeAsync();
-    }
-    
-    private async Task ResetDefaultExclusionsToBuiltIn()
-    {
-        _defaultExclusionPatterns = DefaultSyncExclusions.Patterns.ToList();
-        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
-        ConfigService.StagedConfig.CustomDefaultExclusions = null; // null = use built-in
-        await ConfigService.SaveStagedConfigAsync();
-        await OnConfigChanged.InvokeAsync();
-        Snackbar.Add("Reset to built-in default patterns.", Severity.Info);
-        StateHasChanged();
     }
 
     private static string NormalizePath(string? path)

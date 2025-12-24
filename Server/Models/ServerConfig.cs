@@ -35,6 +35,14 @@ public class ServerConfig
     /// </summary>
     [JsonPropertyName("customDefaultExclusions")]
     public List<string>? CustomDefaultExclusions { get; set; }
+    
+    /// <summary>
+    /// Paths to sync to headless clients.
+    /// Unlike SyncExclusions (which excludes paths), this is an INCLUSION list.
+    /// Only paths explicitly added here will be synced to headless clients.
+    /// </summary>
+    [JsonPropertyName("headlessSyncPaths")]
+    public List<string> HeadlessSyncPaths { get; set; } = new();
 }
 
 /// <summary>
