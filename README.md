@@ -254,6 +254,8 @@ Many mods generate files that don't need to be synced to clients. This will caus
 
 ### Headless Client Setup
 
+⚠️ ModGod headless support currently only works if your headless client is installed in a separate directory as your SPT server (where you manage your mod list).
+
 Headless clients are dedicated raid-hosting instances that don't need full mod syncing. They only require specific BepInEx/plugins files. If you are not using a headless client, you can skip this section.
 
 #### Server Configuration
