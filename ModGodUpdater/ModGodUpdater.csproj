@@ -38,4 +38,10 @@
     <Target Name="PublishAfterBuild" AfterTargets="Build">
         <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c $(Configuration) -o &quot;$(MSBuildProjectDirectory)\..\dist&quot; --no-build" />
     </Target>
+
+    <!-- Copy additional files to dist after publish -->
+    <Target Name="CopyUpdaterFiles" AfterTargets="PublishAfterBuild">
+        <Copy SourceFiles="$(MSBuildProjectDirectory)\ModGodUpdater.sh" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\" />
+        <Copy SourceFiles="$(MSBuildProjectDirectory)\ModGodData\ModGodClient.json" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\ModGodData\" />
+    </Target>
 </Project>
