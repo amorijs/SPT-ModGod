@@ -103,6 +103,7 @@ _Standalone updater with progress tracking_
 - Auto-detect install paths for standard mod structures
 - **File Overwrite Rules** - Choose which files to preserve during installs/reinstalls
 - **Sync Exclusions** - Exclude any server files from client verification
+- **Headless Client Support** - Configure specific files to sync to dedicated raid-hosting instances
 - **Stats Dashboard** - Clickable cards to filter by status (Total, Installed, Pending, Required, Optional)
 - **Quick Search** - Filter mods by name instantly
 - Pending changes system with visual status indicators
@@ -195,10 +196,10 @@ All server configuration is stored in `<SPT_ROOT>/ModGodData/`:
 
 Client configuration is also stored in `<SPT_ROOT>/ModGodData/`:
 
-| File                  | Description                                |
-| --------------------- | ------------------------------------------ |
-| `ModGodClient.json`   | Server URL and settings                    |
-| `modsDownloaded.json` | List of downloaded mods with opt-in status |
+| File                  | Description                                         |
+| --------------------- | --------------------------------------------------- |
+| `ModGodClient.json`   | Server URL and settings (including `headless` flag) |
+| `modsDownloaded.json` | List of downloaded mods with opt-in status          |
 
 ---
 
@@ -206,7 +207,9 @@ Client configuration is also stored in `<SPT_ROOT>/ModGodData/`:
 
 ### Adding Mods (Server)
 
-#### Option 1: Forge Search (Recommended)
+> ⚠️ **Warning:** If you download mods using a mod manager, you will NOT receive support from the SPT community. For community support, you must install mods manually.
+
+#### Option 1: Forge Search
 
 1. Open the Web UI at `https://your-server:6969/modgod/`
 2. Click **"Add Mods"**
@@ -248,6 +251,36 @@ Many mods generate files that don't need to be synced to clients. This will caus
 2. Uncheck files/directories that shouldn't be synced to clients
 3. Click **"Save Exclusions"**
 4. Clients will ignore these paths during verification
+
+### Headless Client Setup
+
+Headless clients are dedicated raid-hosting instances that don't need full mod syncing. They only require specific BepInEx/plugins files. If you are not using a headless client, you can skip this section.
+
+#### Server Configuration
+
+1. Go to the **"Headless Syncing"** tab in the Web UI
+2. Check the specific files/folders that headless clients need (e.g., server configs, specific plugins)
+3. Click **"Save Inclusions"**
+
+> **Note:** Headless clients only need files from `BepInEx/plugins` — the `SPT/user/mods` folder is not used on headless instances.
+
+#### Headless Client Installation
+
+1. Copy **only** the updater script and ModGodData folder to your headless client:
+   - Windows: `ModGodUpdater.exe`
+   - Linux: `ModGodUpdater.sh`
+2. Run the updater and enter your server URL when prompted
+3. Edit `ModGodData/ModGodClient.json` and set `"headless": true`
+4. Run the updater again — it will only sync files configured in the Headless Syncing tab
+
+Example `ModGodClient.json` for headless:
+
+```json
+{
+  "serverUrl": "https://your-server:6969",
+  "headless": true
+}
+```
 
 ### Filtering Mods
 
@@ -292,16 +325,17 @@ Update `SPTPath` in project files to match your SPT installation:
 
 The server exposes the following REST endpoints:
 
-| Endpoint                         | Method | Description                     |
-| -------------------------------- | ------ | ------------------------------- |
-| `/modgod/`                       | GET    | Web UI                          |
-| `/modgod/api/config`             | GET    | Server configuration (mod list) |
-| `/modgod/api/manifest`           | GET    | File manifest with hashes       |
-| `/modgod/api/status`             | GET    | Server status check             |
-| `/modgod/api/forge/status`       | GET    | Check if Forge API key exists   |
-| `/modgod/api/forge/validate-key` | POST   | Validate and save Forge API key |
-| `/modgod/api/forge/search`       | GET    | Search mods on Forge            |
-| `/modgod/api/forge/mod/{id}`     | GET    | Get mod details from Forge      |
+| Endpoint                         | Method | Description                            |
+| -------------------------------- | ------ | -------------------------------------- |
+| `/modgod/`                       | GET    | Web UI                                 |
+| `/modgod/api/config`             | GET    | Server configuration (mod list)        |
+| `/modgod/api/manifest`           | GET    | File manifest with hashes              |
+| `/modgod/api/manifest/headless`  | GET    | Filtered manifest for headless clients |
+| `/modgod/api/status`             | GET    | Server status check                    |
+| `/modgod/api/forge/status`       | GET    | Check if Forge API key exists          |
+| `/modgod/api/forge/validate-key` | POST   | Validate and save Forge API key        |
+| `/modgod/api/forge/search`       | GET    | Search mods on Forge                   |
+| `/modgod/api/forge/mod/{id}`     | GET    | Get mod details from Forge             |
 
 ---
 

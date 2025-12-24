@@ -683,12 +683,14 @@
     private bool _forgeApiKeyValidating;
     private string? _forgeApiKeyError;
     private string _forgeSearchInput = "";
+    private string _forgeLastSearchQuery = ""; // Preserve search query when viewing mod details
     private bool _forgeModLoading;
     private ForgeModInfoViewModel? _forgeMod;
     private string? _forgeModError;
     private string? _forgeSelectedVersion;
     private bool _forgeOptional;
     private List<ForgeSearchResultViewModel> _forgeSearchResults = new();
+    private List<ForgeSearchResultViewModel> _forgeLastSearchResults = new(); // Preserve search results
     private bool _forgeSearchLoading;
     private bool _forgeShowSearchResults;
     private System.Threading.Timer? _forgeSearchDebounceTimer;
@@ -726,12 +728,14 @@
         _forgeApiKeyValidating = false;
         _forgeApiKeyError = null;
         _forgeSearchInput = "";
+        _forgeLastSearchQuery = "";
         _forgeModLoading = false;
         _forgeMod = null;
         _forgeModError = null;
         _forgeSelectedVersion = null;
         _forgeOptional = false;
         _forgeSearchResults.Clear();
+        _forgeLastSearchResults.Clear();
         _forgeShowSearchResults = false;
         _forgeSearchDebounceTimer?.Dispose();
         
@@ -937,6 +941,10 @@
 
     private async Task OnForgeSearchResultSelected(ForgeSearchResultViewModel result)
     {
+        // Save search state before viewing mod details
+        _forgeLastSearchQuery = _forgeSearchInput;
+        _forgeLastSearchResults = new List<ForgeSearchResultViewModel>(_forgeSearchResults);
+        
         _forgeShowSearchResults = false;
         _forgeSearchResults.Clear();
         _forgeSearchInput = result.Name;
@@ -948,9 +956,11 @@
         _forgeMod = null;
         _forgeSelectedVersion = null;
         _forgeModError = null;
-        _forgeSearchInput = "";
-        _forgeSearchResults.Clear();
-        _forgeShowSearchResults = false;
+        
+        // Restore previous search state instead of clearing
+        _forgeSearchInput = _forgeLastSearchQuery;
+        _forgeSearchResults = new List<ForgeSearchResultViewModel>(_forgeLastSearchResults);
+        _forgeShowSearchResults = _forgeSearchResults.Any();
         
         // Clear addon state
         _addonsLoading = false;
