@@ -3,51 +3,51 @@
 @using ModGod.Services
 @using ModGod.Models
 
-<!-- Default Exclusion Patterns Section -->
-<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-    <div class="d-flex justify-space-between align-center mb-2">
+<!-- Profile Selector -->
+<div class="d-flex justify-center mb-4">
+    <MudToggleGroup T="SyncProfile" 
+                    Value="_activeProfile" 
+                    ValueChanged="OnProfileChanged"
+                    Color="@GetProfileColor()"
+                    CheckMark="true"
+                    Size="Size.Large">
+        <MudToggleItem Value="SyncProfile.Player">
+            <div class="d-flex align-center gap-2 px-4 py-1">
+                <MudIcon Icon="@Icons.Material.Filled.Person" />
+                <MudText>Player Clients</MudText>
+            </div>
+        </MudToggleItem>
+        <MudToggleItem Value="SyncProfile.Headless">
+            <div class="d-flex align-center gap-2 px-4 py-1">
+                <MudIcon Icon="@Icons.Material.Filled.Dns" />
+                <MudText>Headless Clients</MudText>
+            </div>
+        </MudToggleItem>
+    </MudToggleGroup>
+</div>
+
+<!-- Main Content with Dynamic Accent Border -->
+<MudPaper Class="pa-4 mb-4" Style="@($"background: var(--card-bg); border: 1px solid var(--border-color); border-top: 4px solid {GetAccentColor()}; border-radius: 8px;")">
+    <!-- Context Header -->
+    <div class="d-flex align-center mb-3">
+        <MudIcon Icon="@GetProfileIcon()" Size="Size.Large" 
+                 Style="@($"color: {GetAccentColor()}; margin-right: 12px;")" />
         <div>
-            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
-                <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" Style="vertical-align: middle;" />
-                Default Exclusion Patterns
+            <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 600;">
+                @GetProfileTitle()
             </MudText>
             <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+                @GetProfileDescription()
             </MudText>
         </div>
-        <MudSwitch T="bool"
-                   Value="@_useDefaultExclusions"
-                   ValueChanged="OnUseDefaultExclusionsChanged"
-                   Color="Color.Success"
-                   Label="@(_useDefaultExclusions ? "Enabled" : "Disabled")" />
     </div>
 
-    @if (_useDefaultExclusions)
+    @if (_activeProfile == SyncProfile.Headless)
     {
-        <MudExpansionPanels Class="mt-3">
-            <MudExpansionPanel Text="@($"View/Edit Default Patterns ({_defaultExclusionPatterns.Count} patterns)")"
-                               Style="background: var(--secondary-bg);">
-                <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
-                    Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
-                </MudText>
-                <MudTextField T="string"
-                              Value="@_defaultExclusionPatternsText"
-                              ValueChanged="OnDefaultExclusionPatternsChanged"
-                              Lines="12"
-                              Variant="Variant.Outlined"
-                              Placeholder="One pattern per line..."
-                              Style="font-family: monospace; font-size: 12px;"
-                              HelperText="Edit patterns above. Changes save automatically." />
-                <div class="d-flex gap-2 mt-2">
-                    <MudButton Variant="Variant.Text"
-                               Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.RestartAlt"
-                               OnClick="ResetDefaultExclusionsToBuiltIn">
-                        Reset to Built-in Defaults
-                    </MudButton>
-                </div>
-            </MudExpansionPanel>
-        </MudExpansionPanels>
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" Dense="true">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            <strong>Not using headless clients?</strong> You can skip this profile entirely. Most users only need the Player Clients profile.
+        </MudAlert>
     }
 </MudPaper>
 
@@ -60,12 +60,12 @@
                 Sync Paths
             </MudText>
             <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                Directories to sync from your server to player clients. All files in these paths will be synced unless excluded below.
+                Directories to sync from your server to @(_activeProfile == SyncProfile.Player ? "player" : "headless") clients.
             </MudText>
         </div>
         <MudButton Variant="Variant.Outlined"
                    StartIcon="@Icons.Material.Filled.Add"
-                   Color="Color.Primary"
+                   Color="@GetProfileColor()"
                    OnClick="OpenAddSyncPathDialog">
             Add Path
         </MudButton>
@@ -73,8 +73,15 @@
 
     @if (_syncPaths.Count == 0)
     {
-        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
-            No sync paths configured. Player clients will not receive any files.
+        <MudAlert Severity="@(_activeProfile == SyncProfile.Player ? Severity.Warning : Severity.Info)" Dense="true" Class="mt-3">
+            @if (_activeProfile == SyncProfile.Player)
+            {
+                <span>No sync paths configured. Player clients will not receive any files.</span>
+            }
+            else
+            {
+                <span>No sync paths configured for headless clients. This is normal if you don't use dedicated servers.</span>
+            }
         </MudAlert>
     }
     else
@@ -105,13 +112,13 @@
 </MudPaper>
 
 <!-- File/Folder Exclusions Section -->
-<MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
         <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="vertical-align: middle;" />
         File/Folder Exclusions
     </MudText>
     <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-        Browse files in your sync paths and click the exclude button to prevent specific files/folders from syncing.
+        Browse files in your sync paths and click to exclude specific files/folders from syncing.
     </MudText>
 
     <div class="d-flex gap-2 mb-3">
@@ -141,7 +148,10 @@
     {
         <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 420px; overflow-y: auto;">
             <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
-                ✓ Synced &nbsp;|&nbsp; 🚫 Excluded (click to toggle)
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Style="color: var(--accent-green); vertical-align: middle;" /> Synced
+                &nbsp;|&nbsp;
+                <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" Style="color: var(--accent-red); vertical-align: middle;" /> Excluded
+                &nbsp;(click to toggle)
             </div>
             @foreach (var (node, depth) in GetFlattenedTree())
             {
@@ -192,14 +202,15 @@
                         <span class="ml-1 mono @(isExcluded ? "strikethrough" : "")"
                               style="color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)"); font-size: 13px; cursor: pointer;"
                               @onclick="@(() => ToggleExpand(capturedNode))">
-                            📁 @(node.Name)
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Style="vertical-align: middle; margin-right: 4px;" />@(node.Name)
                         </span>
                     }
                     else
                     {
                         <span class="ml-1 mono @(isExcluded ? "strikethrough" : "")"
                               style="color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)"); font-size: 13px;">
-                            @(node.IsDirectory ? "📁" : "📄") @(node.Name)
+                            <MudIcon Icon="@(node.IsDirectory ? Icons.Material.Filled.Folder : Icons.Material.Filled.InsertDriveFile)" 
+                                     Size="Size.Small" Style="vertical-align: middle; margin-right: 4px;" />@(node.Name)
                         </span>
                     }
                 </div>
@@ -228,6 +239,58 @@
     }
 </MudPaper>
 
+<!-- Advanced: Default Exclusion Patterns (Collapsed) -->
+<MudExpansionPanels Class="mb-4">
+    <MudExpansionPanel Style="background: var(--card-bg); border: 1px solid var(--border-color);">
+        <TitleContent>
+            <div class="d-flex align-center">
+                <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" />
+                <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">
+                    Advanced: Default Exclusion Patterns
+                </MudText>
+                <MudChip T="string" Size="Size.Small" Class="ml-2" Color="@(_useDefaultExclusions ? Color.Success : Color.Default)">
+                    @(_useDefaultExclusions ? "Enabled" : "Disabled")
+                </MudChip>
+            </div>
+        </TitleContent>
+        <ChildContent>
+            <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+            </MudText>
+
+            <MudSwitch T="bool"
+                       Value="@_useDefaultExclusions"
+                       ValueChanged="OnUseDefaultExclusionsChanged"
+                       Color="Color.Success"
+                       Label="@(_useDefaultExclusions ? "Using default exclusion patterns" : "Default exclusion patterns disabled")" />
+
+            @if (_useDefaultExclusions)
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                    Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
+                </MudText>
+                <MudTextField T="string"
+                              Value="@_defaultExclusionPatternsText"
+                              ValueChanged="OnDefaultExclusionPatternsChanged"
+                              Lines="10"
+                              Variant="Variant.Outlined"
+                              Placeholder="One pattern per line..."
+                              Style="font-family: monospace; font-size: 12px;"
+                              HelperText="Edit patterns above. Changes save automatically." />
+                <div class="d-flex gap-2 mt-2">
+                    <MudButton Variant="Variant.Text"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               OnClick="ResetDefaultExclusionsToBuiltIn">
+                        Reset to Built-in Defaults
+                    </MudButton>
+                </div>
+            }
+        </ChildContent>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
 <!-- Add Sync Path Dialog -->
 <AddSyncPathDialog @bind-Visible="_showAddSyncPathDialog"
                    ExistingSyncPaths="_syncPaths"
@@ -245,6 +308,10 @@
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
 
     [Parameter] public EventCallback OnConfigChanged { get; set; }
+
+    // Profile selector
+    private enum SyncProfile { Player, Headless }
+    private SyncProfile _activeProfile = SyncProfile.Player;
 
     // State
     private bool _initialized = false;
@@ -265,6 +332,24 @@
     private HashSet<string> _exclusionSet = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
+    // Dynamic config accessor
+    private ClientSyncConfig CurrentConfig => _activeProfile == SyncProfile.Player
+        ? (ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig())
+        : (ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig());
+
+    // Profile styling helpers
+    private Color GetProfileColor() => _activeProfile == SyncProfile.Player ? Color.Primary : Color.Warning;
+    private string GetAccentColor() => _activeProfile == SyncProfile.Player ? "var(--accent-cyan)" : "var(--accent-orange)";
+    private string GetProfileIcon() => _activeProfile == SyncProfile.Player ? Icons.Material.Filled.Person : Icons.Material.Filled.Dns;
+    
+    private string GetProfileTitle() => _activeProfile == SyncProfile.Player 
+        ? "Player Client Syncing" 
+        : "Headless Client Syncing";
+    
+    private string GetProfileDescription() => _activeProfile == SyncProfile.Player
+        ? "Configure which files sync to player game clients. These are regular players joining your server."
+        : "Configure which files sync to headless (dedicated raid-hosting) clients. Only files explicitly added here will be synced.";
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -282,28 +367,40 @@
         await InitializeAsync();
     }
 
-    public async Task InitializeAsync()
+    private async Task InitializeAsync()
     {
         if (_initialized) return;
+        await LoadProfileStateAsync();
+        _initialized = true;
+    }
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
+    private async Task OnProfileChanged(SyncProfile profile)
+    {
+        _activeProfile = profile;
+        _expandedDirs.Clear(); // Reset expanded state when switching profiles
+        await LoadProfileStateAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadProfileStateAsync()
+    {
+        var config = CurrentConfig;
 
         // Initialize default exclusions state
-        _useDefaultExclusions = playerConfig.UseDefaultExclusions;
-        _defaultExclusionPatterns = playerConfig.ExclusionPatterns?.ToList()
+        _useDefaultExclusions = config.UseDefaultExclusions;
+        _defaultExclusionPatterns = config.ExclusionPatterns?.ToList()
             ?? DefaultSyncExclusions.Patterns.ToList();
         _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
 
         // Initialize sync paths
-        _syncPaths = playerConfig.SyncPaths.ToList();
+        _syncPaths = config.SyncPaths.ToList();
 
         // Initialize exclusion set
         _exclusionSet = new HashSet<string>(
-            playerConfig.ExcludedPaths.Select(NormalizePath).Where(p => !string.IsNullOrWhiteSpace(p)),
+            config.ExcludedPaths.Select(NormalizePath).Where(p => !string.IsNullOrWhiteSpace(p)),
             StringComparer.OrdinalIgnoreCase);
 
         await LoadTreeAsync();
-        _initialized = true;
     }
 
     private async Task LoadTreeAsync()
@@ -500,15 +597,15 @@
     {
         try
         {
-            var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-            playerConfig.ExcludedPaths = _exclusionSet
+            var config = CurrentConfig;
+            config.ExcludedPaths = _exclusionSet
                 .Select(NormalizePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(p => p)
                 .ToList();
 
-            ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+            SaveCurrentConfig(config);
             await ConfigService.SaveStagedConfigAsync();
             await OnConfigChanged.InvokeAsync();
         }
@@ -522,9 +619,9 @@
     {
         _useDefaultExclusions = value;
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-        playerConfig.UseDefaultExclusions = value;
-        ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+        var config = CurrentConfig;
+        config.UseDefaultExclusions = value;
+        SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
@@ -540,9 +637,9 @@
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .ToList();
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-        playerConfig.ExclusionPatterns = _defaultExclusionPatterns.Count > 0 ? _defaultExclusionPatterns : null;
-        ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+        var config = CurrentConfig;
+        config.ExclusionPatterns = _defaultExclusionPatterns.Count > 0 ? _defaultExclusionPatterns : null;
+        SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
@@ -553,9 +650,9 @@
         _defaultExclusionPatterns = DefaultSyncExclusions.Patterns.ToList();
         _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-        playerConfig.ExclusionPatterns = null;
-        ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+        var config = CurrentConfig;
+        config.ExclusionPatterns = null;
+        SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
@@ -572,9 +669,9 @@
     {
         _syncPaths.Add(entry);
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-        playerConfig.SyncPaths = _syncPaths.ToList();
-        ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+        var config = CurrentConfig;
+        config.SyncPaths = _syncPaths.ToList();
+        SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
@@ -587,15 +684,30 @@
     {
         _syncPaths.Remove(entry);
 
-        var playerConfig = ConfigService.StagedConfig.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
-        playerConfig.SyncPaths = _syncPaths.ToList();
-        ConfigService.StagedConfig.PlayerSyncConfig = playerConfig;
+        var config = CurrentConfig;
+        config.SyncPaths = _syncPaths.ToList();
+        SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
         await LoadTreeAsync();
 
         Snackbar.Add($"Removed sync path: {entry.Source}", Severity.Info);
+    }
+
+    /// <summary>
+    /// Save the config back to the appropriate property based on active profile
+    /// </summary>
+    private void SaveCurrentConfig(ClientSyncConfig config)
+    {
+        if (_activeProfile == SyncProfile.Player)
+        {
+            ConfigService.StagedConfig.PlayerSyncConfig = config;
+        }
+        else
+        {
+            ConfigService.StagedConfig.HeadlessSyncConfig = config;
+        }
     }
 
     private static string NormalizePath(string? path)

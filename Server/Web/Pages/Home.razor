@@ -267,12 +267,8 @@
             }
         </MudTabPanel>
 
-        <MudTabPanel Text="Player Syncing" Class="mt-4">
-            <PlayerSyncingTab @ref="_playerSyncingTab" OnConfigChanged="StateHasChanged" />
-        </MudTabPanel>
-
-        <MudTabPanel Text="Headless Syncing" Class="mt-4">
-            <HeadlessSyncingTab @ref="_headlessSyncingTab" OnConfigChanged="StateHasChanged" />
+        <MudTabPanel Text="Sync Rules" Class="mt-4">
+            <SyncRulesTab @ref="_syncRulesTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <MudTabPanel Text="Health Check (Experimental)" Class="mt-4">
@@ -303,9 +299,8 @@
     private bool _hasLoggedInit = false;
     private int _activeTabIndex = 0;
     
-    // Tab references for refresh on discard
-    private PlayerSyncingTab? _playerSyncingTab;
-    private HeadlessSyncingTab? _headlessSyncingTab;
+    // Tab reference for refresh on discard
+    private SyncRulesTab? _syncRulesTab;
     
     // Search and filter
     private string _searchQuery = "";
@@ -387,11 +382,9 @@
         {
             await ConfigService.ResetStagedConfigAsync();
             
-            // Refresh syncing tabs to reload from config
-            if (_playerSyncingTab != null)
-                await _playerSyncingTab.ReloadFromConfigAsync();
-            if (_headlessSyncingTab != null)
-                await _headlessSyncingTab.ReloadFromConfigAsync();
+            // Refresh sync rules tab to reload from config
+            if (_syncRulesTab != null)
+                await _syncRulesTab.ReloadFromConfigAsync();
             
             Snackbar.Add("Changes discarded.", Severity.Info);
             StateHasChanged();
@@ -404,11 +397,9 @@
         CloseAllDialogs();
         await ConfigService.ReloadConfigFromDiskAsync();
         
-        // Refresh syncing tabs to reload from config
-        if (_playerSyncingTab != null)
-            await _playerSyncingTab.ReloadFromConfigAsync();
-        if (_headlessSyncingTab != null)
-            await _headlessSyncingTab.ReloadFromConfigAsync();
+        // Refresh sync rules tab to reload from config
+        if (_syncRulesTab != null)
+            await _syncRulesTab.ReloadFromConfigAsync();
         
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();
