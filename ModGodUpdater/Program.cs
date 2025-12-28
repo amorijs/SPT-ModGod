@@ -657,7 +657,13 @@ class Program
                 // Scan for extra files (skip for headless mode - only sync specific files, don't delete extras)
                 if (!_clientConfig.Headless)
                 {
-                    var syncDirs = new[] { "BepInEx/plugins", "SPT/user/mods" };
+                    // Use syncRoots from manifest if available, otherwise fall back to defaults
+                    var syncDirs = manifest.SyncRoots?.Count > 0 
+                        ? manifest.SyncRoots.ToArray() 
+                        : new[] { "BepInEx/plugins", "SPT/user/mods" };
+                    
+                    Log($"Scanning {syncDirs.Length} sync root(s) for extra files: {string.Join(", ", syncDirs)}");
+                    
                     foreach (var syncDir in syncDirs)
                     {
                         var fullDir = Path.Combine(_sptRoot, syncDir.Replace('/', Path.DirectorySeparatorChar));
@@ -686,6 +692,10 @@ class Program
 
                 await Task.CompletedTask;
             });
+
+        // Track total failures for final summary
+        var totalFailures = 0;
+        var totalSuccesses = 0;
 
         if (issues.Count == 0)
         {
@@ -731,7 +741,9 @@ class Program
             if (downloadMissing)
             {
                 Log("Downloading missing files...");
-                await DownloadFilesAsync(missing);
+                var (success, fail) = await DownloadFilesAsync(missing, _clientConfig.Headless);
+                totalSuccesses += success;
+                totalFailures += fail;
             }
             else
             {
@@ -759,8 +771,17 @@ class Program
 
                 if (choice == "Overwrite with server version")
                 {
-                    await DownloadFileAsync(issue.RelativePath);
-                    AnsiConsole.MarkupLine($"  [green]✓[/] Updated");
+                    var success = await DownloadFileAsync(issue.RelativePath, _clientConfig.Headless);
+                    if (success)
+                    {
+                        AnsiConsole.MarkupLine($"  [green]✓[/] Updated");
+                        totalSuccesses++;
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"  [red]✗[/] Update failed");
+                        totalFailures++;
+                    }
                 }
                 else if (choice == "Keep local version")
                 {
@@ -774,6 +795,22 @@ class Program
             }
 
             AnsiConsole.WriteLine();
+        }
+
+        // Show final summary if there were any download attempts
+        if (totalSuccesses > 0 || totalFailures > 0)
+        {
+            AnsiConsole.WriteLine();
+            if (totalFailures > 0)
+            {
+                AnsiConsole.MarkupLine($"[yellow]Summary:[/] [green]{totalSuccesses} succeeded[/], [red]{totalFailures} failed[/]");
+                Log($"Sync summary: {totalSuccesses} succeeded, {totalFailures} failed");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[green]Summary:[/] All {totalSuccesses} file(s) downloaded successfully");
+                Log($"Sync summary: All {totalSuccesses} files downloaded successfully");
+            }
         }
 
         // Handle extra files (prompt)
@@ -1002,8 +1039,11 @@ class Program
         }
     }
 
-    static async Task DownloadFilesAsync(List<FileSyncIssue> files)
+    static async Task<(int successCount, int failCount)> DownloadFilesAsync(List<FileSyncIssue> files, bool headless = false)
     {
+        var successCount = 0;
+        var failCount = 0;
+
         await AnsiConsole.Progress()
             .AutoClear(false)
             .Columns(new ProgressColumn[]
@@ -1021,14 +1061,16 @@ class Program
                 {
                     task.Description = $"Downloading: {Path.GetFileName(file.RelativePath)}";
 
-                    var success = await DownloadFileAsync(file.RelativePath);
+                    var success = await DownloadFileAsync(file.RelativePath, headless);
                     if (success)
                     {
                         AnsiConsole.MarkupLine($"  [green]✓[/] {EscapeMarkup(file.RelativePath)}");
+                        successCount++;
                     }
                     else
                     {
                         AnsiConsole.MarkupLine($"  [red]✗[/] {EscapeMarkup(file.RelativePath)} - download failed");
+                        failCount++;
                     }
 
                     task.Increment(1);
@@ -1036,22 +1078,32 @@ class Program
 
                 task.Description = "Download complete";
             });
+
+        return (successCount, failCount);
     }
 
-    static async Task<bool> DownloadFileAsync(string relativePath)
+    static async Task<bool> DownloadFileAsync(string relativePath, bool headless = false)
     {
         try
         {
             // URL encode the path
             var encodedPath = Uri.EscapeDataString(relativePath.Replace('\\', '/'));
             var url = $"{_clientConfig.ServerUrl}/modgod/api/file/{encodedPath}";
+            
+            // Add headless query parameter if in headless mode
+            if (headless)
+            {
+                url += "?headless=true";
+            }
 
             using var client = CreateHttpClient();
             client.Timeout = TimeSpan.FromMinutes(5);
 
+            Log($"Downloading: {url}");
             var response = await client.GetAsync(url);
             if (!response.IsSuccessStatusCode)
             {
+                Log($"Download failed: {response.StatusCode} for {relativePath}");
                 return false;
             }
 
@@ -1070,8 +1122,9 @@ class Program
 
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Log($"Download error for {relativePath}: {ex.Message}");
             return false;
         }
     }

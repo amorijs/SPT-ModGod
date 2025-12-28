@@ -2,6 +2,83 @@ using System.Text.Json.Serialization;
 
 namespace ModGod.Models;
 
+/// <summary>
+/// Represents a sync path with source (where files are on server) and target (where they go on client)
+/// </summary>
+public class SyncPathEntry
+{
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+    
+    [JsonPropertyName("target")]
+    public string Target { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Creates a SyncPathEntry where source equals target (standard case)
+    /// </summary>
+    public static SyncPathEntry Standard(string path) => new() { Source = path, Target = path };
+}
+
+/// <summary>
+/// Configuration for syncing files to a specific client type (player or headless)
+/// </summary>
+public class ClientSyncConfig
+{
+    /// <summary>
+    /// Directories to sync. Each entry maps a source path (on server) to a target path (on client).
+    /// For standard paths, source equals target.
+    /// </summary>
+    [JsonPropertyName("syncPaths")]
+    public List<SyncPathEntry> SyncPaths { get; set; } = new();
+    
+    /// <summary>
+    /// Specific files/folders to exclude from syncing (within sync paths).
+    /// These are explicit paths, not patterns.
+    /// </summary>
+    [JsonPropertyName("excludedPaths")]
+    public List<string> ExcludedPaths { get; set; } = new();
+    
+    /// <summary>
+    /// Whether to apply the built-in default exclusion patterns (logs, cache, dev files, etc.)
+    /// </summary>
+    [JsonPropertyName("useDefaultExclusions")]
+    public bool UseDefaultExclusions { get; set; } = true;
+    
+    /// <summary>
+    /// Custom exclusion patterns (supports globs: *, **, ?).
+    /// If null, uses built-in defaults from DefaultSyncExclusions.Patterns.
+    /// If user edits patterns, this stores their customized list.
+    /// </summary>
+    [JsonPropertyName("exclusionPatterns")]
+    public List<string>? ExclusionPatterns { get; set; }
+    
+    /// <summary>
+    /// Creates default config for player clients (sync BepInEx/plugins and SPT/user/mods)
+    /// </summary>
+    public static ClientSyncConfig DefaultPlayerConfig() => new()
+    {
+        SyncPaths = new List<SyncPathEntry>
+        {
+            SyncPathEntry.Standard("BepInEx/plugins"),
+            SyncPathEntry.Standard("SPT/user/mods")
+        },
+        UseDefaultExclusions = true
+    };
+    
+    /// <summary>
+    /// Creates default config for headless clients (sync BepInEx/plugins and SPT/user/mods)
+    /// </summary>
+    public static ClientSyncConfig DefaultHeadlessConfig() => new()
+    {
+        SyncPaths = new List<SyncPathEntry>
+        {
+            SyncPathEntry.Standard("BepInEx/plugins"),
+            SyncPathEntry.Standard("SPT/user/mods")
+        },
+        UseDefaultExclusions = true
+    };
+}
+
 public class ServerConfig
 {
     [JsonPropertyName("modList")]
@@ -13,36 +90,50 @@ public class ServerConfig
     /// </summary>
     [JsonPropertyName("removalSelections")]
     public Dictionary<string, List<string>> RemovalSelections { get; set; } = new();
-
+    
     /// <summary>
-    /// Custom paths/patterns to exclude from client sync/manifest.
-    /// Supports glob patterns: *, **, ?
-    /// Example: "SPT/user/mods/MyMod/logs/**" or "**/*.log"
+    /// Sync configuration for player (game) clients
+    /// </summary>
+    [JsonPropertyName("playerSyncConfig")]
+    public ClientSyncConfig? PlayerSyncConfig { get; set; }
+    
+    /// <summary>
+    /// Sync configuration for headless (dedicated raid-hosting) clients
+    /// </summary>
+    [JsonPropertyName("headlessSyncConfig")]
+    public ClientSyncConfig? HeadlessSyncConfig { get; set; }
+
+    #region Legacy Properties (for migration - will be removed in future version)
+    
+    /// <summary>
+    /// [LEGACY] Custom paths/patterns to exclude from client sync/manifest.
+    /// Migrated to PlayerSyncConfig.ExcludedPaths
     /// </summary>
     [JsonPropertyName("syncExclusions")]
-    public List<string> SyncExclusions { get; set; } = new();
+    public List<string>? SyncExclusions { get; set; }
     
     /// <summary>
-    /// Whether to apply the built-in default exclusions (logs, cache, dev files, etc.)
-    /// Default: true
+    /// [LEGACY] Whether to apply the built-in default exclusions.
+    /// Migrated to PlayerSyncConfig.UseDefaultExclusions
     /// </summary>
     [JsonPropertyName("useDefaultExclusions")]
-    public bool UseDefaultExclusions { get; set; } = true;
+    public bool? UseDefaultExclusions { get; set; }
     
     /// <summary>
-    /// Custom default exclusion patterns (can be modified by user).
-    /// If null, uses the built-in defaults from DefaultSyncExclusions.Patterns.
+    /// [LEGACY] Custom default exclusion patterns.
+    /// Migrated to PlayerSyncConfig.ExclusionPatterns
     /// </summary>
     [JsonPropertyName("customDefaultExclusions")]
     public List<string>? CustomDefaultExclusions { get; set; }
     
     /// <summary>
-    /// Paths to sync to headless clients.
-    /// Unlike SyncExclusions (which excludes paths), this is an INCLUSION list.
-    /// Only paths explicitly added here will be synced to headless clients.
+    /// [LEGACY] Paths to sync to headless clients.
+    /// Migrated to HeadlessSyncConfig.SyncPaths
     /// </summary>
     [JsonPropertyName("headlessSyncPaths")]
-    public List<string> HeadlessSyncPaths { get; set; } = new();
+    public List<string>? HeadlessSyncPaths { get; set; }
+    
+    #endregion
 }
 
 /// <summary>
@@ -107,11 +198,28 @@ public static class DefaultSyncExclusions
     };
     
     /// <summary>
-    /// Get all effective exclusions (custom defaults if set, otherwise built-in)
+    /// Get all effective exclusions for a ClientSyncConfig
+    /// </summary>
+    public static List<string> GetEffectiveDefaults(ClientSyncConfig? syncConfig)
+    {
+        if (syncConfig == null || !syncConfig.UseDefaultExclusions)
+            return new List<string>();
+            
+        return syncConfig.ExclusionPatterns ?? Patterns;
+    }
+    
+    /// <summary>
+    /// [LEGACY] Get all effective exclusions from legacy ServerConfig properties.
+    /// Use GetEffectiveDefaults(ClientSyncConfig) instead.
     /// </summary>
     public static List<string> GetEffectiveDefaults(ServerConfig config)
     {
-        if (!config.UseDefaultExclusions)
+        // If new config exists, use it
+        if (config.PlayerSyncConfig != null)
+            return GetEffectiveDefaults(config.PlayerSyncConfig);
+        
+        // Fall back to legacy properties
+        if (config.UseDefaultExclusions == false)
             return new List<string>();
             
         return config.CustomDefaultExclusions ?? Patterns;

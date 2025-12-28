@@ -92,17 +92,17 @@
                 </MudAlert>
             }
             
-            @if (Result.SyncExclusionsChanged || Result.HeadlessSyncPathsChanged)
+            @if (Result.AnySyncConfigChanged)
             {
                 <MudAlert Severity="Severity.Success" Class="mb-3">
-                    <MudText Typo="Typo.subtitle2">⚙️ Config Updated:</MudText>
-                    @if (Result.SyncExclusionsChanged)
+                    <MudText Typo="Typo.subtitle2">⚙️ Sync Config Updated:</MudText>
+                    @if (Result.PlayerSyncConfigChanged)
                     {
-                        <MudText Typo="Typo.body2" Class="ml-3">• Sync exclusions updated (@Result.SyncExclusionCount paths)</MudText>
+                        <MudText Typo="Typo.body2" Class="ml-3">• Player sync config updated (@Result.PlayerSyncPathCount paths, @Result.PlayerExclusionCount exclusions)</MudText>
                     }
-                    @if (Result.HeadlessSyncPathsChanged)
+                    @if (Result.HeadlessSyncConfigChanged)
                     {
-                        <MudText Typo="Typo.body2" Class="ml-3">• Headless sync paths updated (@Result.HeadlessSyncPathCount paths)</MudText>
+                        <MudText Typo="Typo.body2" Class="ml-3">• Headless sync config updated (@Result.HeadlessSyncPathCount paths, @Result.HeadlessExclusionCount exclusions)</MudText>
                     }
                 </MudAlert>
             }
@@ -156,8 +156,7 @@
                Result.QueuedForInstall.Count > 0 ||
                Result.RemovedMods.Count > 0 ||
                Result.QueuedForRemoval.Count > 0 ||
-               Result.SyncExclusionsChanged ||
-               Result.HeadlessSyncPathsChanged ||
+               Result.AnySyncConfigChanged ||
                Result.Errors.Count > 0 ||
                Result.FailedDeletions.Count > 0;
     }

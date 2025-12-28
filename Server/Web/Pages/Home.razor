@@ -14,6 +14,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge">
     <!-- Header Section -->
@@ -266,12 +267,12 @@
             }
         </MudTabPanel>
 
-        <MudTabPanel Text="Sync Exclusions" Class="mt-4">
-            <SyncExclusionsTab OnConfigChanged="StateHasChanged" />
+        <MudTabPanel Text="Player Syncing" Class="mt-4">
+            <PlayerSyncingTab @ref="_playerSyncingTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <MudTabPanel Text="Headless Syncing" Class="mt-4">
-            <HeadlessSyncingTab OnConfigChanged="StateHasChanged" />
+            <HeadlessSyncingTab @ref="_headlessSyncingTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <MudTabPanel Text="Health Check (Experimental)" Class="mt-4">
@@ -301,6 +302,10 @@
 @code {
     private bool _hasLoggedInit = false;
     private int _activeTabIndex = 0;
+    
+    // Tab references for refresh on discard
+    private PlayerSyncingTab? _playerSyncingTab;
+    private HeadlessSyncingTab? _headlessSyncingTab;
     
     // Search and filter
     private string _searchQuery = "";
@@ -354,7 +359,7 @@
 
         try
         {
-            _applyResult = await ModInstallService.ApplyPendingChangesAsync();
+            _applyResult = await ModInstallService.ApplyPendingChangesAsync(NavigationManager.BaseUri.TrimEnd('/'));
             _applyResultDialogVisible = true;
         }
         catch (Exception ex)
@@ -381,6 +386,13 @@
         if (result == true)
         {
             await ConfigService.ResetStagedConfigAsync();
+            
+            // Refresh syncing tabs to reload from config
+            if (_playerSyncingTab != null)
+                await _playerSyncingTab.ReloadFromConfigAsync();
+            if (_headlessSyncingTab != null)
+                await _headlessSyncingTab.ReloadFromConfigAsync();
+            
             Snackbar.Add("Changes discarded.", Severity.Info);
             StateHasChanged();
         }
@@ -391,6 +403,13 @@
     {
         CloseAllDialogs();
         await ConfigService.ReloadConfigFromDiskAsync();
+        
+        // Refresh syncing tabs to reload from config
+        if (_playerSyncingTab != null)
+            await _playerSyncingTab.ReloadFromConfigAsync();
+        if (_headlessSyncingTab != null)
+            await _headlessSyncingTab.ReloadFromConfigAsync();
+        
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();
     }

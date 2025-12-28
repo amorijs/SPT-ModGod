@@ -32,8 +32,9 @@ public partial class ConfigService
         }
         
         // Safety: ensure new properties are initialized
-        StagedConfig.SyncExclusions ??= new List<string>();
         StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        StagedConfig.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
+        StagedConfig.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
     }
     
     /// <summary>
@@ -63,6 +64,8 @@ public partial class ConfigService
         var json = JsonSerializer.Serialize(Config, JsonOptions);
         StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
         StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        StagedConfig.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
+        StagedConfig.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
         _logger.Info("Staged config reset to match live config");
         
         await Task.CompletedTask; // Keep async signature for consistency
@@ -128,11 +131,47 @@ public partial class ConfigService
             }
         }
         
-        // Check sync exclusions
-        if (!Config.SyncExclusions.SequenceEqual(StagedConfig.SyncExclusions))
+        // Check player sync config changes
+        if (!SyncConfigsEqual(Config.PlayerSyncConfig, StagedConfig.PlayerSyncConfig))
+            return true;
+        
+        // Check headless sync config changes
+        if (!SyncConfigsEqual(Config.HeadlessSyncConfig, StagedConfig.HeadlessSyncConfig))
             return true;
         
         return false;
+    }
+    
+    private static bool SyncConfigsEqual(ClientSyncConfig? a, ClientSyncConfig? b)
+    {
+        // Handle nulls
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        
+        // Compare sync paths
+        if (a.SyncPaths.Count != b.SyncPaths.Count) return false;
+        for (int i = 0; i < a.SyncPaths.Count; i++)
+        {
+            if (a.SyncPaths[i].Source != b.SyncPaths[i].Source ||
+                a.SyncPaths[i].Target != b.SyncPaths[i].Target)
+                return false;
+        }
+        
+        // Compare excluded paths
+        if (!a.ExcludedPaths.SequenceEqual(b.ExcludedPaths))
+            return false;
+        
+        // Compare useDefaultExclusions
+        if (a.UseDefaultExclusions != b.UseDefaultExclusions)
+            return false;
+        
+        // Compare exclusion patterns
+        var aPat = a.ExclusionPatterns ?? new List<string>();
+        var bPat = b.ExclusionPatterns ?? new List<string>();
+        if (!aPat.SequenceEqual(bPat))
+            return false;
+        
+        return true;
     }
     
     private static bool InstallPathsEqual(List<string[]> a, List<string[]> b)

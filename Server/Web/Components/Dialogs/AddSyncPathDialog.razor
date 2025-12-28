@@ -1,0 +1,391 @@
+@using ModGod.Models
+@using ModGod.Web.Models
+@using ModGod.Services
+
+@inject ConfigService ConfigService
+
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            <MudIcon Icon="@Icons.Material.Filled.CreateNewFolder" Class="mr-2" Style="vertical-align: middle;" />
+            Add Sync Path
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-4" Style="color: var(--text-secondary);">
+            Add a custom path to sync files from your server to clients.
+        </MudText>
+        
+        <!-- Source Path Section -->
+        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Source" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                Source Path
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                Select the folder on your server that contains the files to sync.
+            </MudText>
+            
+            @if (_loading)
+            {
+                <div class="d-flex align-center">
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <MudText Typo="Typo.body2">Loading directories...</MudText>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert>
+            }
+            else
+            {
+                <MudPaper Class="pa-2" Style="background: var(--card-bg); border: 1px solid var(--border-color); max-height: 250px; overflow-y: auto;">
+                    @foreach (var (node, depth) in GetFlattenedTree())
+                    {
+                        var indent = depth * 18;
+                        var capturedNode = node;
+                        var isExpanded = _expandedDirs.Contains(node.RelativePath);
+                        var hasChildren = node.Children?.Count > 0;
+                        var isSelected = _selectedSourcePath == node.RelativePath;
+                        
+                        <div class="d-flex align-center" 
+                             style="padding-left:@(indent)px; margin-bottom:2px; cursor: pointer; background: @(isSelected ? "var(--accent-cyan-transparent, rgba(0, 188, 212, 0.15))" : "transparent"); border-radius: 4px; padding: 4px; padding-left: @(indent + 4)px;">
+                    @if (hasChildren)
+                    {
+                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                       Size="Size.Small"
+                                       Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                       OnClick="@(() => ToggleExpand(capturedNode))" />
+                    }
+                            else
+                            {
+                                <div style="width: 28px;"></div>
+                            }
+                            <div class="d-flex align-center flex-grow-1" @onclick="@(() => SelectSource(capturedNode))">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" 
+                                         Size="Size.Small" 
+                                         Class="mr-1" 
+                                         Style="color: var(--accent-cyan);" />
+                                <span class="mono" style="color: var(--text-primary); font-size: 13px;">
+                                    @node.Name
+                                </span>
+                            </div>
+                        </div>
+                    }
+                </MudPaper>
+                
+                @if (!string.IsNullOrEmpty(_selectedSourcePath))
+                {
+                    <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--accent-cyan);">
+                        <strong>Selected:</strong> @_selectedSourcePath
+                    </MudText>
+                }
+            }
+        </MudPaper>
+        
+        <!-- Target Path Section -->
+        <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Output" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                Target Path
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                Where files should be installed on clients (relative to their SPT root).
+            </MudText>
+            
+            <div class="d-flex align-center">
+                <MudText Typo="Typo.body2" Class="mr-1" Style="color: var(--text-secondary); font-family: monospace;">
+                    &lt;SPT_ROOT&gt;/
+                </MudText>
+                <MudTextField @bind-Value="_targetPath"
+                              Placeholder="BepInEx/plugins"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              Class="mono flex-grow-1" />
+                @if (!string.IsNullOrEmpty(_selectedSourcePath) && !string.Equals(_selectedSourcePath, _targetPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    <MudButton Variant="Variant.Text" 
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               OnClick="CopySourceToTarget"
+                               Class="ml-2">
+                        Reset
+                    </MudButton>
+                }
+            </div>
+            
+            <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--text-secondary);">
+                <strong>Example:</strong> If source is <code>PlayerMods/BepInEx/plugins</code> and target is <code>BepInEx/plugins</code>,
+                files will be copied from your server's <code>PlayerMods/BepInEx/plugins</code> folder to the client's <code>BepInEx/plugins</code> folder.
+            </MudText>
+        </MudPaper>
+        
+        @if (!string.IsNullOrEmpty(_validationError))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">
+                @_validationError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton Color="Color.Primary" 
+                   Variant="Variant.Filled"
+                   Disabled="@(!CanAdd)"
+                   OnClick="Add">
+            Add Sync Path
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback<SyncPathEntry> OnPathAdded { get; set; }
+    
+    // Existing sync paths (to prevent duplicates)
+    [Parameter] public List<SyncPathEntry> ExistingSyncPaths { get; set; } = new();
+
+    // State
+    private bool _loading = false;
+    private string? _error;
+    private string _selectedSourcePath = "";
+    private string _targetPath = "";
+    private string? _validationError;
+    private bool _wasVisible = false;
+    
+    // File tree
+    private FileNode? _treeRoot;
+    private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool CanAdd => !string.IsNullOrWhiteSpace(_selectedSourcePath) && 
+                           !string.IsNullOrWhiteSpace(_targetPath) &&
+                           string.IsNullOrEmpty(_validationError);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Detect transition from closed to open
+        if (Visible && !_wasVisible)
+        {
+            ResetState();
+            if (_treeRoot == null)
+            {
+                await LoadTreeAsync();
+            }
+        }
+        _wasVisible = Visible;
+    }
+
+    private void ResetState()
+    {
+        _selectedSourcePath = "";
+        _targetPath = "";
+        _validationError = null;
+        _expandedDirs.Clear();
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        _loading = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+            
+            // Scan SPT root for directories
+            var sptRoot = ConfigService.SptRoot;
+            if (Directory.Exists(sptRoot))
+            {
+                foreach (var dir in Directory.GetDirectories(sptRoot).OrderBy(d => Path.GetFileName(d)))
+                {
+                    var dirName = Path.GetFileName(dir);
+                    // Skip hidden directories and common non-mod directories
+                    if (dirName.StartsWith(".") || dirName.StartsWith("_")) continue;
+                    
+                    var node = BuildNodeRecursive(dir, NormalizePath(dirName), dirName, maxDepth: 4);
+                    if (node != null)
+                    {
+                        root.Children.Add(node);
+                    }
+                }
+            }
+
+            _treeRoot = root;
+            
+            // Auto-expand common paths
+            _expandedDirs.Add("BepInEx");
+            _expandedDirs.Add("SPT");
+            _expandedDirs.Add("SPT/user");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to scan directories: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private FileNode? BuildNodeRecursive(string fullPath, string relativePath, string? displayName = null, int depth = 0, int maxDepth = 4)
+    {
+        if (depth > maxDepth) return null;
+        
+        var node = new FileNode
+        {
+            Name = displayName ?? Path.GetFileName(fullPath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        try
+        {
+            foreach (var dir in Directory.GetDirectories(fullPath).OrderBy(d => Path.GetFileName(d)))
+            {
+                var dirName = Path.GetFileName(dir);
+                if (dirName.StartsWith(".") || dirName.StartsWith("_")) continue;
+                
+                var childRel = NormalizePath(Path.Combine(relativePath, dirName));
+                var childNode = BuildNodeRecursive(dir, childRel, depth: depth + 1, maxDepth: maxDepth);
+                if (childNode != null)
+                {
+                    node.Children.Add(childNode);
+                }
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Skip directories we can't access
+        }
+        catch (Exception)
+        {
+            // Skip problematic directories
+        }
+
+        return node;
+    }
+
+    private void ToggleExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        
+        var path = node.RelativePath;
+        if (_expandedDirs.Contains(path))
+            _expandedDirs.Remove(path);
+        else
+            _expandedDirs.Add(path);
+        
+        StateHasChanged();
+    }
+
+    private void SelectSource(FileNode node)
+    {
+        _selectedSourcePath = node.RelativePath;
+        _targetPath = node.RelativePath; // Default target to match source
+        _validationError = null;
+        ValidateInput();
+        StateHasChanged();
+    }
+
+    private void CopySourceToTarget()
+    {
+        _targetPath = _selectedSourcePath;
+        ValidateInput();
+        StateHasChanged();
+    }
+
+    private void ValidateInput()
+    {
+        _validationError = null;
+        
+        if (string.IsNullOrWhiteSpace(_selectedSourcePath) || string.IsNullOrWhiteSpace(_targetPath))
+            return;
+        
+        var normalizedSource = NormalizePath(_selectedSourcePath);
+        var normalizedTarget = NormalizePath(_targetPath);
+        
+        // Check for duplicate source
+        if (ExistingSyncPaths.Any(p => NormalizePath(p.Source).Equals(normalizedSource, StringComparison.OrdinalIgnoreCase)))
+        {
+            _validationError = "A sync path with this source already exists.";
+            return;
+        }
+        
+        // Check that source directory exists
+        var fullSourcePath = Path.Combine(ConfigService.SptRoot, _selectedSourcePath.Replace('/', Path.DirectorySeparatorChar));
+        if (!Directory.Exists(fullSourcePath))
+        {
+            _validationError = "Source directory does not exist.";
+            return;
+        }
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_treeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            // Only recurse if expanded
+            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath))
+                return;
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _treeRoot.Children.OrderBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private async Task Add()
+    {
+        ValidateInput();
+        if (!string.IsNullOrEmpty(_validationError)) return;
+        
+        var entry = new SyncPathEntry
+        {
+            Source = NormalizePath(_selectedSourcePath),
+            Target = NormalizePath(_targetPath)
+        };
+        
+        await OnPathAdded.InvokeAsync(entry);
+        await Close();
+    }
+
+    private async Task Cancel()
+    {
+        await Close();
+    }
+
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+        ResetState();
+    }
+
+    private static string NormalizePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace("\\", "/").TrimStart('/').TrimEnd('/');
+    }
+}

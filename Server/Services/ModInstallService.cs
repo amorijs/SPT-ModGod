@@ -24,8 +24,9 @@ public class ModInstallService
     /// <summary>
     /// Apply all pending changes from staged config (installs, removals, and config changes like sync exclusions)
     /// </summary>
+    /// <param name="serverUrl">The server URL to use for the install script (e.g., from NavigationManager.BaseUri)</param>
     /// <returns>Result with details about what was done</returns>
-    public async Task<ApplyChangesResult> ApplyPendingChangesAsync()
+    public async Task<ApplyChangesResult> ApplyPendingChangesAsync(string? serverUrl = null)
     {
         var result = new ApplyChangesResult();
 
@@ -128,17 +129,19 @@ public class ModInstallService
             }
         }
 
-        // Track config changes (sync exclusions, headless sync paths)
-        var liveExclusions = _configService.Config.SyncExclusions ?? new List<string>();
-        var stagedExclusions = _configService.StagedConfig.SyncExclusions ?? new List<string>();
-        var liveHeadless = _configService.Config.HeadlessSyncPaths ?? new List<string>();
-        var stagedHeadless = _configService.StagedConfig.HeadlessSyncPaths ?? new List<string>();
+        // Track config changes (player sync config, headless sync config)
+        result.PlayerSyncConfigChanged = !SyncConfigsEqual(
+            _configService.Config.PlayerSyncConfig, 
+            _configService.StagedConfig.PlayerSyncConfig);
+        result.HeadlessSyncConfigChanged = !SyncConfigsEqual(
+            _configService.Config.HeadlessSyncConfig, 
+            _configService.StagedConfig.HeadlessSyncConfig);
         
-        result.SyncExclusionsChanged = !liveExclusions.SequenceEqual(stagedExclusions) ||
-                                       _configService.Config.UseDefaultExclusions != _configService.StagedConfig.UseDefaultExclusions;
-        result.HeadlessSyncPathsChanged = !liveHeadless.SequenceEqual(stagedHeadless);
-        result.SyncExclusionCount = stagedExclusions.Count;
-        result.HeadlessSyncPathCount = stagedHeadless.Count;
+        // Count sync paths and exclusions for reporting
+        result.PlayerSyncPathCount = _configService.StagedConfig.PlayerSyncConfig?.SyncPaths?.Count ?? 0;
+        result.PlayerExclusionCount = _configService.StagedConfig.PlayerSyncConfig?.ExcludedPaths?.Count ?? 0;
+        result.HeadlessSyncPathCount = _configService.StagedConfig.HeadlessSyncConfig?.SyncPaths?.Count ?? 0;
+        result.HeadlessExclusionCount = _configService.StagedConfig.HeadlessSyncConfig?.ExcludedPaths?.Count ?? 0;
 
         // Apply staged config to live config
         await _configService.ApplyStagedToLiveAsync();
@@ -147,7 +150,7 @@ public class ModInstallService
         // Generate and launch install script if there are queued operations
         if (result.QueuedForInstall.Count > 0 || result.QueuedForRemoval.Count > 0)
         {
-            result.InstallScriptPath = await _configService.GenerateInstallScriptAsync();
+            result.InstallScriptPath = await _configService.GenerateInstallScriptAsync(serverUrl ?? "https://127.0.0.1:6969");
             
             if (!string.IsNullOrEmpty(result.InstallScriptPath))
             {
@@ -601,6 +604,41 @@ public class ModInstallService
             CopyDirectory(subDir, targetSubDir, lockedFiles);
         }
     }
+
+    /// <summary>
+    /// Compare two ClientSyncConfig instances for equality.
+    /// </summary>
+    private static bool SyncConfigsEqual(ClientSyncConfig? a, ClientSyncConfig? b)
+    {
+        // Handle nulls
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        
+        // Compare sync paths
+        if (a.SyncPaths.Count != b.SyncPaths.Count) return false;
+        for (int i = 0; i < a.SyncPaths.Count; i++)
+        {
+            if (a.SyncPaths[i].Source != b.SyncPaths[i].Source ||
+                a.SyncPaths[i].Target != b.SyncPaths[i].Target)
+                return false;
+        }
+        
+        // Compare excluded paths
+        if (!a.ExcludedPaths.SequenceEqual(b.ExcludedPaths))
+            return false;
+        
+        // Compare useDefaultExclusions
+        if (a.UseDefaultExclusions != b.UseDefaultExclusions)
+            return false;
+        
+        // Compare exclusion patterns
+        var aPat = a.ExclusionPatterns ?? new List<string>();
+        var bPat = b.ExclusionPatterns ?? new List<string>();
+        if (!aPat.SequenceEqual(bPat))
+            return false;
+        
+        return true;
+    }
 }
 
 public class ApplyChangesResult
@@ -617,11 +655,18 @@ public class ApplyChangesResult
     public string? InstallScriptPath { get; set; }
     public bool IsWindows { get; set; } = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
     
-    // Config changes (sync exclusions, headless sync paths, etc.)
-    public bool SyncExclusionsChanged { get; set; }
-    public bool HeadlessSyncPathsChanged { get; set; }
-    public int SyncExclusionCount { get; set; }
+    // Config changes (player sync config, headless sync config)
+    public bool PlayerSyncConfigChanged { get; set; }
+    public bool HeadlessSyncConfigChanged { get; set; }
+    public int PlayerSyncPathCount { get; set; }
+    public int PlayerExclusionCount { get; set; }
     public int HeadlessSyncPathCount { get; set; }
+    public int HeadlessExclusionCount { get; set; }
+    
+    /// <summary>
+    /// Returns true if any sync config (player or headless) changed.
+    /// </summary>
+    public bool AnySyncConfigChanged => PlayerSyncConfigChanged || HeadlessSyncConfigChanged;
 }
 
 public class ModOperationResult

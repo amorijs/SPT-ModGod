@@ -50,8 +50,8 @@ public class ModGodServer(
         
         logger.Success("========================================");
         logger.Success("  ModGod Server loaded!");
-        logger.Success($"  Web UI: http://localhost:6969/modgod");
-        logger.Success($"  Config API: http://localhost:6969/modgod/api/config");
+        logger.Success("  Web UI: <your-server-url>/modgod");
+        logger.Success("  Config API: <your-server-url>/modgod/api/config");
         logger.Success("========================================");
 
         return Task.CompletedTask;
@@ -228,15 +228,15 @@ public class HeadlessManifestHttpListener : IHttpListener
 /// HTTP listener to serve individual files for client sync
 /// URL format: /modgod/api/file/{relativePath}
 /// e.g., /modgod/api/file/BepInEx/plugins/ModName/ModName.dll
+/// 
+/// The relativePath is the TARGET path (what client expects).
+/// This handler reverse-maps it to the SOURCE path (where file actually exists on server).
 /// </summary>
 [Injectable(TypePriority = 0)]
 public class FileDownloadHttpListener : IHttpListener
 {
     private readonly ConfigService _configService;
     private readonly ISptLogger<FileDownloadHttpListener> _logger;
-
-    // Only serve files from these directories for security
-    private static readonly string[] AllowedRoots = { "BepInEx/plugins", "SPT/user/mods" };
 
     public FileDownloadHttpListener(
         ConfigService configService,
@@ -258,14 +258,30 @@ public class FileDownloadHttpListener : IHttpListener
         var requestPath = context.Request.Path.Value ?? "";
         
         // Extract relative file path from URL (after /modgod/api/file/)
-        var relativePath = requestPath.Substring("/modgod/api/file/".Length);
-        relativePath = Uri.UnescapeDataString(relativePath).Replace('/', Path.DirectorySeparatorChar);
+        // This is the TARGET path that the client is requesting
+        var targetPath = requestPath.Substring("/modgod/api/file/".Length);
+        targetPath = Uri.UnescapeDataString(targetPath).Replace('\\', '/').TrimStart('/');
 
-        // Security: Only allow files under approved directories
-        var normalizedPath = relativePath.Replace('\\', '/');
-        if (!AllowedRoots.Any(root => normalizedPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
+        // Check if request is for headless manifest (via query param or header)
+        var isHeadless = context.Request.Query["headless"].FirstOrDefault() == "true";
+        
+        // Get the appropriate sync config
+        var syncConfig = isHeadless 
+            ? (_configService.Config.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig())
+            : (_configService.Config.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig());
+
+        // Build allowed targets from sync paths
+        var allowedTargets = syncConfig.SyncPaths
+            .Select(p => NormalizePath(p.Target))
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        // Security: Only allow files under configured sync path targets
+        if (!allowedTargets.Any(target => 
+            targetPath.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+            targetPath.StartsWith(target + "/", StringComparison.OrdinalIgnoreCase)))
         {
-            _logger.Warning($"Blocked file request outside allowed roots: {relativePath}");
+            _logger.Warning($"Blocked file request outside allowed sync targets: {targetPath}");
             context.Response.StatusCode = 403;
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Access denied\"}"));
             await context.Response.StartAsync();
@@ -273,15 +289,27 @@ public class FileDownloadHttpListener : IHttpListener
             return;
         }
 
-        // Build full path
-        var fullPath = Path.Combine(_configService.SptRoot, relativePath);
+        // Reverse-map target path to source path
+        var sourcePath = ReverseMapTargetToSource(targetPath, syncConfig.SyncPaths);
+        if (sourcePath == null)
+        {
+            _logger.Warning($"Could not reverse-map target path to source: {targetPath}");
+            context.Response.StatusCode = 404;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"File not found\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        // Build full path using the SOURCE path (where file actually exists)
+        var fullPath = Path.Combine(_configService.SptRoot, sourcePath.Replace('/', Path.DirectorySeparatorChar));
 
         // Security: Prevent path traversal
         var resolvedPath = Path.GetFullPath(fullPath);
         var sptRootFull = Path.GetFullPath(_configService.SptRoot);
         if (!resolvedPath.StartsWith(sptRootFull))
         {
-            _logger.Warning($"Blocked path traversal attempt: {relativePath}");
+            _logger.Warning($"Blocked path traversal attempt: {sourcePath}");
             context.Response.StatusCode = 403;
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Access denied\"}"));
             await context.Response.StartAsync();
@@ -291,7 +319,7 @@ public class FileDownloadHttpListener : IHttpListener
 
         if (!File.Exists(fullPath))
         {
-            _logger.Warning($"File not found: {relativePath}");
+            _logger.Warning($"File not found: {sourcePath} (requested as target: {targetPath})");
             context.Response.StatusCode = 404;
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"File not found\"}"));
             await context.Response.StartAsync();
@@ -299,7 +327,7 @@ public class FileDownloadHttpListener : IHttpListener
             return;
         }
 
-        _logger.Info($"Serving file: {relativePath}");
+        _logger.Debug($"Serving file: {sourcePath} (target: {targetPath})");
 
         try
         {
@@ -316,12 +344,49 @@ public class FileDownloadHttpListener : IHttpListener
         }
         catch (Exception ex)
         {
-            _logger.Error($"Error serving file {relativePath}: {ex.Message}");
+            _logger.Error($"Error serving file {sourcePath}: {ex.Message}");
             context.Response.StatusCode = 500;
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Internal error\"}"));
             await context.Response.StartAsync();
             await context.Response.CompleteAsync();
         }
+    }
+
+    /// <summary>
+    /// Reverse-map a target path back to a source path using sync path mappings.
+    /// </summary>
+    private static string? ReverseMapTargetToSource(string targetPath, List<SyncPathEntry> syncPaths)
+    {
+        var normTarget = NormalizePath(targetPath);
+        
+        foreach (var syncPath in syncPaths)
+        {
+            var normSyncSource = NormalizePath(syncPath.Source);
+            var normSyncTarget = NormalizePath(syncPath.Target);
+            
+            // Check if targetPath is under this sync path's target
+            if (normTarget.Equals(normSyncTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                // Exact match - return the source
+                return normSyncSource;
+            }
+            
+            if (normTarget.StartsWith(normSyncTarget + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Path is under this sync target - transform back to source
+                var relativePart = normTarget.Substring(normSyncTarget.Length + 1);
+                return string.IsNullOrEmpty(normSyncSource) 
+                    ? relativePart 
+                    : $"{normSyncSource}/{relativePart}";
+            }
+        }
+        
+        return null; // Path not in any sync path
+    }
+
+    private static string NormalizePath(string path)
+    {
+        return path.Replace("\\", "/").TrimStart('/');
     }
 }
 

@@ -262,10 +262,18 @@ fetch_manifest() {
 }
 
 # Download a single file
+# Args: relative_path [headless_mode]
 download_file() {
     local relative_path="$1"
+    local is_headless="${2:-false}"
     local encoded_path=$(echo "$relative_path" | jq -Rr @uri 2>/dev/null)
     local url="$SERVER_URL/modgod/api/file/$encoded_path"
+    
+    # Add headless query parameter if in headless mode
+    if [ "$is_headless" = "true" ]; then
+        url="${url}?headless=true"
+    fi
+    
     local target_path="$SPT_ROOT/$relative_path"
     
     log "Downloading file: $url -> $target_path"
@@ -487,6 +495,10 @@ process_mod() {
 sync_files() {
     log "Starting file sync (headless=$HEADLESS_MODE)..."
     
+    # Track success/failure counts
+    local total_success=0
+    local total_fail=0
+    
     if [ "$HEADLESS_MODE" = "true" ]; then
         echo -e "${CYAN}Headless File Sync${NC}"
         echo -e "${YELLOW}Syncing only headless-specific files...${NC}"
@@ -516,6 +528,14 @@ sync_files() {
     fi
     log "Manifest contains $file_count files"
     
+    # Get sync roots from manifest (for extra file detection)
+    local sync_roots_file="$TEMP_DIR/sync_roots.txt"
+    echo "$manifest" | jq -r '.syncRoots[]? // empty' > "$sync_roots_file" 2>/dev/null
+    
+    # Get exclusions from manifest
+    local exclusions_file="$TEMP_DIR/exclusions.txt"
+    echo "$manifest" | jq -r '.syncExclusions[]? // empty' > "$exclusions_file" 2>/dev/null
+    
     # Create issues file
     local issues_file="$TEMP_DIR/issues.txt"
     > "$issues_file"
@@ -523,6 +543,10 @@ sync_files() {
     # Save file entries to temp file for processing
     local entries_file="$TEMP_DIR/entries.json"
     echo "$manifest" | jq -c '.files | to_entries[]' > "$entries_file" 2>/dev/null
+    
+    # Build a set of manifest files for extra file detection
+    local manifest_files="$TEMP_DIR/manifest_files.txt"
+    echo "$manifest" | jq -r '.files | keys[]' > "$manifest_files" 2>/dev/null
     
     # Check each file
     log "Verifying files..."
@@ -547,40 +571,113 @@ sync_files() {
     
     rm -f "$entries_file"
     
+    # Scan for extra files (skip for headless mode)
+    if [ "$HEADLESS_MODE" != "true" ]; then
+        log "Scanning for extra files..."
+        
+        # Use syncRoots from manifest if available, otherwise default
+        local has_sync_roots=$(wc -l < "$sync_roots_file" 2>/dev/null | tr -d ' ')
+        if [ "${has_sync_roots:-0}" -eq 0 ]; then
+            echo "BepInEx/plugins" > "$sync_roots_file"
+            echo "SPT/user/mods" >> "$sync_roots_file"
+        fi
+        
+        log "Sync roots: $(cat "$sync_roots_file" | tr '\n' ', ')"
+        
+        while IFS= read -r sync_root; do
+            if [ -z "$sync_root" ]; then
+                continue
+            fi
+            
+            local full_sync_dir="$SPT_ROOT/$sync_root"
+            if [ ! -d "$full_sync_dir" ]; then
+                continue
+            fi
+            
+            log "Scanning sync root: $full_sync_dir"
+            
+            # Find all files in this sync root
+            find "$full_sync_dir" -type f 2>/dev/null | while IFS= read -r file; do
+                local relative_path=$(realpath --relative-to="$SPT_ROOT" "$file" 2>/dev/null || echo "$file" | sed "s|^$SPT_ROOT/||")
+                relative_path=$(echo "$relative_path" | sed 's|\\|/|g')
+                
+                # Check if in manifest
+                if ! grep -qxF "$relative_path" "$manifest_files" 2>/dev/null; then
+                    # Check if excluded
+                    local is_excluded=false
+                    while IFS= read -r exclusion; do
+                        if [ -z "$exclusion" ]; then
+                            continue
+                        fi
+                        # Simple prefix match for non-glob patterns
+                        if [[ "$relative_path" == "$exclusion"* ]]; then
+                            is_excluded=true
+                            break
+                        fi
+                    done < "$exclusions_file"
+                    
+                    if [ "$is_excluded" = "false" ]; then
+                        echo "extra:$relative_path" >> "$issues_file"
+                    fi
+                fi
+            done
+        done < "$sync_roots_file"
+    fi
+    
+    rm -f "$sync_roots_file" "$exclusions_file" "$manifest_files"
+    
     # Count issues (grep -c returns 0 count but exits 1 when no matches, so we capture separately)
     local missing=0
     local modified=0
+    local extra=0
     missing=$(grep -c "^missing:" "$issues_file" 2>/dev/null) || true
     modified=$(grep -c "^modified:" "$issues_file" 2>/dev/null) || true
+    extra=$(grep -c "^extra:" "$issues_file" 2>/dev/null) || true
     # Ensure we have valid integers
     missing=${missing:-0}
     modified=${modified:-0}
+    extra=${extra:-0}
     
-    log "Issues found: $missing missing, $modified modified"
+    log "Issues found: $missing missing, $modified modified, $extra extra"
     
-    if [ "$missing" -eq 0 ] && [ "$modified" -eq 0 ]; then
+    if [ "$missing" -eq 0 ] && [ "$modified" -eq 0 ] && [ "$extra" -eq 0 ]; then
         print_success "All files verified - no issues found!"
         rm -f "$issues_file"
         return 0
     fi
     
     echo ""
-    print_warning "Found issues: $missing missing, $modified modified"
+    print_warning "Found issues:"
+    [ "$missing" -gt 0 ] && echo -e "  ${RED}• $missing missing file(s)${NC}"
+    [ "$modified" -gt 0 ] && echo -e "  ${YELLOW}• $modified modified file(s)${NC}"
+    [ "$extra" -gt 0 ] && echo -e "  ${CYAN}• $extra extra file(s)${NC}"
     
     # Download missing files
     if [ "$missing" -gt 0 ]; then
         echo ""
         print_info "Downloading $missing missing file(s)..."
         
+        # Use a temp file to track counts (subshell issue workaround)
+        local success_count_file="$TEMP_DIR/success_count"
+        local fail_count_file="$TEMP_DIR/fail_count"
+        echo "0" > "$success_count_file"
+        echo "0" > "$fail_count_file"
+        
         grep "^missing:" "$issues_file" | cut -d: -f2- | while IFS= read -r file_path; do
             log "Downloading missing file: $file_path"
-            if download_file "$file_path"; then
+            if download_file "$file_path" "$HEADLESS_MODE"; then
                 print_success "  $file_path"
+                echo $(( $(cat "$success_count_file") + 1 )) > "$success_count_file"
             else
                 print_error "  $file_path - failed"
                 log_error "Failed to download: $file_path"
+                echo $(( $(cat "$fail_count_file") + 1 )) > "$fail_count_file"
             fi
         done
+        
+        total_success=$(( total_success + $(cat "$success_count_file" 2>/dev/null || echo 0) ))
+        total_fail=$(( total_fail + $(cat "$fail_count_file" 2>/dev/null || echo 0) ))
+        rm -f "$success_count_file" "$fail_count_file"
     fi
     
     # Handle modified files
@@ -588,18 +685,70 @@ sync_files() {
         echo ""
         print_info "Updating $modified modified file(s)..."
         
+        local success_count_file="$TEMP_DIR/success_count"
+        local fail_count_file="$TEMP_DIR/fail_count"
+        echo "0" > "$success_count_file"
+        echo "0" > "$fail_count_file"
+        
         grep "^modified:" "$issues_file" | cut -d: -f2- | while IFS= read -r file_path; do
             log "Updating modified file: $file_path"
-            if download_file "$file_path"; then
+            if download_file "$file_path" "$HEADLESS_MODE"; then
                 print_success "  $file_path"
+                echo $(( $(cat "$success_count_file") + 1 )) > "$success_count_file"
             else
                 print_error "  $file_path - failed"
                 log_error "Failed to update: $file_path"
+                echo $(( $(cat "$fail_count_file") + 1 )) > "$fail_count_file"
             fi
         done
+        
+        total_success=$(( total_success + $(cat "$success_count_file" 2>/dev/null || echo 0) ))
+        total_fail=$(( total_fail + $(cat "$fail_count_file" 2>/dev/null || echo 0) ))
+        rm -f "$success_count_file" "$fail_count_file"
+    fi
+    
+    # Handle extra files
+    if [ "$extra" -gt 0 ]; then
+        echo ""
+        echo -e "${CYAN}Extra Files${NC}"
+        echo -e "${YELLOW}These files exist locally but are not in the server's mod list.${NC}"
+        echo ""
+        
+        echo "How do you want to handle $extra extra file(s)?"
+        echo "  1) Delete all"
+        echo "  2) Keep all"
+        read -p "Choice [1-2] (default: 2): " choice
+        
+        if [ "$choice" = "1" ]; then
+            grep "^extra:" "$issues_file" | cut -d: -f2- | while IFS= read -r file_path; do
+                local full_path="$SPT_ROOT/$file_path"
+                if rm -f "$full_path" 2>/dev/null; then
+                    print_error "  Deleted: $file_path"
+                    log "Deleted extra file: $file_path"
+                else
+                    print_warning "  Failed to delete: $file_path"
+                    log_error "Failed to delete: $file_path"
+                fi
+            done
+        else
+            echo -e "${YELLOW}Keeping all extra files.${NC}"
+            log "User chose to keep extra files"
+        fi
     fi
     
     rm -f "$issues_file"
+    
+    # Show summary if there were any download attempts
+    if [ "$total_success" -gt 0 ] || [ "$total_fail" -gt 0 ]; then
+        echo ""
+        if [ "$total_fail" -gt 0 ]; then
+            echo -e "${YELLOW}Summary:${NC} ${GREEN}$total_success succeeded${NC}, ${RED}$total_fail failed${NC}"
+            log "Sync summary: $total_success succeeded, $total_fail failed"
+        else
+            echo -e "${GREEN}Summary:${NC} All $total_success file(s) downloaded successfully"
+            log "Sync summary: All $total_success files downloaded successfully"
+        fi
+    fi
 }
 
 # Error handler

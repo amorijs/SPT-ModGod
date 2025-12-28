@@ -42,6 +42,12 @@ namespace ModGod.ClientEnforcer.Models
         public long GenerationTimeMs { get; set; }
         public Dictionary<string, FileEntry> Files { get; set; } = new Dictionary<string, FileEntry>();
         public List<string> SyncExclusions { get; set; } = new List<string>();
+        
+        /// <summary>
+        /// Target directories that clients should scan for extra files.
+        /// If null/empty, falls back to default paths (BepInEx/plugins, SPT/user/mods).
+        /// </summary>
+        public List<string> SyncRoots { get; set; } = new List<string>();
     }
 
     /// <summary>

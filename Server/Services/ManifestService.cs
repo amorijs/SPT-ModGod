@@ -15,42 +15,35 @@ public class ManifestService(
     ConfigService configService,
     ISptLogger<ManifestService> logger)
 {
-    private static readonly string[] ManifestAllowedRoots =
-    [
-        "BepInEx/plugins",
-        "SPT/user/mods"
-    ];
-
     /// <summary>
-    /// Generate a file manifest for all installed mods
-    /// Reads directly from actual install paths on the server
-    /// This means any config file changes are automatically reflected
+    /// Generate a file manifest for player (game) clients.
+    /// Uses PlayerSyncConfig to determine what files to include.
     /// </summary>
     public FileManifest GenerateManifest()
     {
         var stopwatch = Stopwatch.StartNew();
         var manifest = new FileManifest();
 
-        // Combine default exclusions + custom exclusions
-        var allExclusions = new List<string>();
-
-        // Add default exclusions if enabled
-        allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(configService.Config));
-
-        // Add custom exclusions
-        allExclusions.AddRange(
-            configService.Config.SyncExclusions
-                .Select(NormalizePath)
-                .Where(p => !string.IsNullOrWhiteSpace(p)));
-
-        // Deduplicate
-        var exclusions = allExclusions
-            .Select(NormalizePath)
+        var playerConfig = configService.Config.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
+        
+        // Build list of allowed target paths from sync paths
+        var allowedTargets = playerConfig.SyncPaths
+            .Select(p => NormalizePath(p.Target))
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        
+        if (allowedTargets.Count == 0)
+        {
+            logger.Info("No player sync paths configured - returning empty manifest");
+            manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
+            manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
+            return manifest;
+        }
 
-        logger.Info($"Generating file manifest with {exclusions.Count} exclusion patterns...");
+        // Combine default exclusions + custom exclusions
+        var exclusions = BuildExclusionList(playerConfig);
+
+        logger.Info($"Generating player manifest with {allowedTargets.Count} sync paths and {exclusions.Count} exclusion patterns...");
 
         // Only include installed mods (not pending or pending removal)
         var installedMods = configService.Config.ModList
@@ -63,7 +56,7 @@ public class ManifestService(
         {
             try
             {
-                AddModToManifest(manifest, mod, exclusions);
+                AddModToManifest(manifest, mod, exclusions, allowedTargets, playerConfig.SyncPaths);
             }
             catch (Exception ex)
             {
@@ -71,33 +64,85 @@ public class ManifestService(
             }
         }
 
+        // Scan sync directories for any untracked files (files not from managed mods)
+        var untrackedCount = AddUntrackedFilesToManifest(manifest, playerConfig.SyncPaths, exclusions, allowedTargets);
+        if (untrackedCount > 0)
+        {
+            logger.Info($"Added {untrackedCount} untracked files from sync directories");
+        }
+
         manifest.SyncExclusions = exclusions;
+        manifest.SyncRoots = allowedTargets;
 
         stopwatch.Stop();
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
         manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
 
         logger.Success(
-            $"Manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files from {installedMods.Count} mods");
+            $"Player manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files ({installedMods.Count} mods + {untrackedCount} untracked)");
 
         return manifest;
+    }
+    
+    /// <summary>
+    /// Build the combined exclusion list from a sync config.
+    /// Exclusion paths are transformed through sync path mappings so they match target paths.
+    /// </summary>
+    private List<string> BuildExclusionList(ClientSyncConfig config)
+    {
+        var allExclusions = new List<string>();
+
+        // Add default exclusion patterns if enabled
+        // Note: Default patterns are glob patterns that work on any path structure
+        allExclusions.AddRange(DefaultSyncExclusions.GetEffectiveDefaults(config));
+
+        // Add explicit excluded paths - these need to be transformed to target paths
+        // because manifest files use target paths, not source paths
+        foreach (var excludedPath in config.ExcludedPaths)
+        {
+            var normalized = NormalizePath(excludedPath);
+            if (string.IsNullOrWhiteSpace(normalized)) continue;
+            
+            // Transform exclusion through sync path mapping (source -> target)
+            var targetPath = TransformPathThroughSyncPaths(normalized, config.SyncPaths);
+            if (targetPath != null)
+            {
+                allExclusions.Add(targetPath);
+                logger.Debug($"Exclusion mapped: {normalized} -> {targetPath}");
+            }
+            else
+            {
+                // Path doesn't match any sync path - add as-is (might be a glob or direct path)
+                allExclusions.Add(normalized);
+            }
+        }
+
+        // Deduplicate
+        return allExclusions
+            .Select(NormalizePath)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>
     /// Generate a file manifest for headless clients.
-    /// Only includes files that are explicitly in the HeadlessSyncPaths list.
+    /// Uses HeadlessSyncConfig to determine what files to include.
     /// </summary>
     public FileManifest GenerateHeadlessManifest()
     {
         var stopwatch = Stopwatch.StartNew();
         var manifest = new FileManifest();
 
-        var headlessPaths = configService.Config.HeadlessSyncPaths
-            .Select(NormalizePath)
+        var headlessConfig = configService.Config.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        
+        // Build list of allowed target paths from sync paths
+        var allowedTargets = headlessConfig.SyncPaths
+            .Select(p => NormalizePath(p.Target))
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .ToList();
 
-        if (headlessPaths.Count == 0)
+        if (headlessConfig.SyncPaths.Count == 0)
         {
             logger.Info("No headless sync paths configured - returning empty manifest");
             manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
@@ -105,19 +150,22 @@ public class ManifestService(
             return manifest;
         }
 
-        logger.Info($"Generating headless manifest with {headlessPaths.Count} inclusion paths...");
+        // Build exclusions
+        var exclusions = BuildExclusionList(headlessConfig);
+
+        logger.Info($"Generating headless manifest with {headlessConfig.SyncPaths.Count} sync paths...");
 
         // Get all installed mods
         var installedMods = configService.Config.ModList
             .Where(m => m.Status == ModStatus.Installed)
             .ToList();
 
-        // Build the full manifest first, then filter to only headless paths
+        // Build the manifest using headless sync paths
         foreach (var mod in installedMods)
         {
             try
             {
-                AddModToHeadlessManifest(manifest, mod, headlessPaths);
+                AddModToManifest(manifest, mod, exclusions, allowedTargets, headlessConfig.SyncPaths);
             }
             catch (Exception ex)
             {
@@ -125,151 +173,29 @@ public class ManifestService(
             }
         }
 
-        // Store the headless paths in the manifest for client reference
-        manifest.SyncExclusions = headlessPaths; // Reusing this field to indicate included paths for headless
+        // Scan sync directories for any untracked files (files not from managed mods)
+        var untrackedCount = AddUntrackedFilesToManifest(manifest, headlessConfig.SyncPaths, exclusions, allowedTargets);
+        if (untrackedCount > 0)
+        {
+            logger.Info($"Added {untrackedCount} untracked files from sync directories");
+        }
+
+        // Store exclusions and sync roots in manifest
+        manifest.SyncExclusions = exclusions;
+        manifest.SyncRoots = allowedTargets;
 
         stopwatch.Stop();
         manifest.GenerationTimeMs = stopwatch.ElapsedMilliseconds;
         manifest.GeneratedAt = DateTime.UtcNow.ToString("o");
 
         logger.Success(
-            $"Headless manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files");
+            $"Headless manifest generated in {manifest.GenerationTimeMs}ms with {manifest.Files.Count} files ({installedMods.Count} mods + {untrackedCount} untracked)");
 
         return manifest;
     }
 
-    private void AddModToHeadlessManifest(FileManifest manifest, ModEntry mod, List<string> headlessPaths)
-    {
-        // Use InstalledFiles if available
-        if (mod.InstalledFiles.Count > 0)
-        {
-            foreach (var relativePath in mod.InstalledFiles)
-            {
-                // Only include if path matches headless inclusion patterns
-                if (!IsIncludedForHeadless(relativePath, headlessPaths))
-                    continue;
-
-                var fullPath = Path.Combine(configService.SptRoot,
-                    relativePath.Replace('/', Path.DirectorySeparatorChar));
-
-                if (File.Exists(fullPath))
-                {
-                    AddFileToHeadlessManifest(manifest, fullPath, relativePath, mod);
-                }
-            }
-
-            return;
-        }
-
-        // Fallback for legacy mods without InstalledFiles tracking
-        var legacyMod = new ModEntry
-        {
-            ModName = "Unknown (Legacy)",
-            Optional = mod.Optional
-        };
-
-        foreach (var installPath in mod.InstallPaths)
-        {
-            var targetPath = installPath[1];
-            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", configService.SptRoot);
-
-            if (Directory.Exists(actualInstalledPath))
-            {
-                AddDirectoryToHeadlessManifest(manifest, actualInstalledPath, targetPath, legacyMod, headlessPaths);
-            }
-            else if (File.Exists(actualInstalledPath))
-            {
-                var relPath = targetPath.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
-                if (IsIncludedForHeadless(relPath, headlessPaths))
-                {
-                    AddFileToHeadlessManifest(manifest, actualInstalledPath, relPath, legacyMod);
-                }
-            }
-        }
-    }
-
-    private void AddDirectoryToHeadlessManifest(FileManifest manifest, string installedDir, string targetBase,
-        ModEntry mod, List<string> headlessPaths)
-    {
-        try
-        {
-            foreach (var file in Directory.GetFiles(installedDir, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = Path.GetRelativePath(installedDir, file);
-                var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
-                var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
-
-                if (IsIncludedForHeadless(fullTargetPath, headlessPaths))
-                {
-                    AddFileToHeadlessManifest(manifest, file, fullTargetPath, mod);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Warning($"Error scanning directory '{installedDir}' for headless manifest: {ex.Message}");
-        }
-    }
-
-    private void AddFileToHeadlessManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod)
-    {
-        targetPath = targetPath.Replace('\\', '/').TrimStart('/');
-
-        if (!IsAllowedPath(targetPath))
-            return;
-
-        if (manifest.Files.ContainsKey(targetPath))
-            return;
-
-        try
-        {
-            var fileInfo = new FileInfo(sourceFile);
-            var hash = ComputeFileHash(sourceFile);
-
-            manifest.Files[targetPath] = new FileEntry
-            {
-                Hash = hash,
-                Size = fileInfo.Length,
-                ModName = mod.ModName,
-                Required = !mod.Optional
-            };
-        }
-        catch (Exception ex)
-        {
-            logger.Warning($"Failed to hash file '{sourceFile}' for headless manifest: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Check if a path should be included for headless syncing
-    /// </summary>
-    private static bool IsIncludedForHeadless(string relativePath, IEnumerable<string> headlessPaths)
-    {
-        var norm = NormalizePath(relativePath);
-
-        foreach (var pattern in headlessPaths)
-        {
-            var normPattern = NormalizePath(pattern);
-
-            // Check if it's a glob pattern
-            if (pattern.Contains('*') || pattern.Contains('?'))
-            {
-                if (GlobMatcher.IsMatch(norm, pattern))
-                    return true;
-            }
-            else
-            {
-                // Exact match or the file is under this directory
-                if (norm.Equals(normPattern, StringComparison.OrdinalIgnoreCase) ||
-                    norm.StartsWith(normPattern + "/", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    private void AddModToManifest(FileManifest manifest, ModEntry mod, List<string> exclusions)
+    private void AddModToManifest(FileManifest manifest, ModEntry mod, List<string> exclusions, 
+        List<string> allowedTargets, List<SyncPathEntry> syncPaths)
     {
         // PREFER InstalledFiles if available - this tracks the exact files installed by this mod
         // This prevents the bug where shared directories (e.g., BepInEx/plugins) cause files
@@ -280,12 +206,20 @@ public class ManifestService(
 
             foreach (var relativePath in mod.InstalledFiles)
             {
+                // Transform path through sync path mapping (source -> target)
+                var targetPath = TransformPathThroughSyncPaths(relativePath, syncPaths);
+                if (targetPath == null)
+                {
+                    logger.Debug($"File not in any sync path, skipping: {relativePath}");
+                    continue;
+                }
+                
                 var fullPath = Path.Combine(configService.SptRoot,
                     relativePath.Replace('/', Path.DirectorySeparatorChar));
 
                 if (File.Exists(fullPath))
                 {
-                    AddFileToManifest(manifest, fullPath, relativePath, mod, exclusions);
+                    AddFileToManifest(manifest, fullPath, targetPath, mod, exclusions, allowedTargets);
                 }
                 else
                 {
@@ -309,17 +243,25 @@ public class ManifestService(
 
         foreach (var installPath in mod.InstallPaths)
         {
-            var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx" (where it was installed)
+            var sourceRelPath = installPath[1].Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+            
+            // Transform path through sync path mapping
+            var targetPath = TransformPathThroughSyncPaths(sourceRelPath, syncPaths);
+            if (targetPath == null)
+            {
+                logger.Debug($"Install path not in any sync path, skipping: {sourceRelPath}");
+                continue;
+            }
 
             // The actual installed path on the server
-            var actualInstalledPath = targetPath.Replace("<SPT_ROOT>", configService.SptRoot);
+            var actualInstalledPath = installPath[1].Replace("<SPT_ROOT>", configService.SptRoot);
 
             if (!Directory.Exists(actualInstalledPath))
             {
                 // Might be a file, not a directory
                 if (File.Exists(actualInstalledPath))
                 {
-                    AddFileToManifest(manifest, actualInstalledPath, targetPath, legacyMod, exclusions);
+                    AddFileToManifest(manifest, actualInstalledPath, targetPath, legacyMod, exclusions, allowedTargets);
                 }
                 else
                 {
@@ -330,12 +272,45 @@ public class ManifestService(
             }
 
             // Recursively add all files from this installed directory
-            AddDirectoryToManifest(manifest, actualInstalledPath, targetPath, legacyMod, exclusions);
+            AddDirectoryToManifest(manifest, actualInstalledPath, installPath[1], legacyMod, exclusions, allowedTargets, syncPaths);
         }
+    }
+    
+    /// <summary>
+    /// Transform a source path to a target path using sync path mappings.
+    /// Returns null if the path is not within any sync path.
+    /// </summary>
+    private static string? TransformPathThroughSyncPaths(string sourcePath, List<SyncPathEntry> syncPaths)
+    {
+        var normSource = NormalizePath(sourcePath);
+        
+        foreach (var syncPath in syncPaths)
+        {
+            var normSyncSource = NormalizePath(syncPath.Source);
+            var normSyncTarget = NormalizePath(syncPath.Target);
+            
+            // Check if sourcePath is under this sync path's source
+            if (normSource.Equals(normSyncSource, StringComparison.OrdinalIgnoreCase))
+            {
+                // Exact match - return the target
+                return normSyncTarget;
+            }
+            
+            if (normSource.StartsWith(normSyncSource + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Path is under this sync source - transform to target
+                var relativePart = normSource.Substring(normSyncSource.Length + 1);
+                return string.IsNullOrEmpty(normSyncTarget) 
+                    ? relativePart 
+                    : $"{normSyncTarget}/{relativePart}";
+            }
+        }
+        
+        return null; // Path not in any sync path
     }
 
     private void AddDirectoryToManifest(FileManifest manifest, string installedDir, string targetBase, ModEntry mod,
-        List<string> exclusions)
+        List<string> exclusions, List<string> allowedTargets, List<SyncPathEntry> syncPaths)
     {
         try
         {
@@ -344,11 +319,19 @@ public class ManifestService(
                 // Calculate relative path from the installed directory
                 var relativePath = Path.GetRelativePath(installedDir, file);
 
-                // Build target path (replace <SPT_ROOT> with empty to get relative path for manifest)
-                var targetPathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
-                var fullTargetPath = Path.Combine(targetPathBase, relativePath).Replace('\\', '/');
+                // Build source path (replace <SPT_ROOT> with empty to get relative path)
+                var sourcePathBase = targetBase.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var fullSourcePath = Path.Combine(sourcePathBase, relativePath).Replace('\\', '/');
+                
+                // Transform through sync path mapping
+                var targetPath = TransformPathThroughSyncPaths(fullSourcePath, syncPaths);
+                if (targetPath == null)
+                {
+                    logger.Debug($"File not in any sync path, skipping: {fullSourcePath}");
+                    continue;
+                }
 
-                AddFileToManifest(manifest, file, fullTargetPath, mod, exclusions);
+                AddFileToManifest(manifest, file, targetPath, mod, exclusions, allowedTargets);
             }
         }
         catch (Exception ex)
@@ -358,12 +341,12 @@ public class ManifestService(
     }
 
     private void AddFileToManifest(FileManifest manifest, string sourceFile, string targetPath, ModEntry mod,
-        List<string> exclusions)
+        List<string> exclusions, List<string> allowedTargets)
     {
         // Normalize path separators
         targetPath = targetPath.Replace('\\', '/').TrimStart('/');
 
-        if (!IsAllowedPath(targetPath))
+        if (!IsAllowedPath(targetPath, allowedTargets))
         {
             logger.Debug($"Skipping non-sync path: {targetPath}");
             return;
@@ -399,6 +382,100 @@ public class ManifestService(
         {
             logger.Warning($"Failed to hash file '{sourceFile}': {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Scan sync directories and add any files not already in the manifest.
+    /// These are files that exist in sync paths but weren't installed by any tracked mod.
+    /// </summary>
+    private int AddUntrackedFilesToManifest(FileManifest manifest, List<SyncPathEntry> syncPaths,
+        List<string> exclusions, List<string> allowedTargets)
+    {
+        var count = 0;
+        var untrackedMod = new ModEntry
+        {
+            ModName = "Untracked",
+            Optional = false
+        };
+
+        foreach (var syncPath in syncPaths)
+        {
+            var sourceDir = Path.Combine(configService.SptRoot, 
+                syncPath.Source.Replace('/', Path.DirectorySeparatorChar));
+
+            if (!Directory.Exists(sourceDir))
+            {
+                logger.Debug($"Sync source directory does not exist: {sourceDir}");
+                continue;
+            }
+
+            try
+            {
+                foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+                {
+                    // Calculate the relative path from SPT root
+                    var relativeFromRoot = Path.GetRelativePath(configService.SptRoot, file)
+                        .Replace('\\', '/');
+
+                    // Transform through sync path mapping to get target path
+                    var targetPath = TransformPathThroughSyncPaths(relativeFromRoot, syncPaths);
+                    if (targetPath == null)
+                    {
+                        continue; // Not in any sync path (shouldn't happen but safety check)
+                    }
+
+                    // Normalize
+                    targetPath = targetPath.Replace('\\', '/').TrimStart('/');
+
+                    // Skip if already in manifest (was added by a tracked mod)
+                    if (manifest.Files.ContainsKey(targetPath))
+                    {
+                        continue;
+                    }
+
+                    // Skip if not in allowed targets
+                    if (!IsAllowedPath(targetPath, allowedTargets))
+                    {
+                        continue;
+                    }
+
+                    // Skip if excluded
+                    if (IsExcluded(targetPath, exclusions))
+                    {
+                        logger.Debug($"Untracked file excluded: {targetPath}");
+                        continue;
+                    }
+
+                    // Add to manifest as untracked
+                    try
+                    {
+                        var fileInfo = new FileInfo(file);
+                        var hash = ComputeFileHash(file);
+
+                        manifest.Files[targetPath] = new FileEntry
+                        {
+                            Hash = hash,
+                            Size = fileInfo.Length,
+                            ModName = untrackedMod.ModName,
+                            Required = !untrackedMod.Optional
+                        };
+
+                        count++;
+                        logger.Debug($"Added untracked file: {targetPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warning($"Failed to hash untracked file '{file}': {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Error scanning sync directory '{sourceDir}': {ex.Message}");
+            }
+        }
+
+        return count;
     }
 
     /// <summary>
@@ -441,9 +518,11 @@ public class ManifestService(
         return false;
     }
 
-    private static bool IsAllowedPath(string relativePath)
+    private static bool IsAllowedPath(string relativePath, List<string> allowedTargets)
     {
-        return ManifestAllowedRoots.Any(root =>
-            relativePath.StartsWith(root, StringComparison.OrdinalIgnoreCase));
+        var norm = NormalizePath(relativePath);
+        return allowedTargets.Any(target =>
+            norm.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(target + "/", StringComparison.OrdinalIgnoreCase));
     }
 }

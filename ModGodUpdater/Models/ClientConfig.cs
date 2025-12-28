@@ -42,6 +42,12 @@ public class FileManifest
     public long GenerationTimeMs { get; set; }
     public Dictionary<string, FileEntry> Files { get; set; } = new();
     public List<string> SyncExclusions { get; set; } = new();
+    
+    /// <summary>
+    /// Target directories that clients should scan for extra files.
+    /// If null/empty, falls back to default paths (BepInEx/plugins, SPT/user/mods).
+    /// </summary>
+    public List<string>? SyncRoots { get; set; }
 }
 
 public class FileEntry

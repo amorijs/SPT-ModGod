@@ -6,6 +6,7 @@
 
 @inject ModDownloadService ModDownloadService
 @inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
 
 <MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = false, BackdropClick = false })">
     <TitleContent>
@@ -700,6 +701,9 @@
     private bool _addonsLoading;
     private string? _addonsError;
     private List<ForgeAddonViewModel> _addons = new();
+    
+    // Get the API base URL dynamically from the current navigation URI
+    private string ApiBaseUrl => NavigationManager.BaseUri.TrimEnd('/');
 
     protected override async Task OnParametersSetAsync()
     {
@@ -753,7 +757,7 @@
             { 
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
             });
-            var response = await client.GetAsync("https://127.0.0.1:6969/modgod/api/forge/status");
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/status");
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync();
@@ -789,7 +793,7 @@
                 System.Text.Encoding.UTF8,
                 "application/json");
             
-            var response = await client.PostAsync("https://127.0.0.1:6969/modgod/api/forge/validate-key", content);
+            var response = await client.PostAsync($"{ApiBaseUrl}/modgod/api/forge/validate-key", content);
             var json = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<InternalForgeValidateResponse>(json, 
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -824,7 +828,7 @@
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
             });
             
-            var response = await client.DeleteAsync("https://127.0.0.1:6969/modgod/api/forge/key");
+            var response = await client.DeleteAsync($"{ApiBaseUrl}/modgod/api/forge/key");
             
             if (response.IsSuccessStatusCode)
             {
@@ -904,7 +908,7 @@
             });
             
             var queryEncoded = Uri.EscapeDataString(_forgeSearchInput);
-            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/search?query={queryEncoded}");
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/search?query={queryEncoded}");
             var json = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
@@ -985,7 +989,7 @@
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
             });
             
-            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/mod/{modId}");
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/mod/{modId}");
             var json = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
@@ -1060,7 +1064,7 @@
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
             });
             
-            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/mod/{modId}/addons");
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/mod/{modId}/addons");
             var json = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
@@ -1126,7 +1130,7 @@
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
             });
             
-            var response = await client.GetAsync($"https://127.0.0.1:6969/modgod/api/forge/addon/{addon.Id}/versions");
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/addon/{addon.Id}/versions");
             var json = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)

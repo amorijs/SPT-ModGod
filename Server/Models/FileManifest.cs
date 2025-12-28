@@ -26,6 +26,14 @@ public class FileManifest
     /// Provided so clients can suppress warnings for server-only/generated files.
     /// </summary>
     public List<string> SyncExclusions { get; set; } = new();
+    
+    /// <summary>
+    /// Target directories that clients should scan for extra files.
+    /// These are the unique target paths from all sync paths.
+    /// Clients use this to know which directories to check for files not in the manifest.
+    /// Falls back to ["BepInEx/plugins", "SPT/user/mods"] if empty/null for backwards compatibility.
+    /// </summary>
+    public List<string> SyncRoots { get; set; } = new();
 }
 
 /// <summary>

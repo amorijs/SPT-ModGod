@@ -1,7 +1,9 @@
 @using ModGod.Web.Models
+@using ModGod.Web.Components.Dialogs
 @using ModGod.Services
 @using ModGod.Models
 
+<!-- Info Section -->
 <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <div class="d-flex align-center mb-2">
         <MudIcon Icon="@Icons.Material.Filled.Computer" Class="mr-2" Style="color: var(--accent-cyan);" />
@@ -10,7 +12,7 @@
                 Headless Client Syncing
             </MudText>
             <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-                Select files/folders to sync to headless clients. By default, nothing is synced to headless clients.
+                Configure which files to sync to headless (dedicated raid-hosting) clients. By default, nothing is synced.
             </MudText>
         </div>
     </div>
@@ -19,21 +21,121 @@
         <strong>Not using headless client?</strong> You can skip this tab entirely.
     </MudAlert>
     
-    <MudAlert Severity="Severity.Info" Class="mb-3" Dense="true">
+    <MudAlert Severity="Severity.Info" Dense="true">
         <strong>Headless clients</strong> are dedicated raid-hosting instances that don't need most mods.
-        Only check the specific files/folders that headless clients require.
+        Only include the specific files/folders that headless clients require.
     </MudAlert>
 </MudPaper>
 
-<!-- File Tree Inclusions Section -->
+<!-- Default Exclusion Patterns Section -->
+<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <div>
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Class="mr-2" Style="vertical-align: middle;" />
+                Default Exclusion Patterns
+            </MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Built-in patterns to exclude logs, cache, dev files, and common mod data from syncing.
+            </MudText>
+        </div>
+        <MudSwitch T="bool"
+                   Value="@_useDefaultExclusions"
+                   ValueChanged="OnUseDefaultExclusionsChanged"
+                   Color="Color.Success"
+                   Label="@(_useDefaultExclusions ? "Enabled" : "Disabled")" />
+    </div>
+
+    @if (_useDefaultExclusions)
+    {
+        <MudExpansionPanels Class="mt-3">
+            <MudExpansionPanel Text="@($"View/Edit Default Patterns ({_defaultExclusionPatterns.Count} patterns)")"
+                               Style="background: var(--secondary-bg);">
+                <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                    Patterns support globs: <code>*</code> (any chars), <code>**</code> (any path), <code>?</code> (single char)
+                </MudText>
+                <MudTextField T="string"
+                              Value="@_defaultExclusionPatternsText"
+                              ValueChanged="OnDefaultExclusionPatternsChanged"
+                              Lines="12"
+                              Variant="Variant.Outlined"
+                              Placeholder="One pattern per line..."
+                              Style="font-family: monospace; font-size: 12px;"
+                              HelperText="Edit patterns above. Changes save automatically." />
+                <div class="d-flex gap-2 mt-2">
+                    <MudButton Variant="Variant.Text"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               OnClick="ResetDefaultExclusionsToBuiltIn">
+                        Reset to Built-in Defaults
+                    </MudButton>
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
+</MudPaper>
+
+<!-- Sync Paths Section -->
+<MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <div>
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
+                Sync Paths
+            </MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Directories to sync from your server to headless clients. All files in these paths will be synced unless excluded below.
+            </MudText>
+        </div>
+        <MudButton Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   Color="Color.Primary"
+                   OnClick="OpenAddSyncPathDialog">
+            Add Path
+        </MudButton>
+    </div>
+
+    @if (_syncPaths.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+            No sync paths configured. Headless clients will not receive any files.
+        </MudAlert>
+    }
+    else
+    {
+        <MudTable Items="_syncPaths" Dense="true" Hover="true" Class="mt-3"
+                  Style="background: var(--secondary-bg);">
+            <HeaderContent>
+                <MudTh Style="color: var(--text-secondary);">Source (Server)</MudTh>
+                <MudTh Style="color: var(--text-secondary);">Target (Client)</MudTh>
+                <MudTh Style="width: 80px;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Source">
+                    <code style="color: var(--accent-cyan);">@context.Source</code>
+                </MudTd>
+                <MudTd DataLabel="Target">
+                    <code style="color: var(--accent-green);">@context.Target</code>
+                </MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Size="Size.Small"
+                                   Color="Color.Error"
+                                   OnClick="@(() => RemoveSyncPath(context))" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+<!-- File/Folder Exclusions Section -->
 <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
-        <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
-        File/Folder Inclusions for Headless
+        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="vertical-align: middle;" />
+        File/Folder Exclusions
     </MudText>
     <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-        Browse files under <code>BepInEx/plugins</code> and <code>SPT/user/mods</code> and check items to include them for headless clients.
-        <br/><em style="color: var(--text-secondary); opacity: 0.8;">💡 Headless clients only need files from <code>BepInEx/plugins</code> — the <code>SPT/user/mods</code> is not used on headless instances.</em>
+        Browse files in your sync paths and click the exclude button to prevent specific files/folders from syncing.
     </MudText>
 
     <div class="d-flex gap-2 mb-3">
@@ -52,7 +154,7 @@
     {
         <div class="d-flex align-center mb-2">
             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-            <MudText Typo="Typo.body2">Scanning mod folders...</MudText>
+            <MudText Typo="Typo.body2">Scanning sync paths...</MudText>
         </div>
     }
     else if (!string.IsNullOrEmpty(_error))
@@ -63,7 +165,7 @@
     {
         <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 420px; overflow-y: auto;">
             <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
-                ✓ Checked = sync to headless &nbsp;|&nbsp; ☐ Unchecked = don't sync
+                ✓ Synced &nbsp;|&nbsp; 🚫 Excluded (click to toggle)
             </div>
             @foreach (var (node, depth) in GetFlattenedTree())
             {
@@ -72,11 +174,13 @@
                 var capturedNode = node;
                 var isExpanded = node.IsDirectory && _expandedDirs.Contains(node.RelativePath);
                 var hasChildren = node.IsDirectory && node.Children?.Count > 0;
+                var isExcluded = state == SyncNodeState.Excluded;
+
                 <div class="d-flex align-center" style="padding-left:@(indent)px; margin-bottom:2px;">
                     @* Expand/collapse button for directories *@
                     @if (hasChildren)
                     {
-                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
                                        Size="Size.Small"
                                        Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
                                        OnClick="() => ToggleExpand(capturedNode)" />
@@ -85,75 +189,104 @@
                     {
                         <div style="width: 28px;"></div>
                     }
-                    @* Checkbox for sync state *@
+
+                    @* Exclude toggle button *@
                     @{
-                        var checkIcon = state switch
+                        var excludeIcon = state switch
                         {
-                            SyncNodeState.Included => Icons.Material.Filled.CheckBox,
-                            SyncNodeState.Excluded => Icons.Material.Filled.CheckBoxOutlineBlank,
-                            _ => Icons.Material.Filled.IndeterminateCheckBox
+                            SyncNodeState.Excluded => Icons.Material.Filled.Block,
+                            SyncNodeState.Mixed => Icons.Material.Filled.RemoveCircleOutline,
+                            _ => Icons.Material.Filled.CheckCircle
                         };
                         var iconColor = state switch
                         {
-                            SyncNodeState.Included => "var(--accent-cyan)",
-                            SyncNodeState.Excluded => "var(--text-secondary)",
-                            _ => "var(--accent-orange)"
+                            SyncNodeState.Excluded => "var(--accent-red)",
+                            SyncNodeState.Mixed => "var(--accent-orange)",
+                            _ => "var(--accent-green)"
                         };
                     }
-                    <MudIconButton Icon="@checkIcon"
+                    <MudIconButton Icon="@excludeIcon"
                                    Size="Size.Small"
                                    Style="@($"padding: 2px; min-width: 24px; color: {iconColor};")"
                                    OnClick="() => OnNodeClick(capturedNode)" />
-                    @* Directory/file name (click to expand/collapse for directories) *@
+
+                    @* Directory/file name *@
                     @if (node.IsDirectory && hasChildren)
                     {
-                        <span class="ml-1 mono" style="color: var(--text-primary); cursor: pointer;" @onclick="() => ToggleExpand(capturedNode)">
+                        <span class="ml-1 mono @(isExcluded ? "strikethrough" : "")"
+                              style="color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)"); font-size: 13px; cursor: pointer;"
+                              @onclick="@(() => ToggleExpand(capturedNode))">
                             📁 @(node.Name)
                         </span>
                     }
                     else
                     {
-                        <span class="ml-1 mono" style="color: var(--text-primary);">
+                        <span class="ml-1 mono @(isExcluded ? "strikethrough" : "")"
+                              style="color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)"); font-size: 13px;">
                             @(node.IsDirectory ? "📁" : "📄") @(node.Name)
                         </span>
                     }
                 </div>
             }
         </MudPaper>
-        
-        @if (_inclusionSet.Count > 0)
+
+        @if (_exclusionSet.Count > 0)
         {
-            <MudText Typo="Typo.body2" Class="mt-3" Style="color: var(--accent-cyan);">
+            <MudText Typo="Typo.body2" Class="mt-3" Style="color: var(--accent-orange);">
                 <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
-                @_inclusionSet.Count path(s) selected for headless syncing
+                @_exclusionSet.Count path(s) excluded from syncing
             </MudText>
         }
+    }
+    else if (_syncPaths.Count > 0)
+    {
+        <MudAlert Severity="Severity.Info">
+            No files found in the sync paths. The directories may be empty.
+        </MudAlert>
     }
     else
     {
         <MudAlert Severity="Severity.Info">
-            No files found in the tracked directories. Install mods or refresh.
+            Add sync paths above to browse and exclude files.
         </MudAlert>
     }
 </MudPaper>
 
+<!-- Add Sync Path Dialog -->
+<AddSyncPathDialog @bind-Visible="_showAddSyncPathDialog"
+                   ExistingSyncPaths="_syncPaths"
+                   OnPathAdded="OnSyncPathAdded" />
+
+<style>
+    .strikethrough {
+        text-decoration: line-through;
+        opacity: 0.7;
+    }
+</style>
+
 @code {
     [Inject] private ConfigService ConfigService { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
-    
-    /// <summary>
-    /// Called when config changes are made (for parent to update UI)
-    /// </summary>
+
     [Parameter] public EventCallback OnConfigChanged { get; set; }
 
     // State
     private bool _initialized = false;
     private bool _loading = false;
     private string? _error;
-    
+
+    // Default exclusions
+    private bool _useDefaultExclusions = true;
+    private List<string> _defaultExclusionPatterns = new();
+    private string _defaultExclusionPatternsText = "";
+
+    // Sync paths
+    private List<SyncPathEntry> _syncPaths = new();
+    private bool _showAddSyncPathDialog = false;
+
     // File tree
     private FileNode? _treeRoot;
-    private HashSet<string> _inclusionSet = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _exclusionSet = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -165,12 +298,34 @@
     }
 
     /// <summary>
-    /// Initialize the component (called automatically on first render)
+    /// Force reload state from config (used when config is discarded/reset)
     /// </summary>
+    public async Task ReloadFromConfigAsync()
+    {
+        _initialized = false;
+        await InitializeAsync();
+    }
+
     public async Task InitializeAsync()
     {
         if (_initialized) return;
-        
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+
+        // Initialize default exclusions state
+        _useDefaultExclusions = headlessConfig.UseDefaultExclusions;
+        _defaultExclusionPatterns = headlessConfig.ExclusionPatterns?.ToList()
+            ?? DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+
+        // Initialize sync paths
+        _syncPaths = headlessConfig.SyncPaths.ToList();
+
+        // Initialize exclusion set
+        _exclusionSet = new HashSet<string>(
+            headlessConfig.ExcludedPaths.Select(NormalizePath).Where(p => !string.IsNullOrWhiteSpace(p)),
+            StringComparer.OrdinalIgnoreCase);
+
         await LoadTreeAsync();
         _initialized = true;
     }
@@ -183,37 +338,29 @@
 
         try
         {
-            // Load inclusion set (paths that ARE synced to headless)
-            _inclusionSet = new HashSet<string>(
-                (ConfigService.StagedConfig.HeadlessSyncPaths ?? new List<string>())
-                    .Select(NormalizePath)
-                    .Where(p => !string.IsNullOrWhiteSpace(p)),
-                StringComparer.OrdinalIgnoreCase);
-
             var root = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
 
-            AddRoot(ConfigService.BepInExPluginsPath, "BepInEx/plugins", root);
-            AddRoot(ConfigService.SptUserModsPath, "SPT/user/mods", root);
+            foreach (var syncPath in _syncPaths)
+            {
+                var absolutePath = Path.Combine(ConfigService.SptRoot, syncPath.Source.Replace('/', Path.DirectorySeparatorChar));
+                if (Directory.Exists(absolutePath))
+                {
+                    var node = BuildNodeRecursive(absolutePath, NormalizePath(syncPath.Source), syncPath.Source);
+                    root.Children.Add(node);
+                }
+            }
 
             _treeRoot = root;
         }
         catch (Exception ex)
         {
-            _error = $"Failed to load headless sync paths: {ex.Message}";
+            _error = $"Failed to load files: {ex.Message}";
         }
         finally
         {
             _loading = false;
             await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private void AddRoot(string absolutePath, string relativePath, FileNode root)
-    {
-        if (!Directory.Exists(absolutePath)) return;
-
-        var node = BuildNodeRecursive(absolutePath, NormalizePath(relativePath), relativePath);
-        root.Children.Add(node);
     }
 
     private FileNode BuildNodeRecursive(string fullPath, string relativePath, string? displayName = null)
@@ -225,50 +372,50 @@
             IsDirectory = true
         };
 
-        foreach (var dir in Directory.GetDirectories(fullPath))
+        try
         {
-            var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(dir)));
-            node.Children.Add(BuildNodeRecursive(dir, childRel));
-        }
-
-        foreach (var file in Directory.GetFiles(fullPath))
-        {
-            var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(file)));
-            node.Children.Add(new FileNode
+            foreach (var dir in Directory.GetDirectories(fullPath).OrderBy(d => Path.GetFileName(d)))
             {
-                Name = Path.GetFileName(file),
-                RelativePath = childRel,
-                IsDirectory = false
-            });
+                var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(dir)));
+                node.Children.Add(BuildNodeRecursive(dir, childRel));
+            }
+
+            foreach (var file in Directory.GetFiles(fullPath).OrderBy(f => Path.GetFileName(f)))
+            {
+                var childRel = NormalizePath(Path.Combine(relativePath, Path.GetFileName(file)));
+                node.Children.Add(new FileNode
+                {
+                    Name = Path.GetFileName(file),
+                    RelativePath = childRel,
+                    IsDirectory = false
+                });
+            }
         }
+        catch (UnauthorizedAccessException) { }
+        catch (Exception) { }
 
         return node;
     }
 
-    /// <summary>
-    /// Get the state of a node - for headless, INCLUDED means it's in the inclusion set
-    /// </summary>
     private SyncNodeState GetNodeState(FileNode? node)
     {
-        if (node == null) return SyncNodeState.Excluded; // Default to excluded for headless
+        if (node == null) return SyncNodeState.Included;
 
         var rel = NormalizePath(node.RelativePath);
 
         if (!node.IsDirectory)
         {
-            var isIncluded = IsIncluded(rel);
-            return isIncluded ? SyncNodeState.Included : SyncNodeState.Excluded;
+            return IsExcluded(rel) ? SyncNodeState.Excluded : SyncNodeState.Included;
         }
 
-        // For directories: derive state from all leaf nodes
         var leaves = GetLeafNodes(node).ToList();
-        if (leaves.Count == 0) return SyncNodeState.Excluded;
-        
+        if (leaves.Count == 0) return SyncNodeState.Included;
+
         var leafStates = leaves
-            .Select(leaf => IsIncluded(NormalizePath(leaf.RelativePath)) ? SyncNodeState.Included : SyncNodeState.Excluded)
+            .Select(leaf => IsExcluded(NormalizePath(leaf.RelativePath)) ? SyncNodeState.Excluded : SyncNodeState.Included)
             .Distinct()
             .ToList();
-        
+
         if (leafStates.Count == 1) return leafStates[0];
         return SyncNodeState.Mixed;
     }
@@ -276,72 +423,42 @@
     private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
     {
         if (node == null) yield break;
-
-        if (!node.IsDirectory)
-        {
-            yield return node;
-            yield break;
-        }
-
-        var children = node.Children;
-        if (children == null) yield break;
-
-        foreach (var child in children)
-        {
+        if (!node.IsDirectory) { yield return node; yield break; }
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
             foreach (var leaf in GetLeafNodes(child))
                 yield return leaf;
-        }
     }
 
-    /// <summary>
-    /// Check if a path is included for headless syncing
-    /// </summary>
-    private bool IsIncluded(string relativePath)
+    private bool IsExcluded(string relativePath)
     {
         var norm = NormalizePath(relativePath);
-        return _inclusionSet.Any(inc =>
-            norm.Equals(inc, StringComparison.OrdinalIgnoreCase) ||
-            norm.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
+        return _exclusionSet.Any(ex =>
+            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task OnNodeClick(FileNode node)
     {
-        await ToggleNodeAsync(node);
+        var current = GetNodeState(node);
+        var next = current == SyncNodeState.Excluded ? SyncNodeState.Included : SyncNodeState.Excluded;
+
+        if (node.IsDirectory)
+            ApplyDirectoryState(node, next);
+        else
+            ApplyFileState(node, next);
+
+        await SaveExclusionsAsync();
+        StateHasChanged();
     }
 
     private void ToggleExpand(FileNode node)
     {
         if (!node.IsDirectory) return;
-        
         var path = node.RelativePath;
         if (_expandedDirs.Contains(path))
             _expandedDirs.Remove(path);
         else
             _expandedDirs.Add(path);
-        
-        StateHasChanged();
-    }
-
-    private async Task ToggleNodeAsync(FileNode? node)
-    {
-        if (node == null) return;
-
-        var current = GetNodeState(node);
-        // Toggle: if excluded or mixed -> include, if included -> exclude
-        var next = current == SyncNodeState.Included ? SyncNodeState.Excluded : SyncNodeState.Included;
-
-        if (node.IsDirectory)
-        {
-            ApplyDirectoryState(node, next);
-        }
-        else
-        {
-            ApplyFileState(node, next);
-        }
-
-        // Immediately save to staged config
-        await SaveInclusionsAsync();
-        
         StateHasChanged();
     }
 
@@ -350,37 +467,12 @@
         if (node == null) return;
         var rel = NormalizePath(node.RelativePath);
 
-        // Clear this directory and all its descendants from inclusions
         foreach (var path in EnumerateAllPaths(node).ToList())
-            _inclusionSet.Remove(path);
+            _exclusionSet.Remove(path);
 
-        if (state == SyncNodeState.Included && !string.IsNullOrEmpty(rel))
+        if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
         {
-            _inclusionSet.Add(rel);
-        }
-        else if (state == SyncNodeState.Excluded && !string.IsNullOrEmpty(rel))
-        {
-            // Check if a PROPER ANCESTOR (not self) is included - need to lift it
-            var ancestorInclusion = _inclusionSet
-                .FirstOrDefault(inc => rel.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
-            
-            if (ancestorInclusion != null)
-            {
-                _inclusionSet.Remove(ancestorInclusion);
-                var ancestorNode = FindNodeByPath(_treeRoot, ancestorInclusion);
-                if (ancestorNode != null)
-                {
-                    foreach (var leaf in EnumerateLeafPaths(ancestorNode))
-                    {
-                        var leafNorm = NormalizePath(leaf);
-                        if (!leafNorm.StartsWith(rel + "/", StringComparison.OrdinalIgnoreCase) &&
-                            !leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _inclusionSet.Add(leafNorm);
-                        }
-                    }
-                }
-            }
+            _exclusionSet.Add(rel);
         }
     }
 
@@ -389,81 +481,24 @@
         if (node == null) return;
         var rel = NormalizePath(node.RelativePath);
 
-        if (state == SyncNodeState.Included)
+        if (state == SyncNodeState.Excluded)
         {
-            _inclusionSet.Add(rel);
+            _exclusionSet.Add(rel);
         }
         else
         {
-            var ancestorInclusion = _inclusionSet
-                .FirstOrDefault(inc => rel.StartsWith(inc + "/", StringComparison.OrdinalIgnoreCase));
-            
-            if (ancestorInclusion != null)
-            {
-                _inclusionSet.Remove(ancestorInclusion);
-                var ancestorNode = FindNodeByPath(_treeRoot, ancestorInclusion);
-                if (ancestorNode != null)
-                {
-                    foreach (var leaf in EnumerateLeafPaths(ancestorNode))
-                    {
-                        var leafNorm = NormalizePath(leaf);
-                        if (!leafNorm.Equals(rel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _inclusionSet.Add(leafNorm);
-                        }
-                    }
-                }
-            }
-            _inclusionSet.Remove(rel);
+            _exclusionSet.Remove(rel);
         }
     }
 
     private IEnumerable<string> EnumerateAllPaths(FileNode? node)
     {
         if (node == null) yield break;
-
         if (!string.IsNullOrEmpty(node.RelativePath))
             yield return NormalizePath(node.RelativePath);
-
-        var children = node.Children ?? Enumerable.Empty<FileNode>();
-        foreach (var child in children)
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
             foreach (var p in EnumerateAllPaths(child))
                 yield return p;
-    }
-
-    private FileNode? FindNodeByPath(FileNode? node, string relativePath)
-    {
-        if (node == null) return null;
-        var norm = NormalizePath(relativePath);
-        if (NormalizePath(node.RelativePath).Equals(norm, StringComparison.OrdinalIgnoreCase))
-            return node;
-
-        var children = node.Children ?? Enumerable.Empty<FileNode>();
-        foreach (var child in children)
-        {
-            var found = FindNodeByPath(child, relativePath);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
-    private IEnumerable<string> EnumerateLeafPaths(FileNode? node)
-    {
-        if (node == null) yield break;
-
-        if (!node.IsDirectory)
-        {
-            if (!string.IsNullOrEmpty(node.RelativePath))
-                yield return NormalizePath(node.RelativePath);
-            yield break;
-        }
-
-        var children = node.Children ?? Enumerable.Empty<FileNode>();
-        foreach (var child in children)
-        {
-            foreach (var leaf in EnumerateLeafPaths(child))
-                yield return leaf;
-        }
     }
 
     private List<(FileNode Node, int Depth)> GetFlattenedTree()
@@ -473,49 +508,118 @@
 
         void Flatten(FileNode node, int depth)
         {
-            if (node == null) return;
             result.Add((node, depth));
-
-            // Only recurse into children if this directory is expanded
-            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath))
-                return;
-
-            var children = node.Children;
-            if (children != null)
-            {
-                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
-                {
-                    Flatten(child, depth + 1);
-                }
-            }
+            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath)) return;
+            foreach (var child in (node.Children ?? new List<FileNode>()).OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                Flatten(child, depth + 1);
         }
 
         foreach (var child in _treeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
-        {
             Flatten(child, 0);
-        }
 
         return result;
     }
 
-    private async Task SaveInclusionsAsync()
+    private async Task SaveExclusionsAsync()
     {
         try
         {
-            ConfigService.StagedConfig.HeadlessSyncPaths = _inclusionSet
+            var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+            headlessConfig.ExcludedPaths = _exclusionSet
                 .Select(NormalizePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(p => p)
                 .ToList();
 
+            ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
             await ConfigService.SaveStagedConfigAsync();
             await OnConfigChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Failed to save headless sync paths: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Failed to save exclusions: {ex.Message}", Severity.Error);
         }
+    }
+
+    private async Task OnUseDefaultExclusionsChanged(bool value)
+    {
+        _useDefaultExclusions = value;
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        headlessConfig.UseDefaultExclusions = value;
+        ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnDefaultExclusionPatternsChanged(string text)
+    {
+        _defaultExclusionPatternsText = text;
+        _defaultExclusionPatterns = text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        headlessConfig.ExclusionPatterns = _defaultExclusionPatterns.Count > 0 ? _defaultExclusionPatterns : null;
+        ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task ResetDefaultExclusionsToBuiltIn()
+    {
+        _defaultExclusionPatterns = DefaultSyncExclusions.Patterns.ToList();
+        _defaultExclusionPatternsText = string.Join("\n", _defaultExclusionPatterns);
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        headlessConfig.ExclusionPatterns = null;
+        ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+        Snackbar.Add("Reset to built-in default patterns.", Severity.Info);
+        StateHasChanged();
+    }
+
+    private void OpenAddSyncPathDialog()
+    {
+        _showAddSyncPathDialog = true;
+    }
+
+    private async Task OnSyncPathAdded(SyncPathEntry entry)
+    {
+        _syncPaths.Add(entry);
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        headlessConfig.SyncPaths = _syncPaths.ToList();
+        ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+        await LoadTreeAsync();
+
+        Snackbar.Add($"Added sync path: {entry.Source}", Severity.Success);
+    }
+
+    private async Task RemoveSyncPath(SyncPathEntry entry)
+    {
+        _syncPaths.Remove(entry);
+
+        var headlessConfig = ConfigService.StagedConfig.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
+        headlessConfig.SyncPaths = _syncPaths.ToList();
+        ConfigService.StagedConfig.HeadlessSyncConfig = headlessConfig;
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+        await LoadTreeAsync();
+
+        Snackbar.Add($"Removed sync path: {entry.Source}", Severity.Info);
     }
 
     private static string NormalizePath(string? path)
@@ -524,4 +628,3 @@
         return path.Replace("\\", "/").TrimStart('/');
     }
 }
-

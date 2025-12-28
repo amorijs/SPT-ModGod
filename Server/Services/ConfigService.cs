@@ -222,7 +222,6 @@ public partial class ConfigService : IOnLoad
         }
 
         // Safety: ensure new properties are initialized
-        Config.SyncExclusions ??= new List<string>();
         Config.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         
         // Migrate any legacy Pending/PendingRemoval mods to Installed
@@ -235,6 +234,134 @@ public partial class ConfigService : IOnLoad
                 mod.Status = ModStatus.Installed;
             }
         }
+        
+        // Migrate from legacy sync config format to new ClientSyncConfig format
+        var migrated = await MigrateSyncConfigAsync(Config);
+        if (migrated)
+        {
+            await SaveConfigAsync();
+        }
+    }
+    
+    /// <summary>
+    /// Migrate from legacy sync properties to new ClientSyncConfig format.
+    /// Returns true if migration occurred and config should be saved.
+    /// </summary>
+    private Task<bool> MigrateSyncConfigAsync(ServerConfig config)
+    {
+        bool needsMigration = false;
+        
+        // Check if we need to migrate (new properties are null but legacy properties exist)
+        bool hasLegacyPlayerConfig = config.SyncExclusions?.Count > 0 || 
+                                      config.UseDefaultExclusions.HasValue || 
+                                      config.CustomDefaultExclusions != null;
+        bool hasLegacyHeadlessConfig = config.HeadlessSyncPaths?.Count > 0;
+        bool hasNewConfig = config.PlayerSyncConfig != null || config.HeadlessSyncConfig != null;
+        
+        // If we already have new config, no migration needed
+        if (hasNewConfig)
+        {
+            // Ensure configs are initialized even if they exist
+            config.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
+            config.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
+            return Task.FromResult(false);
+        }
+        
+        // Create new configs with defaults
+        config.PlayerSyncConfig = ClientSyncConfig.DefaultPlayerConfig();
+        config.HeadlessSyncConfig = ClientSyncConfig.DefaultHeadlessConfig();
+        
+        // Migrate player sync config from legacy properties
+        if (hasLegacyPlayerConfig)
+        {
+            _logger.Info("Migrating legacy player sync configuration...");
+            
+            // Migrate exclusions
+            if (config.SyncExclusions?.Count > 0)
+            {
+                config.PlayerSyncConfig.ExcludedPaths = config.SyncExclusions.ToList();
+                _logger.Info($"  Migrated {config.SyncExclusions.Count} exclusion paths");
+            }
+            
+            // Migrate UseDefaultExclusions
+            if (config.UseDefaultExclusions.HasValue)
+            {
+                config.PlayerSyncConfig.UseDefaultExclusions = config.UseDefaultExclusions.Value;
+                _logger.Info($"  Migrated UseDefaultExclusions: {config.UseDefaultExclusions.Value}");
+            }
+            
+            // Migrate custom default exclusion patterns
+            if (config.CustomDefaultExclusions != null)
+            {
+                config.PlayerSyncConfig.ExclusionPatterns = config.CustomDefaultExclusions.ToList();
+                _logger.Info($"  Migrated {config.CustomDefaultExclusions.Count} custom exclusion patterns");
+            }
+            
+            needsMigration = true;
+        }
+        
+        // Migrate headless sync config from legacy properties
+        if (hasLegacyHeadlessConfig)
+        {
+            _logger.Info("Migrating legacy headless sync configuration...");
+            
+            // Convert legacy string paths to SyncPathEntry objects
+            // Legacy paths were simple strings like "BepInEx/plugins/SomeMod"
+            // We need to determine the appropriate target - for files under standard roots,
+            // the target is the same as the source. For other paths, we'll use the path as-is.
+            foreach (var path in config.HeadlessSyncPaths!)
+            {
+                var normalizedPath = NormalizePath(path);
+                
+                // Determine if this is a path within standard roots
+                string target;
+                if (normalizedPath.StartsWith("BepInEx/plugins", StringComparison.OrdinalIgnoreCase))
+                {
+                    target = normalizedPath; // Standard BepInEx path
+                }
+                else if (normalizedPath.StartsWith("SPT/user/mods", StringComparison.OrdinalIgnoreCase))
+                {
+                    target = normalizedPath; // Standard SPT mods path
+                }
+                else
+                {
+                    // For non-standard paths, assume source == target
+                    target = normalizedPath;
+                }
+                
+                config.HeadlessSyncConfig.SyncPaths.Add(new SyncPathEntry
+                {
+                    Source = normalizedPath,
+                    Target = target
+                });
+            }
+            
+            _logger.Info($"  Migrated {config.HeadlessSyncPaths.Count} headless sync paths");
+            needsMigration = true;
+        }
+        
+        if (needsMigration)
+        {
+            _logger.Success("Sync configuration migration complete!");
+            
+            // Clear legacy properties after migration (they'll still be serialized as null)
+            config.SyncExclusions = null;
+            config.UseDefaultExclusions = null;
+            config.CustomDefaultExclusions = null;
+            config.HeadlessSyncPaths = null;
+        }
+        else
+        {
+            _logger.Info("No legacy sync configuration to migrate, using defaults");
+        }
+        
+        return Task.FromResult(needsMigration || !hasNewConfig); // Save if migrated or if we just created defaults
+    }
+    
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace('\\', '/').TrimStart('/');
     }
 
     /// <summary>

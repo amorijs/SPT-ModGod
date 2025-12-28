@@ -68,6 +68,7 @@
 
 @code {
     [Inject] private ForgeService ForgeService { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
 
     /// <summary>
     /// Called when the API key status changes (added or removed)
@@ -78,6 +79,9 @@
     private string _apiKeyInput = "";
     private bool _isValidating;
     private string? _error;
+    
+    // Get the API base URL dynamically from the current navigation URI
+    private string ApiBaseUrl => NavigationManager.BaseUri.TrimEnd('/');
 
     protected override void OnInitialized()
     {
@@ -105,7 +109,7 @@
                 System.Text.Encoding.UTF8,
                 "application/json");
 
-            var response = await client.PostAsync("https://127.0.0.1:6969/modgod/api/forge/validate-key", content);
+            var response = await client.PostAsync($"{ApiBaseUrl}/modgod/api/forge/validate-key", content);
             var json = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<ValidateResponse>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -141,7 +145,7 @@
                 ServerCertificateCustomValidationCallback = (_, _, _, _) => true
             });
 
-            var response = await client.DeleteAsync("https://127.0.0.1:6969/modgod/api/forge/api-key");
+            var response = await client.DeleteAsync($"{ApiBaseUrl}/modgod/api/forge/api-key");
 
             if (response.IsSuccessStatusCode)
             {

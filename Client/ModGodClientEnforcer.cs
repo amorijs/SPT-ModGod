@@ -276,16 +276,20 @@ namespace ModGod.ClientEnforcer
                 manifest.Files.Keys.Select(p => NormalizePath(Path.Combine(SptRoot, p))),
                 StringComparer.OrdinalIgnoreCase);
 
-            // Scan BepInEx/plugins for .dll files
-            if (Directory.Exists(BepInExPluginsPath))
-            {
-                ScanDirectoryForExtraFiles(BepInExPluginsPath, "*.dll", expectedFiles, issues, "BepInEx/plugins", exclusions);
-            }
+            // Use syncRoots from manifest if available, otherwise fall back to defaults
+            var syncRoots = manifest.SyncRoots != null && manifest.SyncRoots.Count > 0
+                ? manifest.SyncRoots
+                : new List<string> { "BepInEx/plugins", "SPT/user/mods" };
+            
+            LogSource.LogInfo($"ModGod: Scanning {syncRoots.Count} sync root(s) for extra files: {string.Join(", ", syncRoots)}");
 
-            // Scan SPT/user/mods for .dll files
-            if (Directory.Exists(SptUserModsPath))
+            foreach (var syncRoot in syncRoots)
             {
-                ScanDirectoryForExtraFiles(SptUserModsPath, "*.dll", expectedFiles, issues, "SPT/user/mods", exclusions);
+                var fullPath = Path.Combine(SptRoot, syncRoot.Replace('/', Path.DirectorySeparatorChar));
+                if (Directory.Exists(fullPath))
+                {
+                    ScanDirectoryForExtraFiles(fullPath, "*.dll", expectedFiles, issues, syncRoot, exclusions);
+                }
             }
 
             return issues;
