@@ -67,13 +67,6 @@
                         </MudButton>
                     </MudTooltip>
                 }
-                <MudButton Variant="Variant.Filled"
-                           StartIcon="@Icons.Material.Filled.Add"
-                           Color="Color.Primary"
-                           Style="background: var(--accent-cyan); color: #000; font-weight: 600; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);"
-                           OnClick="OpenAddModsDialog">
-                    Add Mods
-                </MudButton>
             </div>
         </div>
 
@@ -115,24 +108,33 @@
              Class="mb-4">
         <MudTabPanel Text="Mods" class="mt-4">
             <!-- Search Bar -->
-            <div class="d-flex align-center gap-2 mb-4">
-                <MudTextField @bind-Value="_searchQuery"
-                              Placeholder="Search mods..."
-                              Variant="Variant.Outlined"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Search"
-                              Immediate="true"
-                              Clearable="true"
-                              Style="max-width: 400px; background: var(--card-bg);" />
-                @if (_activeStatusFilter != null || !string.IsNullOrEmpty(_searchQuery))
-                {
-                    <MudButton Variant="Variant.Text"
-                               StartIcon="@Icons.Material.Filled.Clear"
-                               OnClick="ClearFilters"
-                               Style="color: var(--text-secondary);">
-                        Clear Filters
-                    </MudButton>
-                }
+            <div class="d-flex align-center justify-space-between mb-4">
+                <div class="d-flex align-center gap-2">
+                    <MudTextField @bind-Value="_searchQuery"
+                                  Placeholder="Search mods..."
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true"
+                                  Clearable="true"
+                                  Style="max-width: 400px; background: var(--card-bg);" />
+                    @if (_activeStatusFilter != null || !string.IsNullOrEmpty(_searchQuery))
+                    {
+                        <MudButton Variant="Variant.Text"
+                                   StartIcon="@Icons.Material.Filled.Clear"
+                                   OnClick="ClearFilters"
+                                   Style="color: var(--text-secondary);">
+                            Clear Filters
+                        </MudButton>
+                    }
+                </div>
+                <MudButton Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           Color="Color.Primary"
+                           Style="background: var(--accent-cyan); color: #000; font-weight: 600; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);"
+                           OnClick="OpenAddModsDialog">
+                    Add Mods
+                </MudButton>
             </div>
 
             <!-- Mod Cards -->
@@ -453,13 +455,19 @@
         _editingMod.Optional = result.IsOptional;
         _editingMod.InstallPaths = result.InstallPaths;
         _editingMod.FileRules = result.FileRules;
+        
+        // Update installed files if they were modified
+        if (result.InstalledFiles != null)
+        {
+            _editingMod.InstalledFiles = result.InstalledFiles;
+        }
 
         await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"Mod '{result.ModName}' updated!", Severity.Success);
 
         _editDialogVisible = false;
         _editingMod = null;
-            StateHasChanged();
+        StateHasChanged();
     }
 
     // File rules helpers - now handled by EditModDialog component

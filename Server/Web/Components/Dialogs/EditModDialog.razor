@@ -7,9 +7,15 @@
 @inject ConfigService ConfigService
 @inject ModDownloadService ModDownloadService
 
-<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
     <TitleContent>
-        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
+        <div class="d-flex justify-space-between align-center" style="width: 100%;">
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                           Size="Size.Small" 
+                           Style="color: var(--text-secondary);"
+                           OnClick="Close" />
+        </div>
     </TitleContent>
     <DialogContent>
         <MudTextField @bind-Value="_modName"
@@ -219,24 +225,27 @@
         {
             <MudDivider Class="my-4" />
 
-            <MudText Typo="Typo.subtitle1" Class="mb-1" Style="color: var(--text-primary); font-weight: 600;">
-                Installed Files
+            <div class="d-flex justify-space-between align-center mb-1">
+                <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary); font-weight: 600;">
+                    Tracked Files
+                </MudText>
+                <MudChip T="string" Size="Size.Small" Style="background: var(--secondary-bg);">
+                    @_installedFilesSet.Count file(s)
+                </MudChip>
+            </div>
+            
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                ModGod tracks which files belong to this mod for two purposes:
+                <b>automatic cleanup</b> when uninstalling, and <b>skipping verification</b> for optional mods.
+                You can manually add or remove files if the tracking is incorrect.
             </MudText>
 
-            var installedFiles = Mod.InstalledFiles ?? new List<string>();
-
-            @if (installedFiles.Count == 0)
+            @if (_installedFilesSet.Count == 0)
             {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                    No files are being tracked for this mod. This may be because you installed this mod on an older version of ModGod.
-                    <br />
-                    While not necessary, it is recommended you delete and reinstall this mod for the following reasons:
-                    <br/>
-                    <ul>
-                        <li>ModGod can warn you if any files are missing in your installation</li>
-                        <li>You can easily reference what files a mod installed in your server files</li>
-                        <li>If you decide to uninstall this mod, ModGod will automatically know which files to delete -- otherwise you would have to manually select each file to delete</li>
-                    </ul>
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    <b>No files are being tracked.</b> This may be because the mod was installed manually or with an older version of ModGod.
+                    <br /><br />
+                    You can either use "Browse & Add Files" below to manually select the files, or remove this mod and reinstall it through ModGod to automatically track files.
                 </MudAlert>
             }
             else
@@ -244,30 +253,138 @@
                 @if (MissingFiles.Count > 0)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                        <MudText Typo="Typo.caption">
-                            Missing @MissingFiles.Count tracked file(s). Files may have been removed from disk.
-                        </MudText>
+                        @MissingFiles.Count tracked file(s) missing from disk. Consider removing them from tracking.
                     </MudAlert>
                 }
 
-                <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 300px; overflow-y: auto;">
-                    @foreach (var file in installedFiles)
+                <MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 280px; overflow-y: auto;">
+                    @foreach (var file in _installedFilesSet.OrderBy(f => f))
                     {
                         var isMissing = MissingFiles.Contains(file, StringComparer.OrdinalIgnoreCase);
-                        <div class="d-flex align-center mb-1" style="font-family: monospace; font-size: 13px; color: @(isMissing ? "var(--accent-red)" : "var(--text-primary)")">
-                            @if (isMissing)
-                            {
-                                <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Class="mr-1" Style="color: var(--accent-red);" />
-                            }
-                            else
-                            {
-                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" Style="color: var(--accent-green);" />
-                            }
-                            <span>@file</span>
+                        var capturedFile = file;
+                        <div class="d-flex align-center justify-space-between mb-1 installed-file-row" style="padding: 4px 8px; border-radius: 4px;">
+                            <div class="d-flex align-center" style="font-family: monospace; font-size: 12px; color: @(isMissing ? "var(--accent-red)" : "var(--text-primary)"); overflow: hidden;">
+                                @if (isMissing)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Class="mr-2" Style="color: var(--accent-red); flex-shrink: 0;" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-2" Style="color: var(--accent-green); flex-shrink: 0;" />
+                                }
+                                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@file">@file</span>
+                            </div>
+                            <MudTooltip Text="Remove from tracking">
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                                               Size="Size.Small" 
+                                               Style="color: var(--text-secondary); padding: 2px;"
+                                               OnClick="@(() => RemoveInstalledFile(capturedFile))" />
+                            </MudTooltip>
                         </div>
                     }
                 </MudPaper>
             }
+
+            <div style="position: relative;">
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.CreateNewFolder"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           OnClick="OpenInstalledFilesBrowser">
+                    Browse & Add Files
+                </MudButton>
+
+                @if (_isInstalledFilesPopoverOpen)
+                {
+                    <div class="file-tree-backdrop" @onclick="@(() => _isInstalledFilesPopoverOpen = false)"></div>
+                    <MudPaper Class="pa-3"
+                              Style="position: absolute; bottom: 100%; left: 0; width: 450px; max-height: 350px; background: #1a1a1a; border: 1px solid var(--border-color); z-index: 1001; margin-bottom: 4px; border-radius: 8px;">
+                        <div class="d-flex justify-space-between align-center mb-2">
+                            <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: var(--text-primary);">
+                                Select Files to Track
+                            </MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                                           Size="Size.Small" 
+                                           Style="color: var(--text-secondary);"
+                                           OnClick="@(() => _isInstalledFilesPopoverOpen = false)" />
+                        </div>
+                        
+                        <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                            Select a folder to track all files within it.
+                        </MudText>
+                        
+                        <div style="max-height: 260px; overflow-y: auto;">
+                            @if (_installedFilesTreeRoot == null || _installedFilesTreeRoot.Children.Count == 0)
+                            {
+                                <MudText Typo="Typo.caption" Class="px-2" Style="color: var(--text-secondary);">
+                                    No directories found. Ensure your SPT root is configured correctly.
+                                </MudText>
+                            }
+                            else
+                            {
+                                @foreach (var item in GetFlattenedInstalledFilesTree())
+                                {
+                                    var node = item.Node;
+                                    var depth = item.Depth;
+                                    var isExpanded = node.IsDirectory && _installedFilesExpandedDirs.Contains(node.RelativePath);
+                                    var capturedNode = node;
+                                    var dirState = node.IsDirectory ? GetDirectoryTrackingState(node) : null;
+                                    var isTracked = !node.IsDirectory && _installedFilesSet.Contains(node.RelativePath);
+                                    
+                                    // Compute directory checkbox icon and color
+                                    var dirIcon = dirState switch
+                                    {
+                                        FileRuleState.Overwrite => Icons.Material.Filled.CheckBox,
+                                        FileRuleState.Ignore => Icons.Material.Filled.CheckBoxOutlineBlank,
+                                        _ => Icons.Material.Filled.IndeterminateCheckBox
+                                    };
+                                    var dirColor = dirState switch
+                                    {
+                                        FileRuleState.Overwrite => "var(--accent-green)",
+                                        FileRuleState.Ignore => "var(--text-secondary)",
+                                        _ => "var(--accent-orange)"
+                                    };
+                                    
+                                    <div class="d-flex align-center py-1 source-tree-item"
+                                         style="padding-left:@(depth * 14 + 4)px; border-radius: 4px; margin: 1px 0;">
+                                        
+                                        @if (node.IsDirectory)
+                                        {
+                                            <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ArrowDropDown : Icons.Material.Filled.ArrowRight)"
+                                                           Size="Size.Small"
+                                                           Style="padding: 2px; min-width: 20px; color: var(--text-secondary);"
+                                                           OnClick="@(() => ToggleInstalledFilesExpand(capturedNode))" />
+                                            <MudIconButton Icon="@dirIcon"
+                                                           Size="Size.Small"
+                                                           Style="@($"padding: 2px; min-width: 24px; color: {dirColor};")"
+                                                           OnClick="@(() => ToggleDirectoryTracking(capturedNode))" />
+                                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" Style="color: var(--accent-cyan);" />
+                                            <span class="mono" style="font-size: 12px; color: var(--text-primary); cursor: pointer;"
+                                                  @onclick="@(() => ToggleInstalledFilesExpand(capturedNode))">
+                                                @node.Name
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span style="width: 24px;"></span>
+                                            <MudCheckBox T="bool" 
+                                                         Value="@isTracked"
+                                                         ValueChanged="@((bool val) => ToggleInstalledFile(capturedNode.RelativePath, val))"
+                                                         Size="Size.Small"
+                                                         Style="margin: 0; padding: 0;"
+                                                         Color="Color.Primary" />
+                                            <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" Class="mr-2" Style="color: var(--text-secondary);" />
+                                            <span class="mono" style="font-size: 12px; color: @(isTracked ? "var(--accent-green)" : "var(--text-primary)");">
+                                                @node.Name
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </MudPaper>
+                }
+            </div>
         }
 
         @if (Mod != null && IsPendingInstall)
@@ -385,13 +502,20 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Close" Variant="Variant.Text">Cancel</MudButton>
-        <MudButton Color="Color.Primary"
-                   Variant="Variant.Filled"
-                   Disabled="@(string.IsNullOrWhiteSpace(_modName) || (_installPaths?.Count ?? 0) == 0)"
-                   OnClick="Save">
-            Save Changes
-        </MudButton>
+        <div class="d-flex justify-space-between align-center" style="width: 100%;">
+            <MudButton OnClick="Reset" 
+                       Variant="Variant.Text" 
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       Style="color: var(--text-secondary);">
+                Reset
+            </MudButton>
+            <MudButton Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       Disabled="@(string.IsNullOrWhiteSpace(_modName) || (_installPaths?.Count ?? 0) == 0)"
+                       OnClick="Save">
+                Save Changes
+            </MudButton>
+        </div>
     </DialogActions>
 </MudDialog>
 
@@ -429,6 +553,13 @@
     private HashSet<string> _serverExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
     private int _activeTargetIndex = -1;
     private bool _isTargetPopoverOpen;
+
+    // Installed files state (for already-installed mods)
+    private HashSet<string> _installedFilesSet = new(StringComparer.OrdinalIgnoreCase);
+    private bool _installedFilesModified;
+    private FileNode? _installedFilesTreeRoot;
+    private HashSet<string> _installedFilesExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isInstalledFilesPopoverOpen;
 
     // Track which mod we initialized for
     private string? _initializedForUrl;
@@ -475,31 +606,22 @@
             _fileTreeRoot = null;
             _fileTreeLoading = true;
 
+            // Initialize installed files tracking (for already-installed mods)
+            _installedFilesSet = new HashSet<string>(
+                (Mod.InstalledFiles ?? new List<string>()).Select(NormalizePath),
+                StringComparer.OrdinalIgnoreCase);
+            _installedFilesModified = false;
+            _installedFilesExpandedDirs.Clear();
+            _isInstalledFilesPopoverOpen = false;
+
             await LoadFileTreeAsync();
         }
         else if (!Visible)
         {
-            // Reset state
-            _initializedForUrl = null;
-            _modName = "";
-            _downloadUrl = "";
-            _isOptional = false;
-            _installPaths.Clear();
-            _archiveContents = null;
-            _fileTreeRoot = null;
-            _ignoredPaths.Clear();
-            _expandedDirs.Clear();
-            _fileTreeLoading = false;
-            _fileTreeError = null;
-            _noFilesToOverwrite = false;
-
-            // Reset archive/server tree state
-            _archiveTreeRoot = null;
-            _archiveExpandedDirs.Clear();
-            _serverTreeRoot = null;
-            _serverExpandedDirs.Clear();
+            // Close any open popovers when dialog closes
             _isSourcePopoverOpen = false;
             _isTargetPopoverOpen = false;
+            _isInstalledFilesPopoverOpen = false;
         }
     }
 
@@ -1145,6 +1267,43 @@
         await VisibleChanged.InvokeAsync(false);
     }
 
+    private async Task Reset()
+    {
+        if (Mod == null) return;
+        
+        // Reset to original mod values
+        _modName = Mod.ModName ?? "";
+        _downloadUrl = Mod.DownloadUrl ?? "";
+        _isOptional = Mod.Optional;
+
+        var installPaths = Mod.InstallPaths ?? new List<string[]>();
+        _installPaths = installPaths
+            .Where(p => p != null && p.Length >= 2)
+            .Select(p => new InstallPathItem { Source = p[0] ?? "", Target = p[1] ?? "" })
+            .ToList();
+        if (_installPaths.Count == 0)
+        {
+            _installPaths.Add(new InstallPathItem());
+        }
+
+        // Reset file rules
+        var rules = Mod.FileRules ?? new List<FileCopyRule>();
+        _ignoredPaths = new HashSet<string>(
+            rules.Where(r => r != null && r.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
+                 .Select(r => NormalizePath(r.Path)),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Reset installed files
+        _installedFilesSet = new HashSet<string>(
+            (Mod.InstalledFiles ?? new List<string>()).Select(NormalizePath),
+            StringComparer.OrdinalIgnoreCase);
+        _installedFilesModified = false;
+
+        // Refresh file tree
+        _fileTreeLoading = true;
+        await LoadFileTreeAsync();
+    }
+
     private async Task Save()
     {
         var result = new EditModResult
@@ -1154,11 +1313,182 @@
             InstallPaths = _installPaths.Select(p => new[] { p.Source, p.Target }).ToList(),
             FileRules = _ignoredPaths
                 .Select(p => new FileCopyRule { Path = p, State = FileCopyRuleState.Ignore })
-                .ToList()
+                .ToList(),
+            // Only include InstalledFiles if they were modified (for installed mods)
+            InstalledFiles = _installedFilesModified ? _installedFilesSet.ToList() : null
         };
 
         await OnSave.InvokeAsync(result);
         await Close();
+    }
+
+    // ========== Installed Files Browser Methods ==========
+
+    private void OpenInstalledFilesBrowser()
+    {
+        BuildInstalledFilesTree();
+        _isInstalledFilesPopoverOpen = true;
+    }
+
+    private void BuildInstalledFilesTree()
+    {
+        var root = ConfigService.SptRoot;
+        _installedFilesTreeRoot = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+        _installedFilesExpandedDirs.Clear(); // Start with all folders collapsed
+
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            return;
+
+        try
+        {
+            // Build tree from SPT root showing all directories
+            BuildInstalledFilesTreeRecursive(_installedFilesTreeRoot, root, "", 0, 6);
+        }
+        catch { /* Ignore permission errors */ }
+    }
+
+    private void BuildInstalledFilesTreeRecursive(FileNode parent, string basePath, string relativePath, int depth, int maxDepth)
+    {
+        if (depth >= maxDepth) return;
+
+        try
+        {
+            // Add directories
+            foreach (var dir in Directory.GetDirectories(basePath).OrderBy(d => Path.GetFileName(d)))
+            {
+                var dirName = Path.GetFileName(dir);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? dirName : $"{relativePath}/{dirName}";
+
+                var node = new FileNode
+                {
+                    Name = dirName,
+                    RelativePath = childRelPath,
+                    IsDirectory = true
+                };
+
+                parent.Children.Add(node);
+                BuildInstalledFilesTreeRecursive(node, dir, childRelPath, depth + 1, maxDepth);
+            }
+
+            // Add files
+            foreach (var file in Directory.GetFiles(basePath).OrderBy(f => Path.GetFileName(f)))
+            {
+                var fileName = Path.GetFileName(file);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? fileName : $"{relativePath}/{fileName}";
+
+                parent.Children.Add(new FileNode
+                {
+                    Name = fileName,
+                    RelativePath = childRelPath,
+                    IsDirectory = false
+                });
+            }
+        }
+        catch { /* Ignore permission errors */ }
+    }
+
+    private void ToggleInstalledFilesExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        var path = node.RelativePath;
+        if (_installedFilesExpandedDirs.Contains(path))
+            _installedFilesExpandedDirs.Remove(path);
+        else
+            _installedFilesExpandedDirs.Add(path);
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedInstalledFilesTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_installedFilesTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            result.Add((node, depth));
+            if (!node.IsDirectory || !_installedFilesExpandedDirs.Contains(node.RelativePath)) return;
+            
+            var children = node.Children;
+            if (children != null)
+            {
+                // Sort directories first, then files
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _installedFilesTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+            Flatten(child, 0);
+
+        return result;
+    }
+
+    private void ToggleInstalledFile(string path, bool isTracked)
+    {
+        if (isTracked)
+            _installedFilesSet.Add(path);
+        else
+            _installedFilesSet.Remove(path);
+        
+        _installedFilesModified = true;
+    }
+
+    private void RemoveInstalledFile(string path)
+    {
+        _installedFilesSet.Remove(path);
+        _installedFilesModified = true;
+    }
+
+    private FileRuleState? GetDirectoryTrackingState(FileNode dirNode)
+    {
+        if (!dirNode.IsDirectory) return null;
+        
+        var allFiles = GetAllDescendantFiles(dirNode).ToList();
+        if (allFiles.Count == 0) return FileRuleState.Ignore;
+        
+        var trackedCount = allFiles.Count(f => _installedFilesSet.Contains(f));
+        
+        if (trackedCount == 0) return FileRuleState.Ignore;
+        if (trackedCount == allFiles.Count) return FileRuleState.Overwrite;
+        return FileRuleState.Mixed;
+    }
+
+    private void ToggleDirectoryTracking(FileNode dirNode)
+    {
+        if (!dirNode.IsDirectory) return;
+        
+        var allFiles = GetAllDescendantFiles(dirNode).ToList();
+        var currentState = GetDirectoryTrackingState(dirNode);
+        
+        // If all or some are tracked, untrack all. If none tracked, track all.
+        if (currentState == FileRuleState.Overwrite || currentState == FileRuleState.Mixed)
+        {
+            foreach (var file in allFiles)
+                _installedFilesSet.Remove(file);
+        }
+        else
+        {
+            foreach (var file in allFiles)
+                _installedFilesSet.Add(file);
+        }
+        
+        _installedFilesModified = true;
+    }
+
+    private IEnumerable<string> GetAllDescendantFiles(FileNode node)
+    {
+        if (!node.IsDirectory)
+        {
+            yield return node.RelativePath;
+            yield break;
+        }
+        
+        foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
+        {
+            foreach (var file in GetAllDescendantFiles(child))
+                yield return file;
+        }
     }
 }
 
@@ -1174,5 +1504,9 @@
         right: 0;
         bottom: 0;
         z-index: 1000;
+    }
+    
+    .installed-file-row:hover {
+        background: rgba(255, 255, 255, 0.05);
     }
 </style>

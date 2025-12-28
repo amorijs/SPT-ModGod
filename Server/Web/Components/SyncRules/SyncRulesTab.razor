@@ -5,11 +5,10 @@
 
 <!-- Profile Selector -->
 <div class="d-flex justify-center mb-4">
-    <MudToggleGroup T="SyncProfile" 
-                    Value="_activeProfile" 
+    <MudToggleGroup T="SyncProfile"
+                    Value="_activeProfile"
                     ValueChanged="OnProfileChanged"
                     Color="@GetProfileColor()"
-                    CheckMark="true"
                     Size="Size.Large">
         <MudToggleItem Value="SyncProfile.Player">
             <div class="d-flex align-center gap-2 px-4 py-1">
@@ -30,7 +29,7 @@
 <MudPaper Class="pa-4 mb-4" Style="@($"background: var(--card-bg); border: 1px solid var(--border-color); border-top: 4px solid {GetAccentColor()}; border-radius: 8px;")">
     <!-- Context Header -->
     <div class="d-flex align-center mb-3">
-        <MudIcon Icon="@GetProfileIcon()" Size="Size.Large" 
+        <MudIcon Icon="@GetProfileIcon()" Size="Size.Large"
                  Style="@($"color: {GetAccentColor()}; margin-right: 12px;")" />
         <div>
             <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 600;">
@@ -44,9 +43,9 @@
 
     @if (_activeProfile == SyncProfile.Headless)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" Dense="true">
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" Dense="true">
             <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-            <strong>Not using headless clients?</strong> You can skip this profile entirely. Most users only need the Player Clients profile.
+            <strong>Not using a headless client?</strong> You can skip this profile entirely. Most users only need the Player Clients profile.
         </MudAlert>
     }
 </MudPaper>
@@ -209,7 +208,7 @@
                     {
                         <span class="ml-1 mono @(isExcluded ? "strikethrough" : "")"
                               style="color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)"); font-size: 13px;">
-                            <MudIcon Icon="@(node.IsDirectory ? Icons.Material.Filled.Folder : Icons.Material.Filled.InsertDriveFile)" 
+                            <MudIcon Icon="@(node.IsDirectory ? Icons.Material.Filled.Folder : Icons.Material.Filled.InsertDriveFile)"
                                      Size="Size.Small" Style="vertical-align: middle; margin-right: 4px;" />@(node.Name)
                         </span>
                     }
@@ -341,11 +340,11 @@
     private Color GetProfileColor() => _activeProfile == SyncProfile.Player ? Color.Primary : Color.Warning;
     private string GetAccentColor() => _activeProfile == SyncProfile.Player ? "var(--accent-cyan)" : "var(--accent-orange)";
     private string GetProfileIcon() => _activeProfile == SyncProfile.Player ? Icons.Material.Filled.Person : Icons.Material.Filled.Dns;
-    
-    private string GetProfileTitle() => _activeProfile == SyncProfile.Player 
-        ? "Player Client Syncing" 
+
+    private string GetProfileTitle() => _activeProfile == SyncProfile.Player
+        ? "Player Client Syncing"
         : "Headless Client Syncing";
-    
+
     private string GetProfileDescription() => _activeProfile == SyncProfile.Player
         ? "Configure which files sync to player game clients. These are regular players joining your server."
         : "Configure which files sync to headless (dedicated raid-hosting) clients. Only files explicitly added here will be synced.";
@@ -686,26 +685,26 @@
 
         var config = CurrentConfig;
         config.SyncPaths = _syncPaths.ToList();
-        
+
         // Clean up orphaned exclusions that were under this sync path
         var normalizedSource = NormalizePath(entry.Source);
-        
+
         // Remove directly from _exclusionSet (the UI state)
         var orphanedFromSet = _exclusionSet
             .Where(p => p.StartsWith(normalizedSource + "/", StringComparison.OrdinalIgnoreCase) ||
                         p.Equals(normalizedSource, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        
+
         foreach (var orphan in orphanedFromSet)
         {
             _exclusionSet.Remove(orphan);
         }
-        
+
         // Also clean up config.ExcludedPaths
         var orphanCount = config.ExcludedPaths.RemoveAll(p =>
             NormalizePath(p).StartsWith(normalizedSource + "/", StringComparison.OrdinalIgnoreCase) ||
             NormalizePath(p).Equals(normalizedSource, StringComparison.OrdinalIgnoreCase));
-        
+
         SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
