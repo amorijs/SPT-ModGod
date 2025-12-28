@@ -40,7 +40,7 @@ ModGod is a complete mod synchronization solution for SPT Tarkov servers. It all
 
 - **Easy mod installation** - Install mods via Forge search or direct download URLs
 - **Clients always up to date** - Clients automatically verify their mods match the server
-- **Control synced files** - By default, everything in `BepInEx/plugins` and `SPT/user/mods` is synced, but you can easily exclude specific files or folders via the web UI
+- **Control synced files** - Configure which directories sync to clients, exclude specific files/folders, and use smart default exclusion patterns (logs, cache, dev files)
 - **Preserve your configs** - When updating or reinstalling a mod you can easily set overwrite rules on specific files/directories, letting you protect server-side customizations
 
 ---
@@ -102,19 +102,21 @@ _Standalone updater with progress tracking_
 - Supports archive formats `.zip` & `.7z`
 - Auto-detect install paths for standard mod structures
 - **File Overwrite Rules** - Choose which files to preserve during installs/reinstalls
-- **Sync Exclusions** - Exclude any server files from client verification
-- **Headless Client Support** - Configure specific files to sync to dedicated raid-hosting instances
+- **Sync Rules** - Unified configuration for both player and headless clients:
+  - Configure sync paths (source → target directory mappings)
+  - Exclude specific files/folders from syncing
+  - Smart default exclusion patterns for logs, cache, dev files, and common mod artifacts
+  - Profile selector to switch between Player and Headless configurations
 - **Stats Dashboard** - Clickable cards to filter by status (Total, Installed, Pending, Required, Optional)
-- **Quick Search** - Filter mods by name instantly
 - Pending changes system with visual status indicators
-- **Auto-Install Scripts** - PowerShell (Windows) and Bash (Linux) scripts that wait for server shutdown then install
+- **Auto-Install Scripts** - PowerShell (Windows) script that wait for server shutdown then install
 
 ### 🎮 Client Enforcer Plugin
 
 - **File Integrity Verification** - Compares client files against server manifest using SHA256 hashes
 - **In-Game Warnings** - Upon game launch, shows detailed warnings for missing, modified, or extra files
 - **One-Click Updates** - Launch the updater directly from the warning dialog
-- Respects sync exclusions from server configuration
+- Respects sync rules and exclusions from server configuration
 - Distinguishes between required and optional mods
 
 ### 📦 ModGod Updater
@@ -185,12 +187,12 @@ ModGod/
 
 All server configuration is stored in `<SPT_ROOT>/ModGodData/`:
 
-| File                     | Description                                    |
-| ------------------------ | ---------------------------------------------- |
-| `serverConfig.json`      | Mod list, sync exclusions, Forge API key, etc. |
-| `stagingIndex.json`      | Downloaded mod cache index                     |
-| `pendingOperations.json` | Queued install/remove operations               |
-| `staging/`               | Downloaded and extracted mod files             |
+| File                     | Description                                       |
+| ------------------------ | ------------------------------------------------- |
+| `serverConfig.json`      | Mod list, sync rules (player & headless), etc.    |
+| `stagingIndex.json`      | Downloaded mod cache index                        |
+| `pendingOperations.json` | Queued install/remove operations                  |
+| `staging/`               | Downloaded and extracted mod files                |
 
 ### Client Configuration
 
@@ -243,37 +245,60 @@ When installing/reinstalling a mod, you can control which files get overwritten 
 
 When installing mods, there is a helpful alert on the card if it will overwrite any files.
 
-### Sync Exclusions
+### Sync Rules
 
-Many mods generate files that don't need to be synced to clients. This will cause warnings (that clients can skip) when the clients launch their game. Prevent client warnings for files you don't need them to have:
+The **Sync Rules** tab provides unified configuration for both player and headless clients. Use the profile selector at the top to switch between configurations.
 
-1. Go to the **"Sync Exclusions"** tab
-2. Uncheck files/directories that shouldn't be synced to clients
-3. Click **"Save Exclusions"**
-4. Clients will ignore these paths during verification
+#### Sync Paths
+
+Configure which directories sync from your server to clients:
+
+1. Go to the **"Sync Rules"** tab
+2. Select **"Player Clients"** or **"Headless Clients"** profile
+3. Add or remove sync paths (source directory on server → target directory on client)
+4. Default paths are `BepInEx/plugins` and `SPT/user/mods`
+
+#### File/Folder Exclusions
+
+Exclude specific files or folders from syncing to prevent unnecessary client warnings:
+
+1. In the **Sync Rules** tab, scroll to **"File/Folder Exclusions"**
+2. Browse the file tree and click to toggle exclusions
+3. Excluded items appear with a strikethrough
+4. Click **"Apply Changes"** to save
+
+#### Default Exclusion Patterns
+
+ModGod includes smart default patterns that automatically exclude common files that shouldn't sync:
+
+- Log files (`**/*.log`, `**/logs/**`)
+- Cache and temp files (`**/cache/**`, `**/*.tmp`)
+- Development files (`.git`, `node_modules`, TypeScript sources)
+- SPT core files (clients have their own)
+- Common mod artifacts (Fika cache, Realism backups, etc.)
+
+Toggle **"Use Default Exclusions"** to enable/disable, or expand **"Advanced: Exclusion Patterns"** to customize the patterns.
 
 ### Headless Client Setup
 
-⚠️ ModGod headless support currently only works if your headless client is installed in a separate directory as your SPT server (where you manage your mod list).
+Headless clients are dedicated raid-hosting instances (e.g., for Fika). They have their own sync configuration separate from player clients.
 
-Headless clients are dedicated raid-hosting instances that don't need full mod syncing. They only require specific BepInEx/plugins files. If you are not using a headless client, you can skip this section.
+> ⚠️ Headless clients must be installed in a separate directory from your SPT server.
 
 #### Server Configuration
 
-1. Go to the **"Headless Syncing"** tab in the Web UI
-2. Check the specific files/folders that headless clients need (e.g., server configs, specific plugins)
-3. Click **"Save Inclusions"**
-
-> **Note:** Headless clients only need files from `BepInEx/plugins` — the `SPT/user/mods` folder is not used on headless instances.
+1. Go to the **"Sync Rules"** tab
+2. Switch to the **"Headless Clients"** profile
+3. Configure sync paths for what headless clients need
+4. Set exclusions as needed
+5. Click **"Apply Changes"**
 
 #### Headless Client Installation
 
-1. Copy **only** the updater script and ModGodData folder to your headless client:
-   - Windows: `ModGodUpdater.exe`
-   - Linux: `ModGodUpdater.sh`
+1. Copy **ModGodUpdater.exe** to your headless client's SPT root folder
 2. Run the updater and enter your server URL when prompted
 3. Edit `ModGodData/ModGodClient.json` and set `"headless": true`
-4. Run the updater again — it will only sync files configured in the Headless Syncing tab
+4. Run the updater again — it will sync files from the Headless profile
 
 Example `ModGodClient.json` for headless:
 
@@ -343,11 +368,11 @@ The server exposes the following REST endpoints:
 
 ## 🐧 Linux Support
 
-ModGod includes Bash script generation for Linux servers:
+ModGod fully supports Linux servers:
 
-1. When you click "Apply Changes", both PowerShell and Bash scripts are generated
-2. On Linux, the Bash script runs via `nohup` with output logged to `modgod_install.log`
-3. Scripts wait for server shutdown before installing mods
+- On Linux, file operations are handled immediately when you click "Apply Changes" (no script needed)
+- Unlike Windows, Linux doesn't lock files while the server is running, so changes apply instantly
+- The updater works cross-platform via .NET
 
 ---
 
@@ -368,7 +393,7 @@ ModGod includes Bash script generation for Linux servers:
 
 - Ensure client mods match the server's installed versions
 - Run the updater to sync missing/outdated mods
-- Check sync exclusions if warnings are for server-generated files
+- Check **Sync Rules** exclusions if warnings are for server-generated files
 
 ### Web UI Not Loading
 
