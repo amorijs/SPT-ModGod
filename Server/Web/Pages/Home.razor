@@ -18,36 +18,37 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge">
     <!-- Header Section -->
-    <MudPaper Class="pa-6 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 12px; margin-top: 55px;">
+    <MudPaper Class="pa-6 mb-4 glass-panel" Style="border-radius: 16px; margin-top: 55px;">
         <div class="d-flex justify-space-between align-center">
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">SPT Server Mod Manager</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 800; letter-spacing: -1px;">SPT Server Mod Manager</MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary); max-width: 600px;">
                     Add mods to be installed on your SPT server. Clients will automatically sync from the installed files on the server.
                 </MudText>
             </div>
             <div class="d-flex gap-2">
                 <MudTooltip Text="Reload config from disk (if edited externally)">
-                    <MudIconButton Icon="@Icons.Material.Filled.Refresh" 
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
                                    Color="Color.Default"
                                    OnClick="ReloadFromDisk"
-                                   Disabled="@_isApplying" />
+                                   Disabled="@_isApplying"
+                                   Style="color: var(--text-secondary);" />
                 </MudTooltip>
                 @if (ConfigService.HasPendingChanges())
                 {
-                    <MudButton Variant="Variant.Outlined" 
-                               StartIcon="@Icons.Material.Filled.Undo" 
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.Undo"
                                Color="Color.Default"
-                               Style="font-weight: 600;"
+                               Style="font-weight: 600; border-color: var(--border-color); color: var(--text-secondary);"
                                OnClick="DiscardChanges"
                                Disabled="@_isApplying">
                         Discard Changes
                     </MudButton>
                     <MudTooltip Text="@(AnyModsNeedConfiguration() ? "Configure all mods before applying" : "")" Disabled="@(!AnyModsNeedConfiguration())">
-                        <MudButton Variant="Variant.Filled" 
-                                   StartIcon="@Icons.Material.Filled.PlayArrow" 
+                        <MudButton Variant="Variant.Filled"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
                                    Color="Color.Success"
-                                   Style="font-weight: 600;"
+                                   Style="font-weight: 600; box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);"
                                    OnClick="ApplyChanges"
                                    Disabled="@(_isApplying || AnyModsNeedConfiguration())">
                             @if (_isApplying)
@@ -66,16 +67,16 @@
                         </MudButton>
                     </MudTooltip>
                 }
-                <MudButton Variant="Variant.Filled" 
-                           StartIcon="@Icons.Material.Filled.Add" 
+                <MudButton Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Add"
                            Color="Color.Primary"
-                           Style="background: var(--accent-cyan); color: #000; font-weight: 600;"
+                           Style="background: var(--accent-cyan); color: #000; font-weight: 600; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);"
                            OnClick="OpenAddModsDialog">
                     Add Mods
                 </MudButton>
             </div>
         </div>
-        
+
         @if (ConfigService.HasPendingChanges())
         {
             <MudAlert Severity="Severity.Warning" Class="mt-4" Dense="true">
@@ -125,7 +126,7 @@
                               Style="max-width: 400px; background: var(--card-bg);" />
                 @if (_activeStatusFilter != null || !string.IsNullOrEmpty(_searchQuery))
                 {
-                    <MudButton Variant="Variant.Text" 
+                    <MudButton Variant="Variant.Text"
                                StartIcon="@Icons.Material.Filled.Clear"
                                OnClick="ClearFilters"
                                Style="color: var(--text-secondary);">
@@ -133,7 +134,7 @@
                     </MudButton>
                 }
             </div>
-            
+
             <!-- Mod Cards -->
             @{
                 var hasPendingRemoval = GetPendingRemovalCount() > 0;
@@ -151,7 +152,7 @@
             {
                 // Apply search and status filters
                 var filteredMods = GetFilteredMods();
-                
+
                 // Sort: Protected mods first (ModGod), then pending install, pending uninstall, then installed
                 // Within each group: needs-config first, then alphabetically
                 var pendingMods = filteredMods
@@ -170,7 +171,7 @@
                     .OrderByDescending(m => m.IsProtected)
                     .ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                
+
                 @if (filteredMods.Count == 0)
                 {
                     <MudPaper Class="pa-6 text-center" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
@@ -207,7 +208,7 @@
                             }
                         </MudGrid>
                     }
-                    
+
                     if (removalMods.Count > 0)
                     {
                         <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-red); font-weight: 600;">
@@ -235,7 +236,7 @@
                             }
                         </MudGrid>
                     }
-                    
+
                     if (installedMods.Count > 0)
                     {
                         <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-green); font-weight: 600;">
@@ -281,15 +282,15 @@
 <AddModsDialog @bind-Visible="_addDialogVisible" OnModsAdded="StateHasChanged" />
 
 <!-- Edit Mod Dialog -->
-<EditModDialog @bind-Visible="_editDialogVisible" 
-               Mod="_editingMod" 
+<EditModDialog @bind-Visible="_editDialogVisible"
+               Mod="_editingMod"
                IsPendingInstall="@(_editingMod != null && IsModPendingInstall(_editingMod))"
                MissingFiles="@(_editingMod != null ? GetMissingInstalledFiles(_editingMod) : new List<string>())"
                OnSave="HandleEditModSave" />
 
 <!-- Uninstall Mod Dialog -->
-<UninstallDialog @bind-Visible="_uninstallDialogVisible" 
-                 Mod="_uninstallMod" 
+<UninstallDialog @bind-Visible="_uninstallDialogVisible"
+                 Mod="_uninstallMod"
                  OnConfirm="HandleUninstallConfirm" />
 
 <!-- Apply Changes Result Dialog -->
@@ -298,14 +299,14 @@
 @code {
     private bool _hasLoggedInit = false;
     private int _activeTabIndex = 0;
-    
+
     // Tab reference for refresh on discard
     private SyncRulesTab? _syncRulesTab;
-    
+
     // Search and filter
     private string _searchQuery = "";
     private string? _activeStatusFilter = null; // null = show all, "Installed", "Pending", "Required"
-    
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoggedInit)
@@ -325,7 +326,7 @@
         Snackbar.Add($"'{mod.ModName}' is now {(mod.Optional ? "optional" : "required")}", Severity.Info);
         StateHasChanged();
     }
-    
+
     // State
     private bool _isApplying = false;
     private ApplyChangesResult? _applyResult;
@@ -367,12 +368,12 @@
             StateHasChanged();
         }
     }
-    
+
     // Discard Changes - reset staged config to match live config
     private async Task DiscardChanges()
     {
         CloseAllDialogs(); // Must be BEFORE showing message box to prevent edit dialog from reopening
-        
+
         var result = await DialogService.ShowMessageBox(
             "Discard Changes",
             "This will discard all unsaved changes and reset to the last applied state. Continue?",
@@ -381,26 +382,26 @@
         if (result == true)
         {
             await ConfigService.ResetStagedConfigAsync();
-            
+
             // Refresh sync rules tab to reload from config
             if (_syncRulesTab != null)
                 await _syncRulesTab.ReloadFromConfigAsync();
-            
+
             Snackbar.Add("Changes discarded.", Severity.Info);
             StateHasChanged();
         }
     }
-    
+
     // Reload config from disk (useful if edited externally)
     private async Task ReloadFromDisk()
     {
         CloseAllDialogs();
         await ConfigService.ReloadConfigFromDiskAsync();
-        
+
         // Refresh sync rules tab to reload from config
         if (_syncRulesTab != null)
             await _syncRulesTab.ReloadFromConfigAsync();
-        
+
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();
     }
@@ -410,14 +411,14 @@
     {
         _addDialogVisible = true;
     }
-    
+
     // Tab change handler
     private void OnTabChanged(int index)
     {
         _activeTabIndex = index;
         CloseAllDialogs();
     }
-    
+
     // Helper to close all dialogs - prevents dialogs from reopening on state changes
     private void CloseAllDialogs()
     {
@@ -437,7 +438,7 @@
             Snackbar.Add($"'{mod.ModName}' is a built-in mod and cannot be edited.", Severity.Info);
             return;
         }
-        
+
         // Ensure uninstall dialog is closed before opening edit dialog
         _uninstallDialogVisible = false;
             _editingMod = mod;
@@ -452,10 +453,10 @@
         _editingMod.Optional = result.IsOptional;
         _editingMod.InstallPaths = result.InstallPaths;
         _editingMod.FileRules = result.FileRules;
-        
+
         await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"Mod '{result.ModName}' updated!", Severity.Success);
-        
+
         _editDialogVisible = false;
         _editingMod = null;
             StateHasChanged();
@@ -505,17 +506,17 @@
             Snackbar.Add($"'{mod.ModName}' is a protected mod and cannot be removed.", Severity.Warning);
             return;
         }
-        
+
         // With staged config, we always remove from staged config
         // The difference is just in the messaging
         var isPending = IsModPendingInstall(mod);
         var isRemoval = IsModPendingRemoval(mod);
-        
+
         if (isPending)
         {
             // Not yet installed - just remove from staged config
             CloseAllDialogs(); // Must be BEFORE showing message box
-            
+
             var result = await DialogService.ShowMessageBox(
                 "Remove Mod",
                 $"Remove '{mod.ModName}' from the mod list? (It hasn't been installed yet)",
@@ -554,7 +555,7 @@
             .GroupBy(m => m.DownloadUrl)
             .Select(g => g.First())
             .AsEnumerable();
-        
+
         // Apply status filter
         if (_activeStatusFilter != null)
         {
@@ -568,21 +569,21 @@
                 _ => allMods
             };
         }
-        
+
         // Apply search filter (case insensitive)
         if (!string.IsNullOrWhiteSpace(_searchQuery))
         {
             var query = _searchQuery.Trim();
-            allMods = allMods.Where(m => 
+            allMods = allMods.Where(m =>
                 m.ModName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 m.DownloadUrl.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
-        
+
         return allMods.ToList();
     }
-    
+
     // ToggleStatusFilter and GetStatsCardStyle moved to StatsBar component
-    
+
     private void ClearFilters()
     {
         _searchQuery = "";
@@ -597,7 +598,7 @@
     {
         return !ConfigService.Config.ModList.Any(m => m.DownloadUrl == mod.DownloadUrl);
     }
-    
+
     /// <summary>
     /// Get set of URLs pending removal (present in live but removed from staged)
     /// </summary>
@@ -607,7 +608,7 @@
             .Select(m => m.DownloadUrl)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
-    
+
     /// <summary>
     /// Get count of mods that are already installed (in both staged and live)
     /// </summary>
@@ -616,7 +617,7 @@
         var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
         return ConfigService.StagedConfig.ModList.Count(m => liveUrls.Contains(m.DownloadUrl));
     }
-    
+
     /// <summary>
     /// Get count of mods pending install (in staged but not in live)
     /// </summary>
@@ -639,8 +640,8 @@
     /// </summary>
     private bool ModNeedsConfiguration(ModEntry mod)
     {
-        return IsModPendingInstall(mod) && 
-            (mod.InstallPaths.Count == 0 || 
+        return IsModPendingInstall(mod) &&
+            (mod.InstallPaths.Count == 0 ||
              mod.InstallPaths.All(p => p == null || p.Length < 2 || string.IsNullOrWhiteSpace(p[0])));
     }
 
@@ -653,28 +654,28 @@
 
     private string GetModCardStyle(ModEntry mod)
     {
-        var baseStyle = "background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; height: 100%;";
-        
+        var baseStyle = "border-radius: 16px; height: 100%; transition: all 0.2s ease;";
+
         if (ModNeedsConfiguration(mod))
         {
-            return baseStyle + " border-left: 4px solid var(--accent-red);";
+            return baseStyle + " border-left: 3px solid var(--accent-red); box-shadow: inset 0 0 20px rgba(248, 113, 113, 0.05);";
         }
-        
+
         // Check staged status instead of mod.Status
         if (IsModPendingInstall(mod))
         {
-            return baseStyle + " border-left: 4px solid var(--accent-orange);";
+            return baseStyle + " border-left: 3px solid var(--accent-orange); box-shadow: inset 0 0 20px rgba(251, 191, 36, 0.05);";
         }
-        
+
         // Check if mod is pending removal (in live but not in staged)
         if (IsModPendingRemoval(mod))
         {
-            return baseStyle + " border-left: 4px solid var(--accent-red); opacity: 0.7;";
+            return baseStyle + " border-left: 3px solid var(--accent-red); opacity: 0.6;";
         }
-        
+
         return baseStyle;
     }
-    
+
     /// <summary>
     /// Check if a mod is pending removal (in live config but not in staged - staged from a remove action)
     /// Note: We show mods from staged config in UI, but we can still track this for styling
@@ -689,13 +690,13 @@
     {
         if (IsModPendingInstall(mod))
         {
-            return "background: var(--accent-orange); color: #000;";
+            return "background: rgba(251, 191, 36, 0.9); color: #000; font-weight: 600;";
         }
         if (IsModPendingRemoval(mod))
         {
-            return "background: var(--accent-red); color: #fff;";
+            return "background: rgba(248, 113, 113, 0.9); color: #000; font-weight: 600;";
         }
-        return "background: var(--accent-green); color: #000;";
+        return "background: rgba(74, 222, 128, 0.9); color: #000; font-weight: 600;";
     }
 
     private string GetStatusTextForMod(ModEntry mod)
@@ -765,7 +766,7 @@
             Snackbar.Add($"Failed to undo removal: {ex.Message}", Severity.Error);
         }
     }
-    
+
     // Legacy helpers for backwards compatibility
     private (int OverwriteCount, int SkippedCount) GetOverwriteStatsForMod(ModEntry mod)
     {
@@ -785,14 +786,14 @@
 
             var installPaths = mod?.InstallPaths ?? new List<string[]>();
             var sptRoot = ConfigService?.SptRoot ?? string.Empty;
-            
+
             // Build set of ignored paths from FileRules
             var ignoredPaths = new HashSet<string>(
                 (mod?.FileRules ?? new List<FileCopyRule>())
                     .Where(r => r?.State == FileCopyRuleState.Ignore && !string.IsNullOrWhiteSpace(r.Path))
                     .Select(r => NormalizeRulePath(r.Path)),
                 StringComparer.OrdinalIgnoreCase);
-            
+
             var overwriteCount = 0;
             var skippedCount = 0;
 
@@ -835,7 +836,7 @@
     {
         var overwriteCount = 0;
         var skippedCount = 0;
-        
+
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var targetFile = Path.Combine(targetDir, Path.GetFileName(file));

@@ -9,89 +9,219 @@
 <HeadContent>
     <link href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" rel="stylesheet" />
     <meta name="robots" content="noindex, nofollow">
-    @* <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"> *@
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
     <style>
-        :root {
-            --primary-bg: #0d1117;
-            --secondary-bg: #161b22;
-            --card-bg: #21262d;
-            --accent-cyan: #58a6ff;
-            --accent-green: #3fb950;
-            --accent-orange: #d29922;
-            --accent-red: #f85149;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --border-color: #30363d;
+        /* Dark Mode (default) */
+        :root, .theme-dark {
+            --primary-bg: #050505;
+            --secondary-bg: #0a0a0a;
+            --card-bg: rgba(22, 27, 34, 0.6);
+            --glass-bg: rgba(22, 27, 34, 0.4);
+            --appbar-bg: rgba(10, 10, 10, 0.8);
+            
+            --accent-cyan: #38bdf8;
+            --accent-green: #4ade80;
+            --accent-orange: #fbbf24;
+            --accent-red: #f87171;
+            
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --shadow-subtle: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+            --shadow-glow: 0 0 15px rgba(56, 189, 248, 0.15);
+            --glass-blur: blur(12px);
+            
+            --bg-gradient: radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.03) 0%, transparent 25%),
+                           radial-gradient(circle at 85% 30%, rgba(74, 222, 128, 0.03) 0%, transparent 25%);
+        }
+        
+        /* Light Mode */
+        .theme-light {
+            --primary-bg: #f8fafc;
+            --secondary-bg: #f1f5f9;
+            --card-bg: rgba(255, 255, 255, 0.7);
+            --glass-bg: rgba(255, 255, 255, 0.6);
+            --appbar-bg: rgba(248, 250, 252, 0.9);
+            
+            --accent-cyan: #0ea5e9;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            
+            --border-color: rgba(0, 0, 0, 0.08);
+            --border-hover: rgba(0, 0, 0, 0.12);
+            --shadow-subtle: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            --shadow-glow: 0 0 15px rgba(14, 165, 233, 0.15);
+            --glass-blur: blur(12px);
+            
+            --bg-gradient: radial-gradient(circle at 15% 50%, rgba(14, 165, 233, 0.05) 0%, transparent 25%),
+                           radial-gradient(circle at 85% 30%, rgba(34, 197, 94, 0.05) 0%, transparent 25%);
         }
 
         body {
             background: var(--primary-bg);
+            background-image: var(--bg-gradient);
+            background-attachment: fixed;
+            transition: background 0.3s ease;
         }
 
         .mono {
             font-family: 'JetBrains Mono', monospace;
         }
+        
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-subtle);
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
 
         .gradient-border {
-            border: 2px solid transparent;
-            background: linear-gradient(var(--card-bg), var(--card-bg)) padding-box,
-                        linear-gradient(135deg, var(--accent-cyan), var(--accent-green)) border-box;
+            border: 1px solid transparent;
+            background: linear-gradient(var(--secondary-bg), var(--secondary-bg)) padding-box,
+                        linear-gradient(135deg, rgba(56, 189, 248, 0.5), rgba(74, 222, 128, 0.5)) border-box;
         }
 
         .glow-cyan {
-            box-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
+            box-shadow: var(--shadow-glow);
+        }
+        
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--primary-bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+        
+        /* Theme toggle button */
+        .theme-toggle {
+            transition: transform 0.3s ease;
+        }
+        .theme-toggle:hover {
+            transform: rotate(15deg);
         }
     </style>
 </HeadContent>
 
-<MudThemeProvider Theme="@CustomTheme" IsDarkMode/>
+<MudThemeProvider Theme="@CustomTheme" @bind-IsDarkMode="_isDarkMode"/>
 <MudPopoverProvider/>
 <MudSnackbarProvider />
 <MudDialogProvider />
 
-<MudLayout>
-    <MudAppBar Dense Elevation="0" Style="background: var(--secondary-bg); border-bottom: 1px solid var(--border-color);">
-        <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Large" Style="color: var(--accent-cyan);" Class="mr-2" />
-        <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 700;">ModGod</MudText>
-        <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--text-secondary); align-self: flex-end; margin-bottom: 4px;">@Version</MudText>
-        <MudSpacer/>
-    </MudAppBar>
-    <MudMainContent Class="pt-4 px-4" Style="background: var(--primary-bg); min-height: calc(100vh - 48px);">
-        @Body
-    </MudMainContent>
-</MudLayout>
+<div class="@(_isDarkMode ? "theme-dark" : "theme-light")">
+    <MudLayout>
+        <MudAppBar Dense Elevation="0" Style="background: var(--appbar-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color);">
+            <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Large" Style="color: var(--accent-cyan); filter: drop-shadow(0 0 5px rgba(56,189,248,0.5));" Class="mr-2" />
+            <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 700; letter-spacing: -0.5px;">ModGod</MudText>
+            <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--text-secondary); align-self: flex-end; margin-bottom: 4px; font-family: monospace;">@Version</MudText>
+            <MudSpacer/>
+            <MudTooltip Text="@(_isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode")">
+                <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
+                               Color="Color.Inherit" 
+                               OnClick="ToggleTheme"
+                               Class="theme-toggle"
+                               Style="color: var(--text-secondary);" />
+            </MudTooltip>
+        </MudAppBar>
+        <MudMainContent Class="pt-4 px-4" Style="min-height: calc(100vh - 48px);">
+            @Body
+        </MudMainContent>
+    </MudLayout>
+</div>
 
 @code {
     private string Version => $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0"}";
+    private bool _isDarkMode = true;
+    
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
     
     MudTheme CustomTheme = new MudTheme()
     {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#0ea5e9",
+            Secondary = "#22c55e",
+            Tertiary = "#f59e0b",
+            Background = "#f8fafc",
+            Surface = "#f1f5f9",
+            DrawerBackground = "#f1f5f9",
+            DrawerText = "#0f172a",
+            DrawerIcon = "#475569",
+            AppbarBackground = "#f8fafc",
+            AppbarText = "#0f172a",
+            TextPrimary = "#0f172a",
+            TextSecondary = "#475569",
+            TextDisabled = "#94a3b8",
+            ActionDefault = "#475569",
+            ActionDisabled = "#cbd5e1",
+            ActionDisabledBackground = "#e2e8f0",
+            LinesDefault = "rgba(0, 0, 0, 0.08)",
+            TableLines = "rgba(0, 0, 0, 0.08)",
+            Divider = "rgba(0, 0, 0, 0.08)",
+            Success = "#22c55e",
+            Info = "#0ea5e9",
+            Warning = "#f59e0b",
+            Error = "#ef4444",
+            PrimaryContrastText = "#ffffff",
+            SecondaryContrastText = "#ffffff",
+            TertiaryContrastText = "#000000",
+            SuccessContrastText = "#ffffff",
+            InfoContrastText = "#ffffff",
+            WarningContrastText = "#000000",
+            ErrorContrastText = "#ffffff",
+        },
         PaletteDark = new PaletteDark()
         {
-            Primary = "#58a6ff",
-            Secondary = "#3fb950",
-            Tertiary = "#d29922",
-            Background = "#0d1117",
-            Surface = "#161b22",
-            DrawerBackground = "#161b22",
-            DrawerText = "#f0f6fc",
-            DrawerIcon = "#8b949e",
-            AppbarBackground = "#161b22",
-            AppbarText = "#f0f6fc",
-            TextPrimary = "#f0f6fc",
-            TextSecondary = "#8b949e",
-            TextDisabled = "#484f58",
-            ActionDefault = "#8b949e",
-            ActionDisabled = "#484f58",
-            ActionDisabledBackground = "#21262d",
-            LinesDefault = "#30363d",
-            TableLines = "#30363d",
-            Divider = "#30363d",
-            Success = "#3fb950",
-            Info = "#58a6ff",
-            Warning = "#d29922",
-            Error = "#f85149",
+            Primary = "#38bdf8",
+            Secondary = "#4ade80",
+            Tertiary = "#fbbf24",
+            Background = "#050505",
+            Surface = "#0a0a0a",
+            DrawerBackground = "#0a0a0a",
+            DrawerText = "#f8fafc",
+            DrawerIcon = "#94a3b8",
+            AppbarBackground = "#0a0a0a",
+            AppbarText = "#f8fafc",
+            TextPrimary = "#f8fafc",
+            TextSecondary = "#94a3b8",
+            TextDisabled = "#64748b",
+            ActionDefault = "#94a3b8",
+            ActionDisabled = "#475569",
+            ActionDisabledBackground = "#1e293b",
+            LinesDefault = "rgba(255, 255, 255, 0.08)",
+            TableLines = "rgba(255, 255, 255, 0.08)",
+            Divider = "rgba(255, 255, 255, 0.08)",
+            Success = "#4ade80",
+            Info = "#38bdf8",
+            Warning = "#fbbf24",
+            Error = "#f87171",
+            PrimaryContrastText = "#000000",
+            SecondaryContrastText = "#000000",
+            TertiaryContrastText = "#000000",
+            SuccessContrastText = "#000000",
+            InfoContrastText = "#000000",
+            WarningContrastText = "#000000",
+            ErrorContrastText = "#000000",
         },
     };
 }

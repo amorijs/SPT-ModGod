@@ -2,67 +2,79 @@
 
 <div class="d-flex gap-3 mb-4" style="flex-wrap: wrap;">
     @* Total Mods *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle(null)" @onclick="() => OnFilterClick(null)">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle(null)" @onclick="() => OnFilterClick(null)">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("cyan")">
+                <MudIcon Icon="@Icons.Material.Filled.Extension" Style="color: var(--accent-cyan);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@TotalCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Total Mods</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@TotalCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Total Mods</MudText>
             </div>
         </div>
     </MudPaper>
     
     @* Installed *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Installed")" @onclick="@(() => OnFilterClick("Installed"))">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle("Installed")" @onclick="@(() => OnFilterClick("Installed"))">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("green")">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: var(--accent-green);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@InstalledCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Installed</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@InstalledCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Installed</MudText>
             </div>
         </div>
     </MudPaper>
     
     @* Pending Install *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Pending")" @onclick="@(() => OnFilterClick("Pending"))">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle("Pending")" @onclick="@(() => OnFilterClick("Pending"))">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("orange")">
+                <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: var(--accent-orange);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@PendingCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Install</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@PendingCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Pending</MudText>
             </div>
         </div>
     </MudPaper>
     
     @* Pending Uninstall *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("PendingRemoval")" @onclick="@(() => OnFilterClick("PendingRemoval"))">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle("PendingRemoval")" @onclick="@(() => OnFilterClick("PendingRemoval"))">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Delete" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("red")">
+                <MudIcon Icon="@Icons.Material.Filled.Delete" Style="color: var(--accent-red);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@PendingRemovalCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Pending Uninstall</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@PendingRemovalCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Uninstall</MudText>
             </div>
         </div>
     </MudPaper>
     
     @* Required *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Required")" @onclick="@(() => OnFilterClick("Required"))">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle("Required")" @onclick="@(() => OnFilterClick("Required"))">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("red")">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Style="color: var(--accent-red);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@RequiredCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Required</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@RequiredCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Required</MudText>
             </div>
         </div>
     </MudPaper>
     
     @* Optional *@
-    <MudPaper Class="pa-4 flex-grow-1" Style="@GetCardStyle("Optional")" @onclick="@(() => OnFilterClick("Optional"))">
+    <MudPaper Class="pa-4 flex-grow-1 glass-panel" Style="@GetCardStyle("Optional")" @onclick="@(() => OnFilterClick("Optional"))">
         <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.LockOpen" Style="color: var(--accent-green);" Class="mr-3" Size="Size.Large"/>
+            <div style="@GetIconContainerStyle("green")">
+                <MudIcon Icon="@Icons.Material.Filled.LockOpen" Style="color: var(--accent-green);" Size="Size.Medium"/>
+            </div>
             <div>
-                <MudText Typo="Typo.h4" Style="color: var(--text-primary);">@OptionalCount</MudText>
-                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">Optional</MudText>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 700;">@OptionalCount</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Optional</MudText>
             </div>
         </div>
     </MudPaper>
@@ -100,25 +112,38 @@
         await OnFilterChanged.InvokeAsync(newFilter);
     }
     
+    private string GetIconContainerStyle(string color)
+    {
+        var colorVar = color switch
+        {
+            "cyan" => "56, 189, 248",
+            "green" => "74, 222, 128",
+            "orange" => "251, 191, 36",
+            "red" => "248, 113, 113",
+            _ => "56, 189, 248"
+        };
+        return $"background: rgba({colorVar}, 0.1); border-radius: 12px; padding: 12px; margin-right: 16px; display: flex; align-items: center; justify-content: center;";
+    }
+    
     private string GetCardStyle(string? filter)
     {
         var isActive = ActiveFilter == filter;
-        var baseStyle = "background: var(--card-bg); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; min-width: 140px;";
+        var baseStyle = "border-radius: 12px; cursor: pointer; transition: all 0.2s ease; min-width: 140px;";
         
         if (isActive)
         {
-            var borderColor = filter switch
+            var (borderColor, glowColor) = filter switch
             {
-                "Installed" => "var(--accent-green)",
-                "Pending" => "var(--accent-orange)",
-                "PendingRemoval" => "var(--accent-red)",
-                "Required" => "var(--accent-red)",
-                "Optional" => "var(--accent-green)",
-                _ => "var(--accent-cyan)" // Total
+                "Installed" => ("var(--accent-green)", "74, 222, 128"),
+                "Pending" => ("var(--accent-orange)", "251, 191, 36"),
+                "PendingRemoval" => ("var(--accent-red)", "248, 113, 113"),
+                "Required" => ("var(--accent-red)", "248, 113, 113"),
+                "Optional" => ("var(--accent-green)", "74, 222, 128"),
+                _ => ("var(--accent-cyan)", "56, 189, 248")
             };
-            return $"{baseStyle} border: 2px solid {borderColor}; box-shadow: 0 0 12px {borderColor}40;";
+            return $"{baseStyle} border: 1px solid {borderColor}; box-shadow: 0 0 20px rgba({glowColor}, 0.25), inset 0 0 20px rgba({glowColor}, 0.05);";
         }
         
-        return $"{baseStyle} border: 1px solid var(--border-color);";
+        return $"{baseStyle}";
     }
 }

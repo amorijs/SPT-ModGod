@@ -3,26 +3,26 @@
 @using Color = MudBlazor.Color
 
 <MudItem xs="12" md="6" lg="4">
-    <MudPaper Class="pa-4" Style="@(CardStyle + (Mod.IsProtected ? "" : " cursor: pointer;"))" 
+    <MudPaper Class="pa-4 glass-panel" Style="@(CardStyle + (Mod.IsProtected ? "" : " cursor: pointer;"))" 
               @onclick="OnCardClick">
         <div class="d-flex justify-space-between align-start mb-3">
             <div>
-                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">@Mod.ModName</MudText>
-                <div class="d-inline-flex gap-1 flex-wrap mt-1" @onclick:stopPropagation="true">
+                <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 700; letter-spacing: -0.3px;">@Mod.ModName</MudText>
+                <div class="d-inline-flex gap-1 flex-wrap mt-2" @onclick:stopPropagation="true">
                     <MudChip T="string" Size="Size.Small" Style="@StatusChipStyle">
                         @StatusText
                     </MudChip>
                     @if (Mod.IsProtected)
                     {
                         <MudChip T="string" Size="Size.Small" 
-                                 Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff;">
+                                 Style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%); color: #fff; backdrop-filter: blur(4px);">
                             <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" /> Built-in
                         </MudChip>
                     }
                     else
                     {
                         <MudChip T="string" Size="Size.Small" 
-                                 Style="@(Mod.Optional ? "background: var(--accent-green); color: #000; cursor: pointer;" : "background: var(--accent-orange); color: #000; cursor: pointer;")"
+                                 Style="@(Mod.Optional ? "background: rgba(74, 222, 128, 0.9); color: #000; cursor: pointer;" : "background: rgba(251, 191, 36, 0.9); color: #000; cursor: pointer;")"
                                  OnClick="@(() => OnToggleOptional.InvokeAsync(Mod))">
                             @(Mod.Optional ? "Optional" : "Required")
                         </MudChip>
@@ -57,21 +57,23 @@
             }
         </div>
 
-        <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-secondary); word-break: break-all; font-size: 0.75rem;">
+        <MudText Typo="Typo.body2" Class="mono mb-2" Style="color: var(--text-muted); word-break: break-all; font-size: 0.7rem; opacity: 0.8;">
             @TruncateUrl(Mod.DownloadUrl)
         </MudText>
 
-        <MudDivider Class="my-3" Style="border-color: var(--border-color);" />
+        <MudDivider Class="my-3" Style="border-color: var(--border-color); opacity: 0.5;" />
 
-        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
-            <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-            Updated: @FormatTimestamp(Mod.LastUpdated)
-        </MudText>
+        <div class="d-flex gap-4">
+            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" Style="vertical-align: middle; opacity: 0.7;" />
+                @FormatTimestamp(Mod.LastUpdated)
+            </MudText>
 
-        <MudText Typo="Typo.caption" Class="mt-1 d-block" Style="color: var(--text-secondary);">
-            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-            @Mod.InstallPaths.Count install path(s)
-        </MudText>
+            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="vertical-align: middle; opacity: 0.7;" />
+                @Mod.InstallPaths.Count path(s)
+            </MudText>
+        </div>
         
         @if (!IsPendingInstall)
         {
@@ -79,19 +81,21 @@
 
             if (installedFiles.Count == 0 && !Mod.IsProtected)
             {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
-                    <MudText Typo="Typo.caption">
-                        No files are being tracked for this mod (click for more details...)
+                <div class="mt-3 pa-2" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px;">
+                    <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                        No files tracked — click for details
                     </MudText>
-                </MudAlert>
+                </div>
             }
             else if (MissingFilesCount > 0)
             {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
-                    <MudText Typo="Typo.caption">
-                        Missing @MissingFilesCount tracked file(s). Files may have been removed from disk.
+                <div class="mt-3 pa-2" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px;">
+                    <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                        <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                        @MissingFilesCount file(s) missing from disk
                     </MudText>
-                </MudAlert>
+                </div>
             }
         }
 
@@ -99,10 +103,10 @@
         {
             @if (NeedsConfiguration)
             {
-                <div class="mt-2 pa-2" style="background: rgba(255, 82, 82, 0.15); border: 1px solid var(--accent-red); border-radius: 6px;">
+                <div class="mt-3 pa-2" style="background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.4); border-radius: 8px;">
                     <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
                         <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                        Needs configuration — click to set install paths
+                        Configure install paths
                     </MudText>
                 </div>
             }
@@ -110,20 +114,20 @@
             {
                 @if (OverwriteCount > 0)
                 {
-                    <div class="mt-2 pa-2" style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-orange); border-radius: 6px;">
+                    <div class="mt-3 pa-2" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px;">
                         <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
                             <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                            @OverwriteCount existing file(s) will be overwritten
+                            @OverwriteCount file(s) will be overwritten
                         </MudText>
                     </div>
                 }
                 
                 @if (SkippedCount > 0)
                 {
-                    <div class="@(OverwriteCount > 0 ? "mt-1" : "mt-2") pa-2" style="background: rgba(88, 166, 255, 0.1); border: 1px solid var(--accent-cyan); border-radius: 6px;">
+                    <div class="@(OverwriteCount > 0 ? "mt-2" : "mt-3") pa-2" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px;">
                         <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
                             <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                            @SkippedCount file(s) preserved (won't overwrite)
+                            @SkippedCount file(s) preserved
                         </MudText>
                     </div>
                 }
@@ -179,7 +183,7 @@
     {
         if (DateTime.TryParse(timestamp, out var dt))
         {
-            return dt.ToString("MMM dd, yyyy HH:mm");
+            return dt.ToString("MMM dd, yyyy");
         }
         return "Never";
     }
