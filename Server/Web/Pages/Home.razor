@@ -804,9 +804,9 @@
                 if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(target)) continue;
 
                 var sourcePath = Path.Combine(extractedPath, source);
-                var targetBasePath = target
-                    .Replace("<SPT_ROOT>", sptRoot)
-                    .Replace("/", Path.DirectorySeparatorChar.ToString());
+                // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+                var targetRel = target.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var targetBasePath = Path.Combine(sptRoot, targetRel.Replace("/", Path.DirectorySeparatorChar.ToString()));
 
                 if (Directory.Exists(sourcePath))
                 {

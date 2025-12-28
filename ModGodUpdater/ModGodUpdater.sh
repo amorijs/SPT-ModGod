@@ -453,7 +453,10 @@ process_mod() {
     for i in $(seq 0 $((path_count - 1))); do
         local path_pair=$(echo "$install_paths" | jq -c ".[$i]" 2>/dev/null)
         local source=$(echo "$path_pair" | jq -r '.[0]' 2>/dev/null)
-        local target=$(echo "$path_pair" | jq -r '.[1]' 2>/dev/null | sed "s|<SPT_ROOT>|$SPT_ROOT|g")
+        # Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+        local target_raw=$(echo "$path_pair" | jq -r '.[1]' 2>/dev/null)
+        local target_rel=$(echo "$target_raw" | sed 's|<SPT_ROOT>||g' | sed 's|^/||')
+        local target="$SPT_ROOT/$target_rel"
         
         local source_path="$temp_extract/$source"
         log "Copying: $source_path -> $target"

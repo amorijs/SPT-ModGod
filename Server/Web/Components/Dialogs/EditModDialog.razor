@@ -12,91 +12,202 @@
         <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
     </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="_modName" 
-                      Label="Mod Name (For your reference only)" 
+        <MudTextField @bind-Value="_modName"
+                      Label="Mod Name (For your reference only)"
                       Variant="Variant.Outlined"
                       Class="mb-4"
                       Required="true" />
-        
-        <MudTextField Value="@_downloadUrl" 
-                      Label="Download URL" 
+
+        <MudTextField Value="@_downloadUrl"
+                      Label="Download URL"
                       Variant="Variant.Outlined"
                       Class="mb-4 mono"
                       ReadOnly="true"
                       HelperText="URL cannot be changed. Delete and re-add to update / use a different URL." />
-        
-        <MudCheckBox @bind-Value="_isOptional" 
+
+        <MudCheckBox @bind-Value="_isOptional"
                      Label="Optional mod (not enforced on clients)"
                      Color="Color.Primary"
                      Class="mb-4" />
 
-        @* Archive Contents Viewer *@
-        @if (_archiveContents != null && _archiveContents.Count > 0)
-        {
-            <MudExpansionPanels Class="mb-4">
-                <MudExpansionPanel Text="📦 Archive Contents" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
-                    <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
-                        Use these paths to configure the install paths below. Top-level directories are shown first.
-                    </MudText>
-                    <MudPaper Class="pa-2" Style="background: var(--card-bg); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">
-                        @foreach (var item in _archiveContents)
-                        {
-                            var isDir = item.StartsWith("[DIR]");
-                            var displayText = isDir ? item.Substring(6) : item;
-                            var icon = isDir ? "📁" : "📄";
-                            var indent = displayText.Count(c => c == '/') * 12;
-                            <div style="padding-left: @(indent)px; color: @(isDir ? "var(--accent-cyan)" : "var(--text-primary)");">
-                                @icon @displayText
-                            </div>
-                        }
-                    </MudPaper>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-        }
+
 
         @if (Mod != null && IsPendingInstall)
         {
             <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
                 Install Paths
             </MudText>
-            
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                Map folders from the archive to destinations on your server. All target paths are relative to your SPT root.
+            </MudText>
+
             @if (_installPaths != null)
             {
                 @for (int i = 0; i < _installPaths.Count; i++)
                 {
                     var index = i;
-                    <MudPaper Class="pa-3 mb-2" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
-                        <MudGrid>
-                            <MudItem xs="5">
-                                <MudTextField @bind-Value="_installPaths[index].Source" 
-                                              Label="Source Path" 
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense"
-                                              Class="mono" />
-                            </MudItem>
-                            <MudItem xs="1" Class="d-flex align-center justify-center">
-                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                            </MudItem>
-                            <MudItem xs="5">
-                                <MudTextField @bind-Value="_installPaths[index].Target" 
-                                              Label="Target Path" 
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense"
-                                              Class="mono" />
-                            </MudItem>
-                            <MudItem xs="1" Class="d-flex align-center justify-center">
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
-                                               Color="Color.Error" 
-                                               Size="Size.Small"
-                                               OnClick="@(() => RemoveInstallPath(index))" />
-                            </MudItem>
-                        </MudGrid>
+                    <MudPaper Class="pa-4 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); position: relative;">
+                        <div class="d-flex align-center justify-space-between mb-3">
+                             <MudText Typo="Typo.caption" Style="color: var(--text-secondary); font-weight: 600;">INSTALL PATH @(index + 1)</MudText>
+                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                            Color="Color.Error"
+                                            Size="Size.Small"
+                                            OnClick="@(() => RemoveInstallPath(index))"
+                                            title="Remove path" />
+                        </div>
+
+                        <div class="d-flex align-center gap-3">
+                            @* Source Selection *@
+                            <div style="flex: 1; position: relative;">
+                                <MudText Typo="Typo.caption" Class="mb-1" Style="color: var(--text-secondary);">Source (Archive)</MudText>
+                                <div class="d-flex align-center" style="border: 1px solid var(--border-color); border-radius: 4px; background: var(--secondary-bg); height: 40px;">
+                                    <input type="text"
+                                           class="mono"
+                                           style="flex: 1; background: transparent; border: none; outline: none; color: var(--text-primary); font-size: 14px; padding: 0 12px;"
+                                           placeholder="BepInEx"
+                                           value="@_installPaths[index].Source"
+                                           @onchange="@((ChangeEventArgs e) => OnInstallPathChanged(index, e.Value?.ToString() ?? "", isSource: true))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
+                                                   Size="Size.Small"
+                                                   Style="color: var(--text-secondary);"
+                                                   OnClick="@(() => OpenSourceTree(index))" />
+                                </div>
+
+                                @if (_activeSourceIndex == index && _isSourcePopoverOpen)
+                                {
+                                    <div class="file-tree-backdrop" @onclick="@(() => _isSourcePopoverOpen = false)"></div>
+                                    <MudPaper Class="pa-2"
+                                              Style="position: absolute; top: 100%; left: 0; width: 320px; max-height: 280px; overflow-y: auto; background: #1a1a1a; border: 1px solid var(--border-color); z-index: 1001; margin-top: 4px; border-radius: 4px;">
+                                        <div class="d-flex justify-space-between align-center mb-2 px-1">
+                                            <MudText Typo="Typo.caption" Style="font-weight:bold; color: var(--text-primary);">Select Source</MudText>
+                                        </div>
+                                        @if (_archiveTreeRoot == null || _archiveTreeRoot.Children.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Class="px-2" Style="color: var(--text-secondary);">No archive contents available</MudText>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var item in GetFlattenedArchiveTree())
+                                            {
+                                                var node = item.Node;
+                                                var depth = item.Depth;
+                                                var isExpanded = node.IsDirectory && _archiveExpandedDirs.Contains(node.RelativePath);
+                                                var capturedNode = node;
+                                                var capturedIndex = index;
+
+                                                <div class="d-flex align-center py-1 source-tree-item"
+                                                     style="padding-left:@(depth * 14 + 4)px; border-radius: 4px; margin: 1px 0;">
+
+                                                    @if (node.IsDirectory)
+                                                    {
+                                                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ArrowDropDown : Icons.Material.Filled.ArrowRight)"
+                                                                       Size="Size.Small"
+                                                                       Style="padding: 2px; min-width: 20px; color: var(--text-secondary);"
+                                                                       OnClick="@(() => ToggleArchiveExpand(capturedNode))" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="width: 24px;"></span>
+                                                    }
+
+                                                    <div class="d-flex align-center flex-grow-1"
+                                                         style="cursor: pointer; padding: 2px 4px; border-radius: 4px;"
+                                                         @onclick="@(() => SelectSourcePath(capturedIndex, capturedNode.RelativePath))"
+                                                         @onclick:stopPropagation="true">
+                                                        @if (node.IsDirectory)
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" Style="color: var(--accent-cyan);" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" Class="mr-2" Style="color: var(--text-secondary);" />
+                                                        }
+                                                        <span class="mono" style="font-size: 12px; color: var(--text-primary);">@node.Name</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                    </MudPaper>
+                                }
+                            </div>
+
+                            @* Arrow *@
+                            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="color: var(--text-secondary); opacity: 0.5; flex-shrink: 0; margin-top: 18px; fill: #00fe5d;" />
+
+                            @* Target Selection *@
+                            <div style="flex: 1; position: relative;">
+                                <MudText Typo="Typo.caption" Class="mb-1" Style="color: var(--text-secondary);">Target (Server)</MudText>
+                                <div class="d-flex align-center" style="border: 1px solid var(--border-color); border-radius: 4px; background: var(--secondary-bg); height: 40px;">
+                                    <span class="mono" style="color: var(--text-secondary); font-size: 12px; white-space: nowrap; border-right: 1px solid var(--border-color); padding: 0 10px; background: rgba(0,0,0,0.2); height: 100%; display: flex; align-items: center;">&lt;SPT_ROOT&gt;/</span>
+                                    <input type="text"
+                                           class="mono"
+                                           style="flex: 1; background: transparent; border: none; outline: none; color: var(--text-primary); font-size: 14px; padding: 0 8px;"
+                                           placeholder="BepInEx/plugins"
+                                           value="@_installPaths[index].Target"
+                                           @onchange="@((ChangeEventArgs e) => OnInstallPathChanged(index, e.Value?.ToString() ?? "", isSource: false))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
+                                                   Size="Size.Small"
+                                                   Style="color: var(--text-secondary);"
+                                                   OnClick="@(() => OpenTargetTree(index))" />
+                                </div>
+
+                                @if (_activeTargetIndex == index && _isTargetPopoverOpen)
+                                {
+                                    <div class="file-tree-backdrop" @onclick="@(() => _isTargetPopoverOpen = false)"></div>
+                                    <MudPaper Class="pa-2"
+                                              Style="position: absolute; top: 100%; right: 0; width: 320px; max-height: 280px; overflow-y: auto; background: #1a1a1a; border: 1px solid var(--border-color); z-index: 1001; margin-top: 4px; border-radius: 4px;">
+                                        <div class="d-flex justify-space-between align-center mb-2 px-1">
+                                            <MudText Typo="Typo.caption" Style="font-weight:bold; color: var(--text-primary);">Select Target</MudText>
+                                        </div>
+                                        @if (_serverTreeRoot == null || _serverTreeRoot.Children.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Class="px-2" Style="color: var(--text-secondary);">No directories found</MudText>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var item in GetFlattenedServerTree())
+                                            {
+                                                var node = item.Node;
+                                                var depth = item.Depth;
+                                                var isExpanded = _serverExpandedDirs.Contains(node.RelativePath);
+                                                var capturedNode = node;
+                                                var capturedIndex = index;
+
+                                                <div class="d-flex align-center py-1 source-tree-item"
+                                                     style="padding-left:@(depth * 14 + 4)px; border-radius: 4px; margin: 1px 0;">
+
+                                                    @if (node.Children.Count > 0)
+                                                    {
+                                                        <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ArrowDropDown : Icons.Material.Filled.ArrowRight)"
+                                                                       Size="Size.Small"
+                                                                       Style="padding: 2px; min-width: 20px; color: var(--text-secondary);"
+                                                                       OnClick="@(() => ToggleServerExpand(capturedNode))" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="width: 24px;"></span>
+                                                    }
+
+                                                    <div class="d-flex align-center flex-grow-1"
+                                                         style="cursor: pointer; padding: 2px 4px; border-radius: 4px;"
+                                                         @onclick="@(() => SelectTargetPath(capturedIndex, capturedNode.RelativePath))"
+                                                         @onclick:stopPropagation="true">
+                                                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" Style="color: var(--accent-green);" />
+                                                        <span class="mono" style="font-size: 12px; color: var(--text-primary);">@node.Name</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                    </MudPaper>
+                                }
+                            </div>
+                        </div>
                     </MudPaper>
                 }
             }
 
-            <MudButton Variant="Variant.Text" 
-                       StartIcon="@Icons.Material.Filled.Add" 
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.Add"
                        Color="Color.Primary"
                        OnClick="AddInstallPath"
                        Class="mt-2">
@@ -193,8 +304,17 @@
                     @_fileTreeError
                 </MudAlert>
             }
+            else if (_noFilesToOverwrite)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    No existing files would be overwritten by this mod. All files are new.
+                </MudAlert>
+            }
             else if (_fileTreeRoot != null && _fileTreeRoot.Children != null && _fileTreeRoot.Children.Any())
             {
+                <MudAlert Severity="Severity.Warning" Class="mb-3">
+                    This mod will overwrite existing files. Uncheck any files you want to keep.
+                </MudAlert>
                 <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 360px; overflow-y: auto;">
                     <div class="mb-2" style="font-size:13px; color: var(--text-secondary);">
                         ✓ Checked = overwrite (default) &nbsp;|&nbsp; ☐ Unchecked = ignore (keep existing)
@@ -252,6 +372,9 @@
                         </div>
                     }
                 </MudPaper>
+                <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--text-secondary);">
+                    Note: Directories are never overwritten—only files within them.
+                </MudText>
             }
             else
             {
@@ -263,7 +386,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Close" Variant="Variant.Text">Cancel</MudButton>
-        <MudButton Color="Color.Primary" 
+        <MudButton Color="Color.Primary"
                    Variant="Variant.Filled"
                    Disabled="@(string.IsNullOrWhiteSpace(_modName) || (_installPaths?.Count ?? 0) == 0)"
                    OnClick="Save">
@@ -286,14 +409,27 @@
     private bool _isOptional;
     private List<InstallPathItem> _installPaths = new();
     private List<string>? _archiveContents;
-    
+
     // File tree state
     private FileNode? _fileTreeRoot;
     private HashSet<string> _ignoredPaths = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
     private bool _fileTreeLoading;
     private string? _fileTreeError;
-    
+    private bool _noFilesToOverwrite;
+
+    // Archive tree state for source selection
+    private FileNode? _archiveTreeRoot;
+    private HashSet<string> _archiveExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private int _activeSourceIndex = -1;
+    private bool _isSourcePopoverOpen;
+
+    // Server tree state for target selection
+    private FileNode? _serverTreeRoot;
+    private HashSet<string> _serverExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private int _activeTargetIndex = -1;
+    private bool _isTargetPopoverOpen;
+
     // Track which mod we initialized for
     private string? _initializedForUrl;
 
@@ -307,7 +443,7 @@
             _modName = Mod.ModName ?? "";
             _downloadUrl = Mod.DownloadUrl ?? "";
             _isOptional = Mod.Optional;
-            
+
             var installPaths = Mod.InstallPaths ?? new List<string[]>();
             _installPaths = installPaths
                 .Where(p => p != null && p.Length >= 2)
@@ -320,11 +456,12 @@
 
             // Load archive contents
             _archiveContents = null;
-            if (!string.IsNullOrEmpty(Mod.DownloadUrl) && 
+            if (!string.IsNullOrEmpty(Mod.DownloadUrl) &&
                 ConfigService.Staging?.UrlToPath != null &&
                 ConfigService.Staging.UrlToPath.TryGetValue(Mod.DownloadUrl, out var stagingPath))
             {
                 _archiveContents = ModDownloadService.GetExtractedContents(stagingPath);
+                BuildArchiveTree();
             }
 
             // Initialize file rules
@@ -337,7 +474,7 @@
             _fileTreeError = null;
             _fileTreeRoot = null;
             _fileTreeLoading = true;
-            
+
             await LoadFileTreeAsync();
         }
         else if (!Visible)
@@ -354,13 +491,22 @@
             _expandedDirs.Clear();
             _fileTreeLoading = false;
             _fileTreeError = null;
+            _noFilesToOverwrite = false;
+
+            // Reset archive/server tree state
+            _archiveTreeRoot = null;
+            _archiveExpandedDirs.Clear();
+            _serverTreeRoot = null;
+            _serverExpandedDirs.Clear();
+            _isSourcePopoverOpen = false;
+            _isTargetPopoverOpen = false;
         }
     }
 
     private async Task LoadFileTreeAsync()
     {
         if (Mod == null) return;
-        
+
         try
         {
             var downloadUrl = Mod.DownloadUrl;
@@ -384,7 +530,7 @@
             }
 
             var extractedPath = Path.Combine(stagingPath, "extracted");
-            
+
             if (!Directory.Exists(extractedPath))
             {
                 _fileTreeError = "Staging extraction not found. Delete and reinstall this mod to view files.";
@@ -395,16 +541,16 @@
             var installPaths = _installPaths ?? new List<InstallPathItem>();
             var sptRoot = ConfigService.SptRoot ?? "";
             var filesFound = 0;
-            
+
             foreach (var install in installPaths
                 .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Source) && !string.IsNullOrWhiteSpace(p.Target))
                 .DistinctBy(p => p.Source, StringComparer.OrdinalIgnoreCase))
             {
                 var sourcePath = Path.Combine(extractedPath, install.Source);
-                var targetBasePath = install.Target
-                    .Replace("<SPT_ROOT>", sptRoot)
-                    .Replace("/", Path.DirectorySeparatorChar.ToString());
-                
+                // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+                var targetRel = install.Target.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var targetBasePath = Path.Combine(sptRoot, targetRel.Replace("/", Path.DirectorySeparatorChar.ToString()));
+
                 if (Directory.Exists(sourcePath))
                 {
                     var node = BuildNodeWithOverwriteCheck(sourcePath, NormalizePath(install.Source), targetBasePath, ref filesFound);
@@ -425,15 +571,8 @@
             }
 
             _fileTreeRoot = root;
-            
-            if (filesFound == 0)
-            {
-                _fileTreeError = "No existing files would be overwritten by this mod. All files are new.";
-            }
-            else
-            {
-                _fileTreeError = null;
-            }
+            _noFilesToOverwrite = filesFound == 0;
+            _fileTreeError = null;
         }
         catch (Exception ex)
         {
@@ -460,7 +599,7 @@
             var dirName = Path.GetFileName(dir);
             var childRel = NormalizePath(Path.Combine(relativePath, dirName));
             var childTargetPath = Path.Combine(fullTargetPath, dirName);
-            
+
             var childNode = BuildNodeWithOverwriteCheck(dir, childRel, childTargetPath, ref filesFound);
             if (childNode != null && (childNode.Children?.Count > 0 || !childNode.IsDirectory))
             {
@@ -473,7 +612,7 @@
             var fileName = Path.GetFileName(file);
             var childRel = NormalizePath(Path.Combine(relativePath, fileName));
             var targetFilePath = Path.Combine(fullTargetPath, fileName);
-            
+
             if (File.Exists(targetFilePath))
             {
                 node.Children.Add(new FileNode
@@ -559,7 +698,7 @@
     private FileRuleState GetNodeState(FileNode? node)
     {
         if (node == null) return FileRuleState.Overwrite;
-        
+
         if (!node.IsDirectory)
         {
             return IsPathIgnored(node.RelativePath) ? FileRuleState.Ignore : FileRuleState.Overwrite;
@@ -574,7 +713,7 @@
     private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
     {
         if (node == null) yield break;
-        
+
         if (!node.IsDirectory)
         {
             yield return node;
@@ -583,7 +722,7 @@
 
         var children = node.Children;
         if (children == null) yield break;
-        
+
         foreach (var child in children)
         {
             foreach (var leaf in GetLeafNodes(child))
@@ -602,7 +741,7 @@
     private void ToggleExpand(FileNode node)
     {
         if (!node.IsDirectory) return;
-        
+
         var path = node.RelativePath;
         if (_expandedDirs.Contains(path))
             _expandedDirs.Remove(path);
@@ -613,7 +752,7 @@
     private void ToggleNode(FileNode? node)
     {
         if (node == null) return;
-        
+
         var current = GetNodeState(node);
         var next = current == FileRuleState.Ignore ? FileRuleState.Overwrite : FileRuleState.Ignore;
 
@@ -640,7 +779,7 @@
         {
             var ancestorIgnore = _ignoredPaths
                 .FirstOrDefault(r => rel.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
-            
+
             if (ancestorIgnore != null)
             {
                 _ignoredPaths.Remove(ancestorIgnore);
@@ -679,7 +818,7 @@
     private void ApplyDirectoryState(FileNode? node, FileRuleState state)
     {
         if (node == null) return;
-        
+
         foreach (var path in EnumeratePaths(node).ToList())
         {
             _ignoredPaths.Remove(path);
@@ -694,7 +833,7 @@
             var rel = NormalizePath(node.RelativePath);
             var ancestorIgnore = _ignoredPaths
                 .FirstOrDefault(r => rel.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
-            
+
             if (ancestorIgnore != null)
             {
                 _ignoredPaths.Remove(ancestorIgnore);
@@ -718,13 +857,13 @@
     private IEnumerable<string> EnumeratePaths(FileNode? node)
     {
         if (node == null) yield break;
-        
+
         if (!string.IsNullOrEmpty(node.RelativePath))
             yield return NormalizePath(node.RelativePath);
 
         var children = node.Children;
         if (children == null) yield break;
-        
+
         foreach (var child in children)
         {
             foreach (var p in EnumeratePaths(child))
@@ -736,15 +875,15 @@
     {
         var result = new List<(FileNode, int)>();
         if (_fileTreeRoot?.Children == null) return result;
-        
+
         void Flatten(FileNode node, int depth)
         {
             if (node == null) return;
             result.Add((node, depth));
-            
+
             if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath))
                 return;
-            
+
             var children = node.Children;
             if (children != null)
             {
@@ -754,12 +893,12 @@
                 }
             }
         }
-        
+
         foreach (var child in _fileTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
         {
             Flatten(child, 0);
         }
-        
+
         return result;
     }
 
@@ -768,12 +907,236 @@
         _installPaths.Add(new InstallPathItem());
     }
 
-    private void RemoveInstallPath(int index)
+    private async Task RemoveInstallPath(int index)
     {
         if (index >= 0 && index < _installPaths.Count)
         {
             _installPaths.RemoveAt(index);
+            await RefreshFileTreeAsync();
         }
+    }
+
+    private void BuildArchiveTree()
+    {
+        _archiveTreeRoot = new FileNode { Name = "Archive Root", IsDirectory = true, RelativePath = "" };
+        _archiveExpandedDirs.Clear();
+
+        if (_archiveContents == null) return;
+
+        foreach (var path in _archiveContents)
+        {
+            var isDir = path.StartsWith("[DIR]");
+            var cleanPath = isDir ? path.Substring(5).TrimStart() : path;
+            cleanPath = NormalizePath(cleanPath);
+
+            var parts = cleanPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var current = _archiveTreeRoot;
+            var accumulated = "";
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                accumulated = string.IsNullOrEmpty(accumulated) ? part : accumulated + "/" + part;
+                var isLast = i == parts.Length - 1;
+
+                var existing = current.Children.FirstOrDefault(c => c.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                {
+                    // If it's the last part, use the actual isDir flag. Intermediate parts are always dirs.
+                    var nodeIsDir = isLast ? isDir : true;
+                    var newNode = new FileNode
+                    {
+                        Name = part,
+                        RelativePath = accumulated,
+                        IsDirectory = nodeIsDir
+                    };
+
+                    current.Children.Add(newNode);
+                    current = newNode;
+
+                    // Auto-expand top level folders
+                    if (nodeIsDir && i == 0) _archiveExpandedDirs.Add(accumulated);
+                }
+                else
+                {
+                    current = existing;
+                }
+            }
+        }
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedArchiveTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_archiveTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            if (node.IsDirectory && !_archiveExpandedDirs.Contains(node.RelativePath))
+                return;
+
+            var children = node.Children;
+            if (children != null)
+            {
+                // Sort directories first, then files
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _archiveTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private void ToggleArchiveExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        var path = node.RelativePath;
+        if (_archiveExpandedDirs.Contains(path))
+            _archiveExpandedDirs.Remove(path);
+        else
+            _archiveExpandedDirs.Add(path);
+    }
+
+    private void OpenSourceTree(int index)
+    {
+        _activeSourceIndex = index;
+        _isSourcePopoverOpen = true;
+    }
+
+    private async Task SelectSourcePath(int index, string path)
+    {
+        if (index >= 0 && index < _installPaths.Count)
+        {
+            _installPaths[index].Source = path;
+        }
+        _isSourcePopoverOpen = false;
+        _activeSourceIndex = -1;
+        await RefreshFileTreeAsync();
+    }
+
+    private void OpenTargetTree(int index)
+    {
+        BuildServerTree();
+        _activeTargetIndex = index;
+        _isTargetPopoverOpen = true;
+    }
+
+    private async Task SelectTargetPath(int index, string path)
+    {
+        if (index >= 0 && index < _installPaths.Count)
+        {
+            _installPaths[index].Target = path;
+        }
+        _isTargetPopoverOpen = false;
+        _activeTargetIndex = -1;
+        await RefreshFileTreeAsync();
+    }
+
+    private async Task OnInstallPathChanged(int index, string value, bool isSource)
+    {
+        if (index >= 0 && index < _installPaths.Count)
+        {
+            if (isSource)
+                _installPaths[index].Source = value;
+            else
+                _installPaths[index].Target = value;
+        }
+        await RefreshFileTreeAsync();
+    }
+
+    private async Task RefreshFileTreeAsync()
+    {
+        if (!IsPendingInstall) return;
+        _fileTreeLoading = true;
+        await InvokeAsync(StateHasChanged);
+        await LoadFileTreeAsync();
+    }
+
+    private void ToggleServerExpand(FileNode node)
+    {
+        var path = node.RelativePath;
+        if (_serverExpandedDirs.Contains(path))
+            _serverExpandedDirs.Remove(path);
+        else
+            _serverExpandedDirs.Add(path);
+    }
+
+    private void BuildServerTree()
+    {
+        var root = ConfigService.SptRoot;
+        _serverTreeRoot = new FileNode { Name = "root", IsDirectory = true, RelativePath = "" };
+
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            return;
+
+        try
+        {
+            // Build tree with limited depth (2 levels deep for performance)
+            BuildServerTreeRecursive(_serverTreeRoot, root, "", 0, 2);
+        }
+        catch { /* Ignore permission errors */ }
+    }
+
+    private void BuildServerTreeRecursive(FileNode parent, string basePath, string relativePath, int depth, int maxDepth)
+    {
+        if (depth >= maxDepth) return;
+
+        var currentPath = string.IsNullOrEmpty(relativePath)
+            ? basePath
+            : Path.Combine(basePath, relativePath);
+
+        try
+        {
+            foreach (var dir in Directory.GetDirectories(currentPath).OrderBy(d => Path.GetFileName(d)))
+            {
+                var dirName = Path.GetFileName(dir);
+                var childRelPath = string.IsNullOrEmpty(relativePath)
+                    ? dirName
+                    : $"{relativePath}/{dirName}";
+
+                var node = new FileNode
+                {
+                    Name = dirName,
+                    RelativePath = childRelPath,
+                    IsDirectory = true
+                };
+
+                parent.Children.Add(node);
+
+                // Recursively build children
+                BuildServerTreeRecursive(node, basePath, childRelPath, depth + 1, maxDepth);
+            }
+        }
+        catch { /* Ignore permission errors */ }
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedServerTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_serverTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            result.Add((node, depth));
+            if (!_serverExpandedDirs.Contains(node.RelativePath)) return;
+            foreach (var child in node.Children.OrderBy(c => c.Name))
+                Flatten(child, depth + 1);
+        }
+
+        foreach (var child in _serverTreeRoot.Children.OrderBy(c => c.Name))
+            Flatten(child, 0);
+
+        return result;
     }
 
     private async Task Close()
@@ -793,8 +1156,23 @@
                 .Select(p => new FileCopyRule { Path = p, State = FileCopyRuleState.Ignore })
                 .ToList()
         };
-        
+
         await OnSave.InvokeAsync(result);
         await Close();
     }
 }
+
+<style>
+    .source-tree-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .file-tree-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+    }
+</style>

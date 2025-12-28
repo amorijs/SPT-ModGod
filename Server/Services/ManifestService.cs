@@ -243,7 +243,9 @@ public class ManifestService(
 
         foreach (var installPath in mod.InstallPaths)
         {
-            var sourceRelPath = installPath[1].Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+            // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+            var targetPathRaw = installPath[1];
+            var sourceRelPath = targetPathRaw.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
             
             // Transform path through sync path mapping
             var targetPath = TransformPathThroughSyncPaths(sourceRelPath, syncPaths);
@@ -253,8 +255,10 @@ public class ManifestService(
                 continue;
             }
 
-            // The actual installed path on the server
-            var actualInstalledPath = installPath[1].Replace("<SPT_ROOT>", configService.SptRoot);
+            // The actual installed path on the server - handle both formats
+            var actualInstalledPath = targetPathRaw.Contains("<SPT_ROOT>")
+                ? targetPathRaw.Replace("<SPT_ROOT>", configService.SptRoot)
+                : Path.Combine(configService.SptRoot, sourceRelPath);
 
             if (!Directory.Exists(actualInstalledPath))
             {

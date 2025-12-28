@@ -686,13 +686,36 @@
 
         var config = CurrentConfig;
         config.SyncPaths = _syncPaths.ToList();
+        
+        // Clean up orphaned exclusions that were under this sync path
+        var normalizedSource = NormalizePath(entry.Source);
+        
+        // Remove directly from _exclusionSet (the UI state)
+        var orphanedFromSet = _exclusionSet
+            .Where(p => p.StartsWith(normalizedSource + "/", StringComparison.OrdinalIgnoreCase) ||
+                        p.Equals(normalizedSource, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        
+        foreach (var orphan in orphanedFromSet)
+        {
+            _exclusionSet.Remove(orphan);
+        }
+        
+        // Also clean up config.ExcludedPaths
+        var orphanCount = config.ExcludedPaths.RemoveAll(p =>
+            NormalizePath(p).StartsWith(normalizedSource + "/", StringComparison.OrdinalIgnoreCase) ||
+            NormalizePath(p).Equals(normalizedSource, StringComparison.OrdinalIgnoreCase));
+        
         SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
         await OnConfigChanged.InvokeAsync();
         await LoadTreeAsync();
 
-        Snackbar.Add($"Removed sync path: {entry.Source}", Severity.Info);
+        var message = orphanCount > 0
+            ? $"Removed sync path: {entry.Source} (cleaned up {orphanCount} exclusion(s))"
+            : $"Removed sync path: {entry.Source}";
+        Snackbar.Add(message, Severity.Info);
     }
 
     /// <summary>

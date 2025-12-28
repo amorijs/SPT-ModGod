@@ -1,10 +1,12 @@
 @using ModGod.Services
 @using Color = MudBlazor.Color
 @using System.Reflection
+@using Microsoft.JSInterop
 @inherits LayoutComponentBase
 
 @inject ISnackbar Snackbar
 @inject ConfigService ConfigService
+@inject IJSRuntime JS
 
 <HeadContent>
     <link href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" rel="stylesheet" />
@@ -40,29 +42,29 @@
         
         /* Light Mode */
         .theme-light {
-            --primary-bg: #f8fafc;
-            --secondary-bg: #f1f5f9;
-            --card-bg: rgba(255, 255, 255, 0.7);
-            --glass-bg: rgba(255, 255, 255, 0.6);
-            --appbar-bg: rgba(248, 250, 252, 0.9);
+            /* Warm, stone-based palette */
+            --primary-bg: #fafaf9;
+            --secondary-bg: #f5f5f4;
+            --card-bg: #ffffff;
+            --glass-bg: rgba(255, 255, 255, 0.9);
+            --appbar-bg: rgba(255, 255, 255, 0.8);
             
-            --accent-cyan: #0ea5e9;
-            --accent-green: #22c55e;
-            --accent-orange: #f59e0b;
-            --accent-red: #ef4444;
+            --accent-cyan: #0e7490;
+            --accent-green: #15803d;
+            --accent-orange: #c2410c;
+            --accent-red: #be123c;
             
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-muted: #94a3b8;
+            --text-primary: #1c1917;
+            --text-secondary: #57534e;
+            --text-muted: #a8a29e;
             
-            --border-color: rgba(0, 0, 0, 0.08);
-            --border-hover: rgba(0, 0, 0, 0.12);
-            --shadow-subtle: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-            --shadow-glow: 0 0 15px rgba(14, 165, 233, 0.15);
+            --border-color: #e7e5e4;
+            --border-hover: #d6d3d1;
+            --shadow-subtle: 0 2px 8px -2px rgba(0, 0, 0, 0.05), 0 1px 4px -2px rgba(0, 0, 0, 0.02);
+            --shadow-glow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
             --glass-blur: blur(12px);
             
-            --bg-gradient: radial-gradient(circle at 15% 50%, rgba(14, 165, 233, 0.05) 0%, transparent 25%),
-                           radial-gradient(circle at 85% 30%, rgba(34, 197, 94, 0.05) 0%, transparent 25%);
+            --bg-gradient: radial-gradient(circle at 50% 0%, rgba(120, 113, 108, 0.03) 0%, transparent 50%);
         }
 
         body {
@@ -118,6 +120,12 @@
             transform: rotate(15deg);
         }
     </style>
+    <script>
+        window.setTheme = (isDark) => {
+            document.body.classList.remove('theme-dark', 'theme-light');
+            document.body.classList.add(isDark ? 'theme-dark' : 'theme-light');
+        };
+    </script>
 </HeadContent>
 
 <MudThemeProvider Theme="@CustomTheme" @bind-IsDarkMode="_isDarkMode"/>
@@ -125,8 +133,7 @@
 <MudSnackbarProvider />
 <MudDialogProvider />
 
-<div class="@(_isDarkMode ? "theme-dark" : "theme-light")">
-    <MudLayout>
+<MudLayout>
         <MudAppBar Dense Elevation="0" Style="background: var(--appbar-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color);">
             <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Large" Style="color: var(--accent-cyan); filter: drop-shadow(0 0 5px rgba(56,189,248,0.5));" Class="mr-2" />
             <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 700; letter-spacing: -0.5px;">ModGod</MudText>
@@ -144,50 +151,58 @@
             @Body
         </MudMainContent>
     </MudLayout>
-</div>
 
 @code {
     private string Version => $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0"}";
     private bool _isDarkMode = true;
     
-    private void ToggleTheme()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("setTheme", _isDarkMode);
+        }
+    }
+    
+    private async Task ToggleTheme()
     {
         _isDarkMode = !_isDarkMode;
+        await JS.InvokeVoidAsync("setTheme", _isDarkMode);
     }
     
     MudTheme CustomTheme = new MudTheme()
     {
         PaletteLight = new PaletteLight()
         {
-            Primary = "#0ea5e9",
-            Secondary = "#22c55e",
-            Tertiary = "#f59e0b",
-            Background = "#f8fafc",
-            Surface = "#f1f5f9",
-            DrawerBackground = "#f1f5f9",
-            DrawerText = "#0f172a",
-            DrawerIcon = "#475569",
-            AppbarBackground = "#f8fafc",
-            AppbarText = "#0f172a",
-            TextPrimary = "#0f172a",
-            TextSecondary = "#475569",
-            TextDisabled = "#94a3b8",
-            ActionDefault = "#475569",
-            ActionDisabled = "#cbd5e1",
-            ActionDisabledBackground = "#e2e8f0",
-            LinesDefault = "rgba(0, 0, 0, 0.08)",
-            TableLines = "rgba(0, 0, 0, 0.08)",
-            Divider = "rgba(0, 0, 0, 0.08)",
-            Success = "#22c55e",
-            Info = "#0ea5e9",
-            Warning = "#f59e0b",
-            Error = "#ef4444",
+            Primary = "#0e7490",
+            Secondary = "#15803d",
+            Tertiary = "#c2410c",
+            Background = "#fafaf9",
+            Surface = "#ffffff",
+            DrawerBackground = "#f5f5f4",
+            DrawerText = "#1c1917",
+            DrawerIcon = "#57534e",
+            AppbarBackground = "#ffffff",
+            AppbarText = "#1c1917",
+            TextPrimary = "#1c1917",
+            TextSecondary = "#57534e",
+            TextDisabled = "#a8a29e",
+            ActionDefault = "#57534e",
+            ActionDisabled = "#d6d3d1",
+            ActionDisabledBackground = "#e7e5e4",
+            LinesDefault = "rgba(0, 0, 0, 0.06)",
+            TableLines = "rgba(0, 0, 0, 0.06)",
+            Divider = "rgba(0, 0, 0, 0.06)",
+            Success = "#15803d",
+            Info = "#0e7490",
+            Warning = "#c2410c",
+            Error = "#be123c",
             PrimaryContrastText = "#ffffff",
             SecondaryContrastText = "#ffffff",
-            TertiaryContrastText = "#000000",
+            TertiaryContrastText = "#ffffff",
             SuccessContrastText = "#ffffff",
             InfoContrastText = "#ffffff",
-            WarningContrastText = "#000000",
+            WarningContrastText = "#ffffff",
             ErrorContrastText = "#ffffff",
         },
         PaletteDark = new PaletteDark()

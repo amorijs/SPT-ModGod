@@ -56,8 +56,8 @@ public class ModDownloadService
         var installPaths = result.SuggestedInstallPaths.Count > 0
             ? result.SuggestedInstallPaths
             : result.TopLevelDirectories.Count > 0
-                ? result.TopLevelDirectories.Select(dir => new[] { dir, $"<SPT_ROOT>/{dir}" }).ToList()
-                : new List<string[]> { new[] { "", "<SPT_ROOT>/" } };
+                ? result.TopLevelDirectories.Select(dir => new[] { dir, dir }).ToList()
+                : new List<string[]> { new[] { "", "" } };
 
         var mod = new ModEntry
         {
@@ -230,15 +230,8 @@ public class ModDownloadService
 
         foreach (var dir in topLevelDirs)
         {
-            var sourcePath = dir; // Relative path within the extracted mod
-            var targetPath = dir switch
-            {
-                "BepInEx" => "<SPT_ROOT>/BepInEx",
-                "SPT" => "<SPT_ROOT>/SPT",
-                _ => $"<SPT_ROOT>/{dir}"
-            };
-
-            installPaths.Add(new[] { sourcePath, targetPath });
+            // Source and target are the same relative path (relative to SPT root)
+            installPaths.Add(new[] { dir, dir });
         }
 
         return installPaths;

@@ -211,7 +211,10 @@ public partial class ConfigService
             {
                 try
                 {
-                    var fullPath = path.Replace("<SPT_ROOT>", _sptRoot);
+                    // Handle both old format (<SPT_ROOT>/path) and new format (path)
+                    var fullPath = path.Contains("<SPT_ROOT>")
+                        ? path.Replace("<SPT_ROOT>", _sptRoot)
+                        : Path.Combine(_sptRoot, path.TrimStart('/', '\\'));
                     if (File.Exists(fullPath))
                     {
                         File.Delete(fullPath);
@@ -230,7 +233,10 @@ public partial class ConfigService
             {
                 try
                 {
-                    var fullPath = path.Replace("<SPT_ROOT>", _sptRoot);
+                    // Handle both old format (<SPT_ROOT>/path) and new format (path)
+                    var fullPath = path.Contains("<SPT_ROOT>")
+                        ? path.Replace("<SPT_ROOT>", _sptRoot)
+                        : Path.Combine(_sptRoot, path.TrimStart('/', '\\'));
                     if (Directory.Exists(fullPath))
                     {
                         // Only delete if directory is empty
@@ -474,7 +480,10 @@ public partial class ConfigService
 
             foreach (var pathToDelete in pathsToDelete)
             {
-                var fullPath = pathToDelete.Replace("<SPT_ROOT>", "$SptRoot");
+                // Handle both old format (<SPT_ROOT>/path) and new format (path)
+                var fullPath = pathToDelete.Contains("<SPT_ROOT>")
+                    ? pathToDelete.Replace("<SPT_ROOT>", "$SptRoot")
+                    : "$SptRoot\\" + pathToDelete.Replace("/", "\\").TrimStart('\\');
                 sb.AppendLine($"if (Test-Path \"{fullPath}\") {{");
                 sb.AppendLine($"    try {{");
                 sb.AppendLine($"        Remove-Item -Path \"{fullPath}\" -Recurse -Force -ErrorAction Stop");
@@ -575,7 +584,11 @@ public partial class ConfigService
                 foreach (var installPath in mod.InstallPaths)
                 {
                     var sourcePath = installPath[0];
-                    var targetPath = installPath[1].Replace("<SPT_ROOT>", "$SptRoot");
+                    // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+                    var rawTarget = installPath[1];
+                    var targetPath = rawTarget.Contains("<SPT_ROOT>")
+                        ? rawTarget.Replace("<SPT_ROOT>", "$SptRoot")
+                        : "$SptRoot\\" + rawTarget.Replace("/", "\\").TrimStart('\\');
                     var fullSourcePath = Path.Combine(extractedPath, sourcePath);
                     
                     // Filter ignore rules to only those relevant to this install path

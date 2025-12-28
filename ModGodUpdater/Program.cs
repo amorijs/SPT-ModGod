@@ -485,7 +485,9 @@ class Program
                     foreach (var installPath in mod.InstallPaths)
                     {
                         var sourcePath = Path.Combine(tempExtractPath, installPath[0]);
-                        var targetPath = installPath[1].Replace("<SPT_ROOT>", _sptRoot);
+                        // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+                        var targetRel = installPath[1].Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                        var targetPath = Path.Combine(_sptRoot, targetRel);
 
                         if (Directory.Exists(sourcePath))
                         {
