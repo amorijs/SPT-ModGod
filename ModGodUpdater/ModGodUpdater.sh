@@ -394,6 +394,20 @@ process_mod() {
     local archive_type=$(file -b --mime-type "$temp_archive" 2>/dev/null)
     log "Archive type: $archive_type"
     
+    # Find 7-Zip binary: prefer bundled, fall back to system
+    local seven_zip_cmd=""
+    local bundled_7zz="$SPT_ROOT/ModGodData/tools/7zz"
+    if [ -x "$bundled_7zz" ]; then
+        seven_zip_cmd="$bundled_7zz"
+        log "Using bundled 7zz: $bundled_7zz"
+    elif command -v 7z &> /dev/null; then
+        seven_zip_cmd="7z"
+        log "Using system 7z"
+    elif command -v 7zz &> /dev/null; then
+        seven_zip_cmd="7zz"
+        log "Using system 7zz"
+    fi
+    
     local extract_result=0
     case "$archive_type" in
         application/zip)
@@ -403,8 +417,14 @@ process_mod() {
             ;;
         application/x-7z-compressed)
             log "Extracting 7z archive..."
-            7z x -y -o"$temp_extract" "$temp_archive" >> "$LOG_FILE" 2>&1
-            extract_result=$?
+            if [ -n "$seven_zip_cmd" ]; then
+                "$seven_zip_cmd" x -y -o"$temp_extract" "$temp_archive" >> "$LOG_FILE" 2>&1
+                extract_result=$?
+            else
+                log_error "No 7-Zip binary found. Install 7zip or ensure ModGodData/tools/7zz exists."
+                print_error "7-Zip not found. Cannot extract .7z archives."
+                extract_result=1
+            fi
             ;;
         application/x-rar*)
             log "Extracting rar archive..."

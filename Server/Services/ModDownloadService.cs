@@ -445,27 +445,25 @@ public class ModDownloadService
     }
 
     /// <summary>
-    /// Find 7z executable - checks bundled version first (Windows), then system installations
+    /// Find 7z executable - checks ModGodData/tools first, then system installations
     /// </summary>
     private string? Find7ZipExecutable()
     {
         var isWindows = OperatingSystem.IsWindows();
         
+        // First, check for bundled 7z in ModGodData/tools (shared location for server and updater)
+        var modGodDataTools = Path.Combine(_configService.SptRoot, "ModGodData", "tools");
+        
         if (isWindows)
         {
-            // Windows: Check for bundled 7z.exe first (shipped with ModGod)
-            var assemblyLocation = Path.GetDirectoryName(typeof(ModDownloadService).Assembly.Location);
-            if (!string.IsNullOrEmpty(assemblyLocation))
+            var bundledPath = Path.Combine(modGodDataTools, "7z.exe");
+            if (File.Exists(bundledPath))
             {
-                var bundledPath = Path.Combine(assemblyLocation, "tools", "7z.exe");
-                if (File.Exists(bundledPath))
-                {
-                    _logger.Info($"[7z] Using bundled 7z.exe: {bundledPath}");
-                    return bundledPath;
-                }
+                _logger.Info($"[7z] Using bundled 7z.exe: {bundledPath}");
+                return bundledPath;
             }
 
-            // Windows: Fall back to system 7-Zip installations
+            // Fall back to system 7-Zip installations
             var windowsPaths = new[]
             {
                 @"C:\Program Files\7-Zip\7z.exe",
@@ -490,19 +488,15 @@ public class ModDownloadService
         }
         else
         {
-            // Linux/macOS: First check for bundled 7zz binary
-            var assemblyLocation = Path.GetDirectoryName(typeof(ModDownloadService).Assembly.Location);
-            if (!string.IsNullOrEmpty(assemblyLocation))
+            // Linux/macOS: Check for bundled 7zz in ModGodData/tools
+            var bundledPath = Path.Combine(modGodDataTools, "7zz");
+            if (File.Exists(bundledPath))
             {
-                var bundledPath = Path.Combine(assemblyLocation, "tools", "7zz");
-                if (File.Exists(bundledPath))
-                {
-                    _logger.Info($"[7z] Using bundled 7zz: {bundledPath}");
-                    return bundledPath;
-                }
+                _logger.Info($"[7z] Using bundled 7zz: {bundledPath}");
+                return bundledPath;
             }
             
-            // Linux/macOS: Check for 7z, 7zz, or 7za in PATH (installed via package manager)
+            // Check for 7z in PATH (installed via package manager)
             var linuxCommands = new[] { "7zz", "7z", "7za", "7zr" };
             
             foreach (var cmd in linuxCommands)
@@ -544,10 +538,8 @@ public class ModDownloadService
             else
             {
                 _logger.Warning("[7z] To install 7-Zip on Linux/Docker:");
-                _logger.Warning("[7z]   Option 1 (recommended): Download 7zz to ModGodServer/tools/");
-                _logger.Warning("[7z]            curl -L https://www.7-zip.org/a/7z2408-linux-x64.tar.xz | tar -xJ -C /path/to/ModGodServer/tools/ 7zz");
-                _logger.Warning("[7z]   Option 2: Install in container: apt update && apt install -y p7zip-full");
-                _logger.Warning("[7z]   Option 3: Add to Dockerfile: RUN apt-get update && apt-get install -y p7zip-full");
+                _logger.Warning("[7z]   Option 1: Install in container: apt update && apt install -y p7zip-full");
+                _logger.Warning("[7z]   Option 2: Add to Dockerfile: RUN apt-get update && apt-get install -y p7zip-full");
             }
         }
 

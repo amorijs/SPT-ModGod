@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -512,20 +513,44 @@ class Program
                 })
                 .StartAsync(async ctx =>
                 {
-                    // Extract using SharpCompress (supports .zip, .7z, .rar, .tar.gz, etc.)
-                    using (var archive = ArchiveFactory.Open(archivePath))
+                    var extractTask = ctx.AddTask($"[yellow]Extracting {EscapeMarkup(mod.ModName)}[/]", maxValue: 100);
+                    
+                    // Check if this is a 7z archive and if we have native 7z available
+                    var is7z = Is7zArchive(archivePath);
+                    var sevenZipPath = is7z ? Find7ZipExecutable() : null;
+                    
+                    if (is7z && sevenZipPath != null)
                     {
-                        var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
-                        var extractTask = ctx.AddTask($"[yellow]Extracting {EscapeMarkup(mod.ModName)}[/]", maxValue: entries.Count);
-                        
-                        foreach (var entry in entries)
+                        // Use native 7z for fast extraction
+                        Log($"Using native 7-Zip for {mod.ModName}");
+                        var success = await ExtractWith7ZipAsync(archivePath, tempExtractPath, sevenZipPath, extractTask);
+                        if (!success)
                         {
-                            entry.WriteToDirectory(tempExtractPath, new ExtractionOptions
+                            throw new Exception("Native 7z extraction failed");
+                        }
+                    }
+                    else
+                    {
+                        // Fall back to SharpCompress
+                        if (is7z)
+                        {
+                            Log($"WARNING: Using SharpCompress for 7z archive (slow) - install 7-Zip for faster extraction");
+                        }
+                        
+                        using (var archive = ArchiveFactory.Open(archivePath))
+                        {
+                            var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
+                            extractTask.MaxValue = entries.Count;
+                            
+                            foreach (var entry in entries)
                             {
-                                ExtractFullPath = true,
-                                Overwrite = true
-                            });
-                            extractTask.Increment(1);
+                                entry.WriteToDirectory(tempExtractPath, new ExtractionOptions
+                                {
+                                    ExtractFullPath = true,
+                                    Overwrite = true
+                                });
+                                extractTask.Increment(1);
+                            }
                         }
                     }
 
@@ -1213,6 +1238,192 @@ class Program
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]Press any key to exit...[/]");
         Console.ReadKey(true);
+    }
+
+    /// <summary>
+    /// Find 7z executable - checks ModGodData/tools first, then system installations
+    /// </summary>
+    static string? Find7ZipExecutable()
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        
+        // First, check for bundled 7z in ModGodData/tools (shared location for server and updater)
+        var modGodDataTools = Path.Combine(_sptRoot, "ModGodData", "tools");
+        
+        if (isWindows)
+        {
+            var bundledPath = Path.Combine(modGodDataTools, "7z.exe");
+            if (File.Exists(bundledPath))
+            {
+                Log($"[7z] Using bundled 7z.exe: {bundledPath}");
+                return bundledPath;
+            }
+
+            // Fall back to system 7-Zip installations
+            var systemPaths = new[]
+            {
+                @"C:\Program Files\7-Zip\7z.exe",
+                @"C:\Program Files (x86)\7-Zip\7z.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "7-Zip", "7z.exe"),
+            };
+
+            foreach (var path in systemPaths)
+            {
+                if (File.Exists(path))
+                {
+                    Log($"[7z] Found system 7-Zip at: {path}");
+                    return path;
+                }
+            }
+        }
+        else
+        {
+            // Linux/macOS: Check for bundled 7zz in ModGodData/tools
+            var bundledPath = Path.Combine(modGodDataTools, "7zz");
+            if (File.Exists(bundledPath))
+            {
+                Log($"[7z] Using bundled 7zz: {bundledPath}");
+                return bundledPath;
+            }
+            
+            // Check for 7z in PATH
+            var linuxCommands = new[] { "7zz", "7z", "7za" };
+            foreach (var cmd in linuxCommands)
+            {
+                try
+                {
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = cmd,
+                        Arguments = "--help",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var process = Process.Start(startInfo);
+                    if (process != null)
+                    {
+                        process.WaitForExit(2000);
+                        if (process.ExitCode == 0)
+                        {
+                            Log($"[7z] Found 7-Zip in PATH: {cmd}");
+                            return cmd;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Command not found
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extract archive using native 7z (much faster for 7z/LZMA archives)
+    /// </summary>
+    static async Task<bool> ExtractWith7ZipAsync(string archivePath, string extractPath, string sevenZipPath, ProgressTask? progressTask = null)
+    {
+        Log($"[7z] Extracting with native 7-Zip: {Path.GetFileName(archivePath)}");
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = sevenZipPath,
+            Arguments = $"x \"{archivePath}\" -o\"{extractPath}\" -y -bsp1 -bse1",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        var startTime = DateTime.UtcNow;
+        int lastPercent = 0;
+        
+        using var process = new Process { StartInfo = startInfo };
+        
+        process.OutputDataReceived += (sender, e) =>
+        {
+            if (string.IsNullOrEmpty(e.Data)) return;
+            
+            var line = e.Data.Trim();
+            var percentIndex = line.IndexOf('%');
+            if (percentIndex > 0)
+            {
+                var numStart = percentIndex - 1;
+                while (numStart >= 0 && (char.IsDigit(line[numStart]) || line[numStart] == ' '))
+                    numStart--;
+                numStart++;
+                
+                var numStr = line[numStart..percentIndex].Trim();
+                if (int.TryParse(numStr, out var percent) && percent >= 0 && percent <= 100)
+                {
+                    if (progressTask != null && percent > lastPercent)
+                    {
+                        progressTask.Value = percent;
+                        lastPercent = percent;
+                    }
+                }
+            }
+        };
+
+        process.ErrorDataReceived += (sender, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+                Log($"[7z] {e.Data}");
+        };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        
+        // Wait for process to complete
+        while (!process.HasExited)
+        {
+            await Task.Delay(100);
+            
+            var elapsed = DateTime.UtcNow - startTime;
+            if (elapsed.TotalMinutes >= 30)
+            {
+                Log("[7z] Extraction timed out after 30 minutes");
+                try { process.Kill(); } catch { }
+                return false;
+            }
+        }
+        
+        await Task.Run(() => process.WaitForExit());
+
+        var totalElapsed = DateTime.UtcNow - startTime;
+        
+        if (process.ExitCode == 0)
+        {
+            Log($"[7z] Extraction complete in {totalElapsed.TotalSeconds:F1}s");
+            if (progressTask != null) progressTask.Value = 100;
+            return true;
+        }
+        else
+        {
+            Log($"[7z] Extraction failed with exit code {process.ExitCode}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Detect if an archive is a 7z file (needs native extraction for speed)
+    /// </summary>
+    static bool Is7zArchive(string archivePath)
+    {
+        try
+        {
+            using var archive = ArchiveFactory.Open(archivePath);
+            return archive.Type == SharpCompress.Common.ArchiveType.SevenZip;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

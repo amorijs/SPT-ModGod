@@ -44,4 +44,17 @@
         <Copy SourceFiles="$(MSBuildProjectDirectory)\ModGodUpdater.sh" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\" />
         <Copy SourceFiles="$(MSBuildProjectDirectory)\ModGodData\ModGodClient.json" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\ModGodData\" />
     </Target>
+
+    <!-- Copy bundled 7-Zip tools to dist/ModGodData/tools/ (shared by server and updater) -->
+    <Target Name="Copy7ZipTools" AfterTargets="CopyUpdaterFiles">
+        <ItemGroup>
+            <!-- Windows: 7z.exe + 7z.dll (from Server tools folder) -->
+            <SevenZipFiles Include="$(MSBuildProjectDirectory)\..\Server\tools\7z.exe" Condition="Exists('$(MSBuildProjectDirectory)\..\Server\tools\7z.exe')" />
+            <SevenZipFiles Include="$(MSBuildProjectDirectory)\..\Server\tools\7z.dll" Condition="Exists('$(MSBuildProjectDirectory)\..\Server\tools\7z.dll')" />
+            <!-- Linux: 7zz (from Server tools folder) -->
+            <SevenZipFiles Include="$(MSBuildProjectDirectory)\..\Server\tools\7zz" Condition="Exists('$(MSBuildProjectDirectory)\..\Server\tools\7zz')" />
+        </ItemGroup>
+        <Copy SourceFiles="@(SevenZipFiles)" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\ModGodData\tools\" SkipUnchangedFiles="true" Condition="@(SevenZipFiles->Count()) > 0" />
+        <Message Importance="high" Text="Copied 7-Zip tools to dist/ModGodData/tools/" Condition="@(SevenZipFiles->Count()) > 0" />
+    </Target>
 </Project>

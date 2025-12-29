@@ -54,7 +54,7 @@
         <Copy SourceFiles="@(WebAssets)" DestinationFolder="$(OutputPath)wwwroot\%(RecursiveDir)" />
     </Target>
 
-    <!-- Copy bundled tools (7z for Windows and Linux) to output -->
+    <!-- Copy bundled tools (7z for Windows and Linux) to shared ModGodData/tools/ location -->
     <Target Name="CopyTools" AfterTargets="Build">
         <ItemGroup>
             <!-- Windows: 7z.exe + 7z.dll -->
@@ -63,8 +63,9 @@
             <!-- Linux: 7zz (standalone binary) -->
             <ToolFiles Include="$(ProjectDir)tools\7zz" Condition="Exists('$(ProjectDir)tools\7zz')" />
         </ItemGroup>
-        <Copy SourceFiles="@(ToolFiles)" DestinationFolder="$(OutputPath)tools" SkipUnchangedFiles="true" Condition="@(ToolFiles->Count()) > 0" />
-        <Message Importance="high" Text="Copied bundled 7-Zip tools to output" Condition="@(ToolFiles->Count()) > 0" />
+        <!-- Copy to dist/ModGodData/tools/ (shared by server and updater) -->
+        <Copy SourceFiles="@(ToolFiles)" DestinationFolder="$(OutputPath)..\..\..\ModGodData\tools" SkipUnchangedFiles="true" Condition="@(ToolFiles->Count()) > 0" />
+        <Message Importance="high" Text="Copied bundled 7-Zip tools to ModGodData/tools/" Condition="@(ToolFiles->Count()) > 0" />
     </Target>
 
     <!-- Optional: Copy to SPT for testing -->
@@ -72,10 +73,10 @@
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer" />
         <ItemGroup>
             <WwwrootFiles Include="$(OutputPath)wwwroot\**\*.*" />
-            <ToolsFiles Include="$(OutputPath)tools\**\*.*" Condition="Exists('$(OutputPath)tools')" />
+            <ToolsFiles Include="$(OutputPath)..\..\..\ModGodData\tools\**\*.*" Condition="Exists('$(OutputPath)..\..\..\ModGodData\tools')" />
         </ItemGroup>
         <Copy SourceFiles="@(WwwrootFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer\wwwroot\%(RecursiveDir)" />
-        <Copy SourceFiles="@(ToolsFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer\tools\%(RecursiveDir)" Condition="Exists('$(OutputPath)tools')" />
+        <Copy SourceFiles="@(ToolsFiles)" DestinationFolder="$(SPTPath)\ModGodData\tools\%(RecursiveDir)" Condition="Exists('$(OutputPath)..\..\..\ModGodData\tools')" />
     </Target>
 </Project>
 
