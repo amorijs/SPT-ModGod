@@ -29,10 +29,14 @@ public class ModInstallService
     public async Task<ApplyChangesResult> ApplyPendingChangesAsync(string? serverUrl = null)
     {
         var result = new ApplyChangesResult();
+        var applyStartTime = DateTime.UtcNow;
 
-        _logger.Info("Applying staged config changes...");
+        _logger.Info("===============================================================");
+        _logger.Info("[Apply] Starting to apply staged config changes...");
+        _logger.Info("===============================================================");
 
         // Calculate what mod changes need to be made
+        _logger.Info("[Apply] Calculating staged changes...");
         var stagedChanges = _configService.CalculateStagedChanges();
         
         // Check if there's actually a staged file (could be config-only changes like sync exclusions)
@@ -40,24 +44,37 @@ public class ModInstallService
         
         if (!stagedChanges.HasChanges && !hasStagedFile)
         {
-            _logger.Info("No changes to apply");
+            _logger.Info("[Apply] No changes to apply - nothing staged");
             result.Success = true;
             return result;
         }
         
-        _logger.Info($"Changes to apply: {stagedChanges.ModsToInstall.Count} installs, " +
-                    $"{stagedChanges.ModsToRemove.Count} removals, {stagedChanges.ModsToUpdate.Count} updates" +
-                    (hasStagedFile && !stagedChanges.HasChanges ? " (config-only changes)" : ""));
+        _logger.Info($"[Apply] Changes summary:");
+        _logger.Info($"[Apply]   - Mods to install: {stagedChanges.ModsToInstall.Count}");
+        _logger.Info($"[Apply]   - Mods to remove: {stagedChanges.ModsToRemove.Count}");
+        _logger.Info($"[Apply]   - Mods to update: {stagedChanges.ModsToUpdate.Count}");
+        if (hasStagedFile && !stagedChanges.HasChanges)
+        {
+            _logger.Info($"[Apply]   - Config-only changes detected");
+        }
 
         // First, handle removals
         // On Linux: Delete files immediately (Linux doesn't lock files in use)
         // On Windows: Queue for deletion on shutdown (files are locked while server runs)
+        if (stagedChanges.ModsToRemove.Count > 0)
+        {
+            _logger.Info($"[Apply] -------- Processing {stagedChanges.ModsToRemove.Count} removal(s) --------");
+        }
+        var removalIndex = 0;
         foreach (var mod in stagedChanges.ModsToRemove)
         {
+            removalIndex++;
+            _logger.Info($"[Apply] Removal {removalIndex}/{stagedChanges.ModsToRemove.Count}: {mod.ModName}");
+            
             // Skip protected mods
             if (mod.IsProtected)
             {
-                _logger.Warning($"Cannot remove protected mod: {mod.ModName}");
+                _logger.Warning($"[Apply] Skipped - protected mod: {mod.ModName}");
                 continue;
             }
             
@@ -67,6 +84,7 @@ public class ModInstallService
                 if (removalResult.WasImmediate)
                 {
                     result.RemovedMods.Add(mod.ModName);
+                    _logger.Info($"[Apply] Removed immediately: {mod.ModName} ({removalResult.DeletedCount} files)");
                     
                     // Collect any files that couldn't be deleted
                     if (removalResult.FailedPaths.Count > 0)
@@ -77,17 +95,27 @@ public class ModInstallService
                 else
                 {
                     result.QueuedForRemoval.Add(mod.ModName);
+                    _logger.Info($"[Apply] Queued for removal on shutdown: {mod.ModName}");
                 }
             }
             else
             {
+                _logger.Error($"[Apply] Removal failed: {mod.ModName}: {removalResult.Error}");
                 result.Errors.Add($"Failed to remove {mod.ModName}: {removalResult.Error}");
             }
         }
 
         // Then, handle new installations
+        if (stagedChanges.ModsToInstall.Count > 0)
+        {
+            _logger.Info($"[Apply] -------- Processing {stagedChanges.ModsToInstall.Count} installation(s) --------");
+        }
+        var installIndex = 0;
         foreach (var mod in stagedChanges.ModsToInstall)
         {
+            installIndex++;
+            _logger.Info($"[Apply] Installation {installIndex}/{stagedChanges.ModsToInstall.Count}: {mod.ModName}");
+            
             var installResult = await InstallModAsync(mod);
             
             if (installResult.Success)
@@ -96,35 +124,49 @@ public class ModInstallService
                 mod.LastUpdated = DateTime.UtcNow.ToString("o");
                 
                 // Clear staging after successful install
+                _logger.Info($"[Apply] Clearing staging for: {mod.ModName}");
                 _configService.ClearStagingForUrl(mod.DownloadUrl);
             }
             else if (installResult.NeedsRestart)
             {
                 // Files are locked - queue for restart
                 result.QueuedForInstall.Add(mod.ModName);
+                _logger.Info($"[Apply] Queued for install on restart: {mod.ModName}");
             }
             else
             {
+                _logger.Error($"[Apply] Installation failed: {mod.ModName}: {installResult.Error}");
                 result.Errors.Add($"Failed to install {mod.ModName}: {installResult.Error}");
             }
         }
         
         // Handle updates (reinstalls with different config)
+        if (stagedChanges.ModsToUpdate.Count > 0)
+        {
+            _logger.Info($"[Apply] -------- Processing {stagedChanges.ModsToUpdate.Count} update(s) --------");
+        }
+        var updateIndex = 0;
         foreach (var mod in stagedChanges.ModsToUpdate)
         {
+            updateIndex++;
+            _logger.Info($"[Apply] Update {updateIndex}/{stagedChanges.ModsToUpdate.Count}: {mod.ModName}");
+            
             var installResult = await InstallModAsync(mod);
             
             if (installResult.Success)
             {
                 result.InstalledMods.Add($"{mod.ModName} (updated)");
                 mod.LastUpdated = DateTime.UtcNow.ToString("o");
+                _logger.Info($"[Apply] Update complete: {mod.ModName}");
             }
             else if (installResult.NeedsRestart)
             {
                 result.QueuedForInstall.Add($"{mod.ModName} (update)");
+                _logger.Info($"[Apply] Update queued for restart: {mod.ModName}");
             }
             else
             {
+                _logger.Error($"[Apply] Update failed: {mod.ModName}: {installResult.Error}");
                 result.Errors.Add($"Failed to update {mod.ModName}: {installResult.Error}");
             }
         }
@@ -169,11 +211,17 @@ public class ModInstallService
         result.RequiresRestart = result.QueuedForRemoval.Count > 0 || result.QueuedForInstall.Count > 0 || result.RemovedMods.Count > 0;
         result.Success = result.Errors.Count == 0;
 
-        _logger.Info($"Apply complete. Installed: {result.InstalledMods.Count}, " +
-                     $"Removed: {result.RemovedMods.Count}, " +
-                     $"Queued for install: {result.QueuedForInstall.Count}, " +
-                     $"Queued for removal: {result.QueuedForRemoval.Count}, " +
-                     $"Errors: {result.Errors.Count}");
+        var totalElapsed = DateTime.UtcNow - applyStartTime;
+        _logger.Info("===============================================================");
+        _logger.Info($"[Apply] COMPLETE - Total time: {totalElapsed.TotalSeconds:F1}s");
+        _logger.Info($"[Apply] Results:");
+        _logger.Info($"[Apply]   - Installed: {result.InstalledMods.Count}");
+        _logger.Info($"[Apply]   - Removed: {result.RemovedMods.Count}");
+        _logger.Info($"[Apply]   - Queued for install (restart): {result.QueuedForInstall.Count}");
+        _logger.Info($"[Apply]   - Queued for removal (restart): {result.QueuedForRemoval.Count}");
+        _logger.Info($"[Apply]   - Errors: {result.Errors.Count}");
+        _logger.Info($"[Apply]   - Requires restart: {result.RequiresRestart}");
+        _logger.Info("===============================================================");
 
         return result;
     }
@@ -186,83 +234,114 @@ public class ModInstallService
         var result = new ModOperationResult { ModName = mod.ModName };
         var lockedFiles = new List<string>();
         var installedFiles = new List<string>(); // Track all installed files
+        var installStartTime = DateTime.UtcNow;
 
         try
         {
+            _logger.Info($"[Install] ========== Starting installation: {mod.ModName} ==========");
+            
             // Check if mod is staged
+            _logger.Info($"[Install] Checking staging status for URL: {mod.DownloadUrl[..Math.Min(80, mod.DownloadUrl.Length)]}...");
             if (!_configService.IsUrlStaged(mod.DownloadUrl))
             {
+                _logger.Error("[Install] FAILED: Mod is not staged");
                 result.Error = "Mod is not staged. Please download it first.";
                 return Task.FromResult(result);
             }
+            _logger.Info("[Install] Staging verified - mod is staged");
 
             var stagingPath = _configService.Staging.UrlToPath[mod.DownloadUrl];
             var extractedPath = Path.Combine(stagingPath, "extracted");
+            _logger.Info($"[Install] Staging path: {stagingPath}");
+            _logger.Info($"[Install] Extracted path: {extractedPath}");
 
             if (!Directory.Exists(extractedPath))
             {
+                _logger.Error($"[Install] FAILED: Extracted path does not exist: {extractedPath}");
                 result.Error = "Staging extraction path not found.";
                 return Task.FromResult(result);
             }
-
-            _logger.Info($"Installing mod: {mod.ModName}");
 
             // Prepare ignore rules (relative paths from extracted root)
             var ignoreRules = mod.FileRules
                 .Where(r => r.State == FileCopyRuleState.Ignore)
                 .Select(r => NormalizeRelativePath(r.Path))
                 .ToList();
+            _logger.Info($"[Install] Ignore rules: {ignoreRules.Count} path(s) will be skipped");
+            if (ignoreRules.Count > 0 && ignoreRules.Count <= 10)
+            {
+                foreach (var rule in ignoreRules)
+                {
+                    _logger.Info($"[Install]   - {rule}");
+                }
+            }
+
+            _logger.Info($"[Install] Install paths to process: {mod.InstallPaths.Count}");
 
             // Copy files for each install path
+            var pathIndex = 0;
             foreach (var installPath in mod.InstallPaths)
             {
+                pathIndex++;
                 var sourcePath = installPath[0]; // e.g., "BepInEx"
                 var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
 
                 var fullSourcePath = Path.Combine(extractedPath, sourcePath);
                 var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
 
+                _logger.Info($"[Install] Processing path {pathIndex}/{mod.InstallPaths.Count}: {sourcePath} -> {targetPath}");
+
                 if (Directory.Exists(fullSourcePath))
                 {
-                    _logger.Info($"  Copying {sourcePath} -> {fullTargetPath} (with rules)");
+                    var fileCount = Directory.GetFiles(fullSourcePath, "*", SearchOption.AllDirectories).Length;
+                    _logger.Info($"[Install] Source is directory with {fileCount} file(s)");
                     CopyWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles, installedFiles);
                 }
                 else if (File.Exists(fullSourcePath))
                 {
-                    _logger.Info($"  Copying file {sourcePath} -> {fullTargetPath} (with rules)");
+                    var fileSize = new FileInfo(fullSourcePath).Length;
+                    _logger.Info($"[Install] Source is single file ({fileSize / 1024.0:F1}KB)");
                     CopyFileWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles, installedFiles);
                 }
                 else
                 {
-                    _logger.Warning($"  Source path not found: {fullSourcePath}");
+                    _logger.Warning($"[Install] Source path not found: {fullSourcePath}");
                 }
             }
 
             // Store the list of installed files in the mod entry
             mod.InstalledFiles = installedFiles;
-            _logger.Info($"  Tracked {installedFiles.Count} installed file(s)");
+            var elapsed = DateTime.UtcNow - installStartTime;
+            _logger.Info($"[Install] File tracking complete: {installedFiles.Count} file(s) tracked");
 
             // Check if any files were locked
             if (lockedFiles.Count > 0)
             {
-                _logger.Warning($"  {lockedFiles.Count} file(s) are locked and will be installed on restart");
+                _logger.Warning($"[Install] {lockedFiles.Count} file(s) are locked and will be installed on restart");
+                if (lockedFiles.Count <= 10)
+                {
+                    foreach (var locked in lockedFiles)
+                    {
+                        _logger.Warning($"[Install]   Locked: {locked}");
+                    }
+                }
                 result.NeedsRestart = true;
                 result.LockedFiles = lockedFiles;
                 return Task.FromResult(result);
             }
 
             result.Success = true;
-            _logger.Success($"Installed mod: {mod.ModName}");
+            _logger.Success($"[Install] ========== Completed: {mod.ModName} ({installedFiles.Count} files, {elapsed.TotalSeconds:F1}s) ==========");
         }
         catch (IOException ex) when (IsFileLockedException(ex))
         {
-            _logger.Warning($"Files locked for {mod.ModName}, will install on restart");
+            _logger.Warning($"[Install] Files locked for {mod.ModName}, will install on restart: {ex.Message}");
             result.NeedsRestart = true;
             result.Error = "Files are in use - will be installed on server restart";
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to install {mod.ModName}: {ex.Message}");
+            _logger.Error($"[Install] FAILED: {mod.ModName}: {ex.GetType().Name}: {ex.Message}");
             result.Error = ex.Message;
         }
 
@@ -274,6 +353,17 @@ public class ModInstallService
         Directory.CreateDirectory(fullTargetPath);
 
         var files = Directory.GetFiles(fullSourcePath, "*", SearchOption.AllDirectories);
+        var totalFiles = files.Length;
+        var copiedCount = 0;
+        var skippedCount = 0;
+        long totalBytesCopied = 0;
+        var startTime = DateTime.UtcNow;
+        
+        // Calculate log interval: every 100 files or 10%, whichever is smaller (min 1)
+        var logInterval = Math.Max(1, Math.Min(100, totalFiles / 10));
+        
+        _logger.Info($"[Copy] Starting copy: {totalFiles} file(s) to process");
+        
         foreach (var file in files)
         {
             var relativeFromSource = Path.GetRelativePath(fullSourcePath, file);
@@ -287,19 +377,38 @@ public class ModInstallService
             // Check if this file should be skipped (user chose not to overwrite)
             var relative = Path.GetRelativePath(extractedRoot, file);
             if (IsIgnored(relative, ignoreRules))
+            {
+                skippedCount++;
+                copiedCount++; // Still count for progress
                 continue;
+            }
 
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
 
             try
             {
+                var fileInfo = new FileInfo(file);
                 File.Copy(file, targetFile, true);
+                totalBytesCopied += fileInfo.Length;
             }
             catch (IOException ex) when (IsFileLockedException(ex))
             {
                 lockedFiles.Add(targetFile);
             }
+            
+            copiedCount++;
+            
+            // Log progress at intervals
+            if (copiedCount % logInterval == 0 || copiedCount == totalFiles)
+            {
+                var percent = (double)copiedCount / totalFiles * 100;
+                var elapsed = DateTime.UtcNow - startTime;
+                _logger.Info($"[Copy] Progress: {copiedCount}/{totalFiles} files ({percent:F0}%) - {totalBytesCopied / 1024.0 / 1024.0:F1}MB copied - elapsed: {elapsed.TotalSeconds:F1}s");
+            }
         }
+        
+        var totalElapsed = DateTime.UtcNow - startTime;
+        _logger.Info($"[Copy] Complete: {copiedCount - skippedCount} copied, {skippedCount} skipped, {lockedFiles.Count} locked - {totalBytesCopied / 1024.0 / 1024.0:F1}MB in {totalElapsed.TotalSeconds:F1}s");
     }
 
     private void CopyFileWithRules(string extractedRoot, string fullSourcePath, string fullTargetPath, List<string> ignoreRules, List<string> lockedFiles, List<string> installedFiles)
@@ -312,15 +421,22 @@ public class ModInstallService
         // Check if this file should be skipped (user chose not to overwrite)
         var relative = Path.GetRelativePath(extractedRoot, fullSourcePath);
         if (IsIgnored(relative, ignoreRules))
+        {
+            _logger.Info($"[Copy] Skipped (ignored): {Path.GetFileName(fullSourcePath)}");
             return;
+        }
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullTargetPath)!);
         try
         {
+            var fileInfo = new FileInfo(fullSourcePath);
+            _logger.Info($"[Copy] Copying single file: {Path.GetFileName(fullSourcePath)} ({fileInfo.Length / 1024.0:F1}KB)");
             File.Copy(fullSourcePath, fullTargetPath, true);
+            _logger.Info($"[Copy] Single file copy complete");
         }
         catch (IOException ex) when (IsFileLockedException(ex))
         {
+            _logger.Warning($"[Copy] File locked, queued for restart: {fullTargetPath}");
             lockedFiles.Add(fullTargetPath);
         }
     }

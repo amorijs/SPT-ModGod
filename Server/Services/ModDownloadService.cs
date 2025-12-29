@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ModGod.Models;
 using SharpCompress.Archives;
 using SharpCompress.Common;
@@ -83,10 +84,13 @@ public class ModDownloadService
             if (_configService.IsUrlStaged(url))
             {
                 var stagedPath = _configService.Staging.UrlToPath[url];
+                _logger.Info($"[Cache] Using cached staging for URL (already downloaded)");
+                _logger.Info($"[Cache] Staged path: {stagedPath}");
                 result.ExtractPath = stagedPath;
                 result.Success = true;
                 result.FromCache = true;
                 AnalyzeModStructure(result);
+                _logger.Info($"[Cache] Structure analysis complete - Standard: {result.IsStandardStructure}, TopLevelDirs: [{string.Join(", ", result.TopLevelDirectories)}]");
                 return result;
             }
 
@@ -115,28 +119,128 @@ public class ModDownloadService
             }
             Directory.CreateDirectory(stagingPath);
 
-            // Stream directly to file (handles large files efficiently)
+            // Stream directly to file with progress logging (handles large files efficiently)
             var archivePath = Path.Combine(stagingPath, "mod.zip");
-            await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            var expectedSize = contentLength ?? 0;
+            
+            _logger.Info($"[Download] Starting download to: {archivePath}");
+            if (expectedSize > 0)
             {
-                await response.Content.CopyToAsync(fileStream);
+                _logger.Info($"[Download] Expected size: {expectedSize / 1024.0 / 1024.0:F1}MB");
+            }
+            
+            await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            await using (var contentStream = await response.Content.ReadAsStreamAsync())
+            {
+                var buffer = new byte[81920]; // 80KB buffer
+                long totalBytesRead = 0;
+                int lastLoggedPercent = 0;
+                var lastLogTime = DateTime.UtcNow;
+                var startTime = DateTime.UtcNow;
+                int bytesRead;
+                
+                while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer, 0, bytesRead);
+                    totalBytesRead += bytesRead;
+                    
+                    // Log progress every 10% or every 30 seconds (whichever comes first)
+                    var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                    
+                    if (expectedSize > 0)
+                    {
+                        var currentPercent = (int)((double)totalBytesRead / expectedSize * 100);
+                        var percentThreshold = (currentPercent / 10) * 10; // Round down to nearest 10%
+                        
+                        if (percentThreshold > lastLoggedPercent || timeSinceLastLog.TotalSeconds >= 30)
+                        {
+                            var elapsed = DateTime.UtcNow - startTime;
+                            var speedMBps = totalBytesRead / 1024.0 / 1024.0 / elapsed.TotalSeconds;
+                            _logger.Info($"[Download] Progress: {currentPercent}% ({totalBytesRead / 1024.0 / 1024.0:F0}MB / {expectedSize / 1024.0 / 1024.0:F0}MB) - {speedMBps:F1} MB/s");
+                            lastLoggedPercent = percentThreshold;
+                            lastLogTime = DateTime.UtcNow;
+                        }
+                    }
+                    else if (timeSinceLastLog.TotalSeconds >= 30)
+                    {
+                        // Unknown size - log every 30 seconds
+                        _logger.Info($"[Download] Progress: {totalBytesRead / 1024.0 / 1024.0:F1}MB downloaded");
+                        lastLogTime = DateTime.UtcNow;
+                    }
+                }
             }
 
             var fileSize = new FileInfo(archivePath).Length;
-            _logger.Info($"Downloaded {fileSize / 1024 / 1024}MB to {archivePath}");
+            _logger.Info($"[Download] Complete: {fileSize / 1024.0 / 1024.0:F1}MB saved to {Path.GetFileName(archivePath)}");
 
             // Extract archive (supports .zip, .7z, .rar, .tar.gz, etc.)
             var extractPath = Path.Combine(stagingPath, "extracted");
             Directory.CreateDirectory(extractPath);
             
-            _logger.Info("Extracting archive...");
+            _logger.Info("[Extract] Starting archive extraction...");
+            
+            // Detect archive type first
+            ArchiveType? archiveType = null;
             try
             {
                 using (var archive = ArchiveFactory.Open(archivePath))
                 {
-                    _logger.Info($"Archive type: {archive.Type}");
+                    archiveType = archive.Type;
+                    _logger.Info($"[Extract] Archive type: {archiveType}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[Extract] Failed to detect archive type: {ex.Message}");
+                throw;
+            }
+            
+            // For 7z archives, try to use native 7z.exe (much faster)
+            if (archiveType == ArchiveType.SevenZip)
+            {
+                var sevenZipPath = Find7ZipExecutable();
+                if (sevenZipPath != null)
+                {
+                    _logger.Info("[Extract] Using native 7-Zip for faster extraction (7z archives are slow with SharpCompress)");
+                    try
+                    {
+                        if (await ExtractWith7ZipAsync(archivePath, extractPath, sevenZipPath))
+                        {
+                            // Success with native 7z - skip SharpCompress
+                            goto ExtractionComplete;
+                        }
+                        else
+                        {
+                            _logger.Warning("[Extract] Native 7-Zip extraction failed, falling back to SharpCompress...");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"[Extract] Native 7-Zip error: {ex.Message}, falling back to SharpCompress...");
+                    }
+                }
+                else
+                {
+                    _logger.Warning("[Extract] 7-Zip not found - using SharpCompress (this will be SLOW for large 7z files)");
+                    _logger.Warning("[Extract] Install 7-Zip from https://www.7-zip.org for much faster extraction");
+                }
+            }
+            
+            // SharpCompress extraction (for zip, or 7z fallback)
+            try
+            {
+                using (var archive = ArchiveFactory.Open(archivePath))
+                {
                     var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
-                    _logger.Info($"Found {entries.Count} files to extract");
+                    var totalFiles = entries.Count;
+                    _logger.Info($"[Extract] Total files to extract: {totalFiles}");
+                    
+                    // Calculate log interval: every 100 files or 10%, whichever is smaller (min 1)
+                    var logInterval = Math.Max(1, Math.Min(100, totalFiles / 10));
+                    var extractedCount = 0;
+                    long totalBytesExtracted = 0;
+                    var startTime = DateTime.UtcNow;
+                    var lastLogTime = DateTime.UtcNow;
                     
                     foreach (var entry in entries)
                     {
@@ -156,6 +260,7 @@ public class ModDownloadService
                             
                             // Extract the file
                             entry.WriteToFile(targetPath, new ExtractionOptions { Overwrite = true });
+                            totalBytesExtracted += entry.Size;
                         }
                         else
                         {
@@ -165,26 +270,56 @@ public class ModDownloadService
                                 ExtractFullPath = true,
                                 Overwrite = true
                             });
+                            totalBytesExtracted += entry.Size;
+                        }
+                        
+                        extractedCount++;
+                        
+                        // Log progress at intervals, or every 30 seconds for slow archives
+                        var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                        if (extractedCount % logInterval == 0 || extractedCount == totalFiles || timeSinceLastLog.TotalSeconds >= 30)
+                        {
+                            var percent = (double)extractedCount / totalFiles * 100;
+                            var elapsed = DateTime.UtcNow - startTime;
+                            _logger.Info($"[Extract] Progress: {extractedCount}/{totalFiles} files ({percent:F0}%) - {totalBytesExtracted / 1024.0 / 1024.0:F1}MB extracted - elapsed: {elapsed.TotalSeconds:F1}s");
+                            lastLogTime = DateTime.UtcNow;
                         }
                     }
                 }
-                _logger.Info("Extraction complete!");
+                var extractedSize = GetDirectorySize(extractPath);
+                _logger.Info($"[Extract] Complete: {extractedSize / 1024.0 / 1024.0:F1}MB extracted to staging");
             }
             catch (Exception ex)
             {
                 _logger.Error($"Extraction failed: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
+            
+            ExtractionComplete:
 
             // Update staging index
+            _logger.Info("[Staging] Updating staging index...");
             _configService.Staging.UrlToPath[url] = stagingPath;
             await _configService.SaveStagingIndexAsync();
+            _logger.Info($"[Staging] Staging index saved - path: {stagingPath}");
 
             result.ExtractPath = stagingPath;
             result.Success = true;
 
             // Analyze structure
+            _logger.Info("[Analyze] Analyzing mod structure...");
             AnalyzeModStructure(result);
+            _logger.Info($"[Analyze] Structure analysis complete:");
+            _logger.Info($"[Analyze]   Standard structure: {result.IsStandardStructure}");
+            _logger.Info($"[Analyze]   Top-level dirs: [{string.Join(", ", result.TopLevelDirectories)}]");
+            if (result.SuggestedInstallPaths.Count > 0)
+            {
+                _logger.Info($"[Analyze]   Suggested install paths: {result.SuggestedInstallPaths.Count}");
+                foreach (var path in result.SuggestedInstallPaths)
+                {
+                    _logger.Info($"[Analyze]     {path[0]} -> {path[1]}");
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -294,6 +429,161 @@ public class ModDownloadService
             var fileName = Path.GetFileName(file);
             var newRelative = string.IsNullOrEmpty(relativePath) ? fileName : $"{relativePath}/{fileName}";
             yield return newRelative;
+        }
+    }
+
+    /// <summary>
+    /// Get total size of a directory in bytes
+    /// </summary>
+    private static long GetDirectorySize(string path)
+    {
+        if (!Directory.Exists(path))
+            return 0;
+        
+        return Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+            .Sum(f => new FileInfo(f).Length);
+    }
+
+    /// <summary>
+    /// Find 7z.exe in common locations
+    /// </summary>
+    private string? Find7ZipExecutable()
+    {
+        // Common 7-Zip installation paths on Windows
+        var possiblePaths = new[]
+        {
+            // Standard 7-Zip installations
+            @"C:\Program Files\7-Zip\7z.exe",
+            @"C:\Program Files (x86)\7-Zip\7z.exe",
+            // Portable/custom locations
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "7-Zip", "7z.exe"),
+            // Check if in PATH
+            "7z.exe",
+            "7za.exe", // Standalone console version
+        };
+
+        foreach (var path in possiblePaths)
+        {
+            if (path.Contains(Path.DirectorySeparatorChar) || path.Contains('/'))
+            {
+                if (File.Exists(path))
+                {
+                    _logger.Info($"[7z] Found 7-Zip at: {path}");
+                    return path;
+                }
+            }
+            else
+            {
+                // Check if in PATH
+                try
+                {
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = path,
+                        Arguments = "",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var process = Process.Start(startInfo);
+                    if (process != null)
+                    {
+                        process.WaitForExit(1000);
+                        _logger.Info($"[7z] Found 7-Zip in PATH: {path}");
+                        return path;
+                    }
+                }
+                catch
+                {
+                    // Not found in PATH
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extract using native 7z.exe (much faster for 7z/LZMA archives)
+    /// </summary>
+    private async Task<bool> ExtractWith7ZipAsync(string archivePath, string extractPath, string sevenZipPath)
+    {
+        _logger.Info($"[7z] Extracting with native 7-Zip: {Path.GetFileName(archivePath)}");
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = sevenZipPath,
+            // x = extract with full paths, -o = output directory, -y = yes to all prompts, -bsp1 = progress to stdout
+            Arguments = $"x \"{archivePath}\" -o\"{extractPath}\" -y -bsp1",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        var startTime = DateTime.UtcNow;
+        int lastLoggedPercent = 0;
+        
+        using var process = new Process { StartInfo = startInfo };
+        
+        process.OutputDataReceived += (sender, e) =>
+        {
+            if (string.IsNullOrEmpty(e.Data)) return;
+            
+            // 7z outputs progress like "  45% 123 - filename" 
+            var line = e.Data.Trim();
+            if (line.Length > 0 && char.IsDigit(line[0]))
+            {
+                var percentEnd = line.IndexOf('%');
+                if (percentEnd > 0 && int.TryParse(line[..percentEnd].Trim(), out var percent))
+                {
+                    // Log every 10%
+                    var percentThreshold = (percent / 10) * 10;
+                    if (percentThreshold > lastLoggedPercent)
+                    {
+                        var elapsed = DateTime.UtcNow - startTime;
+                        _logger.Info($"[7z] Progress: {percent}% - elapsed: {elapsed.TotalSeconds:F1}s");
+                        lastLoggedPercent = percentThreshold;
+                    }
+                }
+            }
+        };
+
+        process.ErrorDataReceived += (sender, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                _logger.Warning($"[7z] {e.Data}");
+            }
+        };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        
+        // Wait with timeout (30 minutes max for very large archives)
+        var completed = await Task.Run(() => process.WaitForExit(30 * 60 * 1000));
+        
+        if (!completed)
+        {
+            _logger.Error("[7z] Extraction timed out after 30 minutes");
+            try { process.Kill(); } catch { }
+            return false;
+        }
+
+        var totalElapsed = DateTime.UtcNow - startTime;
+        
+        if (process.ExitCode == 0)
+        {
+            var extractedSize = GetDirectorySize(extractPath);
+            _logger.Info($"[7z] Complete: {extractedSize / 1024.0 / 1024.0:F1}MB extracted in {totalElapsed.TotalSeconds:F1}s");
+            return true;
+        }
+        else
+        {
+            _logger.Error($"[7z] Failed with exit code {process.ExitCode}");
+            return false;
         }
     }
 }
