@@ -66,15 +66,11 @@ public class ClientSyncConfig
     };
 
     /// <summary>
-    /// Creates default config for headless clients (sync BepInEx/plugins and SPT/user/mods)
+    /// Creates default config for headless clients (empty by default - user configures as needed)
     /// </summary>
     public static ClientSyncConfig DefaultHeadlessConfig() => new()
     {
-        SyncPaths = new List<SyncPathEntry>
-        {
-            SyncPathEntry.Standard("BepInEx/plugins"),
-            SyncPathEntry.Standard("SPT/user/mods")
-        },
+        SyncPaths = new List<SyncPathEntry>(),
         UseDefaultExclusions = true
     };
 }

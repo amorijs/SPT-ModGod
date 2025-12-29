@@ -48,7 +48,8 @@
                         <MudButton Variant="Variant.Filled"
                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                    Color="Color.Success"
-                                   Style="font-weight: 600; box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);"
+                                   Style="font-weight: 600; box-shadow: 0 0 4px rgba(74, 222, 128, 0.15);"
+                                   Class="@(!_isApplying ? "shake-button" : "")"
                                    OnClick="ApplyChanges"
                                    Disabled="@(_isApplying || AnyModsNeedConfiguration())">
                             @if (_isApplying)
@@ -337,7 +338,7 @@
         {
             _hasLoggedInit = true;
             await JS.InvokeVoidAsync("console.log", "[ModGod] Frontend loaded!");
-            
+
             // Check for legacy config and show migration dialog if needed
             if (ConfigService.IsLegacyConfig)
             {
@@ -346,7 +347,7 @@
             }
         }
     }
-    
+
     // Migration dialog state
     private bool _migrationDialogVisible;
 
@@ -420,7 +421,7 @@
             // Refresh sync rules tab to reload from config
             if (_syncRulesTab != null)
                 await _syncRulesTab.ReloadFromConfigAsync();
-            
+
             // Refresh default install paths editor
             _defaultInstallPathsEditor?.ReloadFromConfig();
 
@@ -438,7 +439,7 @@
         // Refresh sync rules tab to reload from config
         if (_syncRulesTab != null)
             await _syncRulesTab.ReloadFromConfigAsync();
-        
+
         // Refresh default install paths editor
         _defaultInstallPathsEditor?.ReloadFromConfig();
 
@@ -493,7 +494,7 @@
         _editingMod.Optional = result.IsOptional;
         _editingMod.InstallPaths = result.InstallPaths;
         _editingMod.FileRules = result.FileRules;
-        
+
         // Update installed files if they were modified
         if (result.InstalledFiles != null)
         {
@@ -917,3 +918,26 @@
             norm.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase));
     }
 }
+
+<style>
+    .shake-button {
+        animation: nudge 5s ease-in-out infinite;
+    }
+
+    @@keyframes nudge {
+        0%,
+        80%,
+        100% {
+          transform: translateY(0) rotate(0deg);
+        }
+        85% {
+          transform: translateY(-2px) rotate(-1deg);
+        }
+        90% {
+          transform: translateY(1px) rotate(1deg);
+        }
+        95% {
+          transform: translateY(0) rotate(0deg);
+        }
+    }
+</style>

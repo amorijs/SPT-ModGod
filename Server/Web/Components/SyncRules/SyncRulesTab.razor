@@ -47,6 +47,10 @@
             <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
             <strong>Not using a headless client?</strong> You can skip this profile entirely. Most users only need the Player Clients profile.
         </MudAlert>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" Dense="true">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            If your headless client is running in the same directory as your server, you probably don't need to make any changes here. You can create custom sync paths in the player clients profile. For example, you can set the source path to "BepInEx/plugins_players" and the target path to "BepInEx/plugins".
+        </MudAlert>
     }
 </MudPaper>
 
@@ -698,9 +702,9 @@
     private async Task OnSyncPathEdited((SyncPathEntry OldEntry, SyncPathEntry NewEntry) args)
     {
         // Find and update the existing entry
-        var index = _syncPaths.FindIndex(p => 
+        var index = _syncPaths.FindIndex(p =>
             NormalizePath(p.Source).Equals(NormalizePath(args.OldEntry.Source), StringComparison.OrdinalIgnoreCase));
-        
+
         if (index >= 0)
         {
             _syncPaths[index] = args.NewEntry;
@@ -708,7 +712,7 @@
 
         var config = CurrentConfig;
         config.SyncPaths = _syncPaths.ToList();
-        
+
         // If source changed, update exclusions to match new source path
         var oldSourceNorm = NormalizePath(args.OldEntry.Source);
         var newSourceNorm = NormalizePath(args.NewEntry.Source);
@@ -732,10 +736,10 @@
                     _exclusionSet.Add(newSourceNorm);
                 }
             }
-            
+
             config.ExcludedPaths = _exclusionSet.OrderBy(p => p).ToList();
         }
-        
+
         SaveCurrentConfig(config);
 
         await ConfigService.SaveStagedConfigAsync();
