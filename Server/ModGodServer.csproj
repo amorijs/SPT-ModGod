@@ -54,13 +54,28 @@
         <Copy SourceFiles="@(WebAssets)" DestinationFolder="$(OutputPath)wwwroot\%(RecursiveDir)" />
     </Target>
 
+    <!-- Copy bundled tools (7z for Windows and Linux) to output -->
+    <Target Name="CopyTools" AfterTargets="Build">
+        <ItemGroup>
+            <!-- Windows: 7z.exe + 7z.dll -->
+            <ToolFiles Include="$(ProjectDir)tools\7z.exe" Condition="Exists('$(ProjectDir)tools\7z.exe')" />
+            <ToolFiles Include="$(ProjectDir)tools\7z.dll" Condition="Exists('$(ProjectDir)tools\7z.dll')" />
+            <!-- Linux: 7zz (standalone binary) -->
+            <ToolFiles Include="$(ProjectDir)tools\7zz" Condition="Exists('$(ProjectDir)tools\7zz')" />
+        </ItemGroup>
+        <Copy SourceFiles="@(ToolFiles)" DestinationFolder="$(OutputPath)tools" SkipUnchangedFiles="true" Condition="@(ToolFiles->Count()) > 0" />
+        <Message Importance="high" Text="Copied bundled 7-Zip tools to output" Condition="@(ToolFiles->Count()) > 0" />
+    </Target>
+
     <!-- Optional: Copy to SPT for testing -->
-    <Target Name="CopyToSPT" AfterTargets="CopyWwwroot" Condition="Exists('$(SPTPath)')">
+    <Target Name="CopyToSPT" AfterTargets="CopyTools" Condition="Exists('$(SPTPath)')">
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer" />
         <ItemGroup>
             <WwwrootFiles Include="$(OutputPath)wwwroot\**\*.*" />
+            <ToolsFiles Include="$(OutputPath)tools\**\*.*" Condition="Exists('$(OutputPath)tools')" />
         </ItemGroup>
         <Copy SourceFiles="@(WwwrootFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer\wwwroot\%(RecursiveDir)" />
+        <Copy SourceFiles="@(ToolsFiles)" DestinationFolder="$(SPTPath)\SPT\user\mods\ModGodServer\tools\%(RecursiveDir)" Condition="Exists('$(OutputPath)tools')" />
     </Target>
 </Project>
 

@@ -445,42 +445,74 @@ public class ModDownloadService
     }
 
     /// <summary>
-    /// Find 7z.exe in common locations
+    /// Find 7z executable - checks bundled version first (Windows), then system installations
     /// </summary>
     private string? Find7ZipExecutable()
     {
-        // Common 7-Zip installation paths on Windows
-        var possiblePaths = new[]
+        var isWindows = OperatingSystem.IsWindows();
+        
+        if (isWindows)
         {
-            // Standard 7-Zip installations
-            @"C:\Program Files\7-Zip\7z.exe",
-            @"C:\Program Files (x86)\7-Zip\7z.exe",
-            // Portable/custom locations
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "7-Zip", "7z.exe"),
-            // Check if in PATH
-            "7z.exe",
-            "7za.exe", // Standalone console version
-        };
+            // Windows: Check for bundled 7z.exe first (shipped with ModGod)
+            var assemblyLocation = Path.GetDirectoryName(typeof(ModDownloadService).Assembly.Location);
+            if (!string.IsNullOrEmpty(assemblyLocation))
+            {
+                var bundledPath = Path.Combine(assemblyLocation, "tools", "7z.exe");
+                if (File.Exists(bundledPath))
+                {
+                    _logger.Info($"[7z] Using bundled 7z.exe: {bundledPath}");
+                    return bundledPath;
+                }
+            }
 
-        foreach (var path in possiblePaths)
-        {
-            if (path.Contains(Path.DirectorySeparatorChar) || path.Contains('/'))
+            // Windows: Fall back to system 7-Zip installations
+            var windowsPaths = new[]
+            {
+                @"C:\Program Files\7-Zip\7z.exe",
+                @"C:\Program Files (x86)\7-Zip\7z.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "7-Zip", "7z.exe"),
+            };
+
+            foreach (var path in windowsPaths)
             {
                 if (File.Exists(path))
                 {
-                    _logger.Info($"[7z] Found 7-Zip at: {path}");
+                    _logger.Info($"[7z] Found system 7-Zip at: {path}");
                     return path;
                 }
             }
-            else
+            
+            _logger.Warning("[7z] 7-Zip not found - large .7z archives will extract VERY slowly");
+            _logger.Warning("[7z] To install 7-Zip on Windows:");
+            _logger.Warning("[7z]   Option 1: Download from https://www.7-zip.org/download.html");
+            _logger.Warning("[7z]   Option 2: winget install 7zip.7zip");
+            _logger.Warning("[7z]   Option 3: choco install 7zip");
+        }
+        else
+        {
+            // Linux/macOS: First check for bundled 7zz binary
+            var assemblyLocation = Path.GetDirectoryName(typeof(ModDownloadService).Assembly.Location);
+            if (!string.IsNullOrEmpty(assemblyLocation))
             {
-                // Check if in PATH
+                var bundledPath = Path.Combine(assemblyLocation, "tools", "7zz");
+                if (File.Exists(bundledPath))
+                {
+                    _logger.Info($"[7z] Using bundled 7zz: {bundledPath}");
+                    return bundledPath;
+                }
+            }
+            
+            // Linux/macOS: Check for 7z, 7zz, or 7za in PATH (installed via package manager)
+            var linuxCommands = new[] { "7zz", "7z", "7za", "7zr" };
+            
+            foreach (var cmd in linuxCommands)
+            {
                 try
                 {
                     var startInfo = new ProcessStartInfo
                     {
-                        FileName = path,
-                        Arguments = "",
+                        FileName = cmd,
+                        Arguments = "--help",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -489,15 +521,33 @@ public class ModDownloadService
                     using var process = Process.Start(startInfo);
                     if (process != null)
                     {
-                        process.WaitForExit(1000);
-                        _logger.Info($"[7z] Found 7-Zip in PATH: {path}");
-                        return path;
+                        process.WaitForExit(2000);
+                        if (process.ExitCode == 0)
+                        {
+                            _logger.Info($"[7z] Found 7-Zip in PATH: {cmd}");
+                            return cmd;
+                        }
                     }
                 }
                 catch
                 {
-                    // Not found in PATH
+                    // Command not found, try next
                 }
+            }
+            
+            _logger.Warning("[7z] 7-Zip not found - large .7z archives will extract VERY slowly");
+            if (OperatingSystem.IsMacOS())
+            {
+                _logger.Warning("[7z] To install 7-Zip on macOS:");
+                _logger.Warning("[7z]   brew install p7zip");
+            }
+            else
+            {
+                _logger.Warning("[7z] To install 7-Zip on Linux/Docker:");
+                _logger.Warning("[7z]   Option 1 (recommended): Download 7zz to ModGodServer/tools/");
+                _logger.Warning("[7z]            curl -L https://www.7-zip.org/a/7z2408-linux-x64.tar.xz | tar -xJ -C /path/to/ModGodServer/tools/ 7zz");
+                _logger.Warning("[7z]   Option 2: Install in container: apt update && apt install -y p7zip-full");
+                _logger.Warning("[7z]   Option 3: Add to Dockerfile: RUN apt-get update && apt-get install -y p7zip-full");
             }
         }
 
@@ -514,8 +564,9 @@ public class ModDownloadService
         var startInfo = new ProcessStartInfo
         {
             FileName = sevenZipPath,
-            // x = extract with full paths, -o = output directory, -y = yes to all prompts, -bsp1 = progress to stdout
-            Arguments = $"x \"{archivePath}\" -o\"{extractPath}\" -y -bsp1",
+            // x = extract with full paths, -o = output directory, -y = yes to all prompts
+            // -bsp1 = progress to stdout, -bse1 = errors to stdout (for unified parsing)
+            Arguments = $"x \"{archivePath}\" -o\"{extractPath}\" -y -bsp1 -bse1",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -524,53 +575,85 @@ public class ModDownloadService
 
         var startTime = DateTime.UtcNow;
         int lastLoggedPercent = 0;
+        var lastProgressLog = DateTime.UtcNow;
         
-        using var process = new Process { StartInfo = startInfo };
-        
-        process.OutputDataReceived += (sender, e) =>
+        // Helper to parse progress from a line (works for both stdout and stderr)
+        void TryParseProgress(string? data)
         {
-            if (string.IsNullOrEmpty(e.Data)) return;
+            if (string.IsNullOrEmpty(data)) return;
             
-            // 7z outputs progress like "  45% 123 - filename" 
-            var line = e.Data.Trim();
-            if (line.Length > 0 && char.IsDigit(line[0]))
+            var line = data.Trim();
+            if (line.Length == 0) return;
+            
+            // 7z outputs progress like "  45% 123 - filename" or just "45%"
+            // Find percentage pattern anywhere in the line
+            var percentIndex = line.IndexOf('%');
+            if (percentIndex > 0)
             {
-                var percentEnd = line.IndexOf('%');
-                if (percentEnd > 0 && int.TryParse(line[..percentEnd].Trim(), out var percent))
+                // Work backwards from % to find the number
+                var numStart = percentIndex - 1;
+                while (numStart >= 0 && (char.IsDigit(line[numStart]) || line[numStart] == ' '))
                 {
-                    // Log every 10%
+                    numStart--;
+                }
+                numStart++;
+                
+                var numStr = line[numStart..percentIndex].Trim();
+                if (int.TryParse(numStr, out var percent) && percent >= 0 && percent <= 100)
+                {
+                    // Log every 10% or every 30 seconds
                     var percentThreshold = (percent / 10) * 10;
-                    if (percentThreshold > lastLoggedPercent)
+                    var timeSinceLastLog = DateTime.UtcNow - lastProgressLog;
+                    
+                    if (percentThreshold > lastLoggedPercent || timeSinceLastLog.TotalSeconds >= 30)
                     {
                         var elapsed = DateTime.UtcNow - startTime;
                         _logger.Info($"[7z] Progress: {percent}% - elapsed: {elapsed.TotalSeconds:F1}s");
                         lastLoggedPercent = percentThreshold;
+                        lastProgressLog = DateTime.UtcNow;
                     }
                 }
             }
-        };
-
-        process.ErrorDataReceived += (sender, e) =>
-        {
-            if (!string.IsNullOrEmpty(e.Data))
-            {
-                _logger.Warning($"[7z] {e.Data}");
-            }
-        };
+        }
+        
+        using var process = new Process { StartInfo = startInfo };
+        
+        process.OutputDataReceived += (sender, e) => TryParseProgress(e.Data);
+        process.ErrorDataReceived += (sender, e) => TryParseProgress(e.Data);
 
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         
-        // Wait with timeout (30 minutes max for very large archives)
-        var completed = await Task.Run(() => process.WaitForExit(30 * 60 * 1000));
-        
-        if (!completed)
+        // Wait with timeout, but log heartbeat every 30 seconds if no progress received
+        while (!process.HasExited)
         {
-            _logger.Error("[7z] Extraction timed out after 30 minutes");
-            try { process.Kill(); } catch { }
-            return false;
+            // Check every second
+            await Task.Delay(1000);
+            
+            if (process.HasExited) break;
+            
+            // Heartbeat: if no progress logged recently, show we're still alive
+            var timeSinceLastLog = DateTime.UtcNow - lastProgressLog;
+            var elapsed = DateTime.UtcNow - startTime;
+            
+            if (timeSinceLastLog.TotalSeconds >= 30)
+            {
+                _logger.Info($"[7z] Extracting... (elapsed: {elapsed.TotalSeconds:F0}s)");
+                lastProgressLog = DateTime.UtcNow;
+            }
+            
+            // Overall timeout: 30 minutes
+            if (elapsed.TotalMinutes >= 30)
+            {
+                _logger.Error("[7z] Extraction timed out after 30 minutes");
+                try { process.Kill(); } catch { }
+                return false;
+            }
         }
+        
+        // Ensure process has fully exited and async output handlers complete
+        await Task.Run(() => process.WaitForExit());
 
         var totalElapsed = DateTime.UtcNow - startTime;
         
