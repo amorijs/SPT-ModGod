@@ -36,6 +36,12 @@ public partial class ConfigService : IOnLoad
     
     public StagingIndex Staging { get; private set; } = new();
     public PendingOperations PendingOps { get; private set; } = new();
+    
+    /// <summary>
+    /// True if the config file uses the legacy format and needs migration.
+    /// UI should show a migration dialog when this is true.
+    /// </summary>
+    public bool IsLegacyConfig { get; private set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -235,12 +241,116 @@ public partial class ConfigService : IOnLoad
             }
         }
         
-        // Migrate from legacy sync config format to new ClientSyncConfig format
-        var migrated = await MigrateSyncConfigAsync(Config);
-        if (migrated)
+        // Check if config uses legacy format (needs user-driven migration)
+        IsLegacyConfig = CheckIsLegacyConfig(Config);
+        
+        if (IsLegacyConfig)
         {
-            await SaveConfigAsync();
+            _logger.Warning("Detected legacy config format. User action required for migration.");
         }
+        else
+        {
+            // Ensure new configs are properly initialized for non-legacy configs
+            if (Config.PlayerSyncConfig == null || Config.HeadlessSyncConfig == null)
+            {
+                Config.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
+                Config.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
+                await SaveConfigAsync();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Check if config uses legacy format (has legacy properties but no new config objects)
+    /// </summary>
+    private bool CheckIsLegacyConfig(ServerConfig config)
+    {
+        bool hasLegacyProps = config.SyncExclusions?.Count > 0 || 
+                              config.UseDefaultExclusions.HasValue || 
+                              config.CustomDefaultExclusions != null ||
+                              config.HeadlessSyncPaths?.Count > 0;
+        bool hasNewConfig = config.PlayerSyncConfig != null || config.HeadlessSyncConfig != null;
+        
+        return hasLegacyProps && !hasNewConfig;
+    }
+    
+    /// <summary>
+    /// Migrate legacy config to new format with backup. Called by UI when user chooses "Transfer Settings".
+    /// </summary>
+    public async Task MigrateConfigWithBackupAsync()
+    {
+        if (!IsLegacyConfig) return;
+        
+        // Create backup
+        var backupPath = ConfigPath + ".bak";
+        if (File.Exists(ConfigPath))
+        {
+            File.Copy(ConfigPath, backupPath, overwrite: true);
+            _logger.Info($"Created config backup at: {backupPath}");
+        }
+        
+        // Perform migration
+        await MigrateSyncConfigAsync(Config);
+        await SaveConfigAsync();
+        
+        // Also migrate staged config
+        await MigrateSyncConfigAsync(StagedConfig);
+        await SaveStagedConfigAsync();
+        
+        IsLegacyConfig = false;
+        _logger.Success("Config migration complete!");
+    }
+    
+    /// <summary>
+    /// Start fresh with default config. Called by UI when user chooses "Start Fresh".
+    /// </summary>
+    public async Task StartFreshConfigAsync()
+    {
+        // Create backup of old config
+        var backupPath = ConfigPath + ".bak";
+        if (File.Exists(ConfigPath))
+        {
+            File.Copy(ConfigPath, backupPath, overwrite: true);
+            _logger.Info($"Created config backup at: {backupPath}");
+        }
+        
+        // Create new config preserving only the mod list
+        var modList = Config.ModList.ToList();
+        Config = new ServerConfig
+        {
+            ModList = modList,
+            PlayerSyncConfig = ClientSyncConfig.DefaultPlayerConfig(),
+            HeadlessSyncConfig = ClientSyncConfig.DefaultHeadlessConfig()
+        };
+        await SaveConfigAsync();
+        
+        // Also reset staged config
+        StagedConfig = new ServerConfig
+        {
+            ModList = modList.Select(m => CloneMod(m)).ToList(),
+            PlayerSyncConfig = ClientSyncConfig.DefaultPlayerConfig(),
+            HeadlessSyncConfig = ClientSyncConfig.DefaultHeadlessConfig()
+        };
+        await SaveStagedConfigAsync();
+        
+        IsLegacyConfig = false;
+        _logger.Success("Started fresh with default config!");
+    }
+    
+    private ModEntry CloneMod(ModEntry mod)
+    {
+        return new ModEntry
+        {
+            ModName = mod.ModName,
+            DownloadUrl = mod.DownloadUrl,
+            Optional = mod.Optional,
+            LastUpdated = mod.LastUpdated,
+            InstallPaths = mod.InstallPaths.Select(p => new[] { p[0], p[1] }).ToList(),
+            Status = mod.Status,
+            FileRules = mod.FileRules.ToList(),
+            IsProtected = mod.IsProtected,
+            InstalledFiles = mod.InstalledFiles.ToList()
+        };
     }
     
     /// <summary>

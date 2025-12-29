@@ -106,6 +106,17 @@
                     }
                 </MudAlert>
             }
+            
+            @if (Result.AnySettingsChanged)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    <MudText Typo="Typo.subtitle2">⚙️ Settings Updated:</MudText>
+                    @if (Result.DefaultInstallPathsChanged)
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-3">• Default install paths updated (@Result.DefaultInstallPathCount mappings)</MudText>
+                    }
+                </MudAlert>
+            }
 
             @if (Result.AutoInstallerLaunched && Result.IsWindows)
             {
@@ -157,6 +168,7 @@
                Result.RemovedMods.Count > 0 ||
                Result.QueuedForRemoval.Count > 0 ||
                Result.AnySyncConfigChanged ||
+               Result.AnySettingsChanged ||
                Result.Errors.Count > 0 ||
                Result.FailedDeletions.Count > 0;
     }

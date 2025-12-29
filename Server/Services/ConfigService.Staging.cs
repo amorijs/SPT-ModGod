@@ -139,7 +139,30 @@ public partial class ConfigService
         if (!SyncConfigsEqual(Config.HeadlessSyncConfig, StagedConfig.HeadlessSyncConfig))
             return true;
         
+        // Check default install paths changes
+        if (!DefaultInstallPathsEqual(Config.DefaultInstallPaths, StagedConfig.DefaultInstallPaths))
+            return true;
+        
         return false;
+    }
+    
+    private static bool DefaultInstallPathsEqual(List<DefaultInstallPathMapping>? a, List<DefaultInstallPathMapping>? b)
+    {
+        // Get effective mappings (handles null = defaults case)
+        var aEffective = a ?? DefaultInstallPaths.Mappings;
+        var bEffective = b ?? DefaultInstallPaths.Mappings;
+        
+        if (aEffective.Count != bEffective.Count)
+            return false;
+        
+        for (int i = 0; i < aEffective.Count; i++)
+        {
+            if (!aEffective[i].Source.Equals(bEffective[i].Source, StringComparison.OrdinalIgnoreCase) ||
+                !aEffective[i].Target.Equals(bEffective[i].Target, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        
+        return true;
     }
     
     private static bool SyncConfigsEqual(ClientSyncConfig? a, ClientSyncConfig? b)
@@ -260,6 +283,9 @@ public partial class ConfigService
             _logger.Info("Deleted staged config file after apply");
         }
         
+        // Clear all staging data (downloaded mod archives) - they're no longer needed
+        await ClearAllStagingAsync();
+        
         _logger.Info($"Applied staged config: {changes.ModsToInstall.Count} to install, " +
                     $"{changes.ModsToRemove.Count} to remove, {changes.ModsToUpdate.Count} to update");
         
@@ -326,6 +352,40 @@ public partial class ConfigService
             }
         }
         Staging.UrlToPath.Remove(url);
+    }
+
+    /// <summary>
+    /// Clear all staging data (all downloaded mod archives)
+    /// </summary>
+    public async Task ClearAllStagingAsync()
+    {
+        var clearedCount = 0;
+        
+        // Delete all staging folders
+        if (Directory.Exists(StagingPath))
+        {
+            foreach (var dir in Directory.GetDirectories(StagingPath))
+            {
+                try
+                {
+                    Directory.Delete(dir, true);
+                    clearedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Failed to delete staging folder {dir}: {ex.Message}");
+                }
+            }
+        }
+        
+        // Clear the staging index
+        Staging.UrlToPath.Clear();
+        await SaveStagingIndexAsync();
+        
+        if (clearedCount > 0)
+        {
+            _logger.Info($"Cleared {clearedCount} staging folders");
+        }
     }
 
     #endregion

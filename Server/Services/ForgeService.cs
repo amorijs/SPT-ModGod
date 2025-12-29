@@ -79,6 +79,11 @@ public class ForgeService : IOnLoad
     public bool HasApiKey => !string.IsNullOrWhiteSpace(_credentials.ApiKey);
 
     /// <summary>
+    /// Get the current API key (or null if not configured)
+    /// </summary>
+    public string? ApiKey => _credentials.ApiKey;
+
+    /// <summary>
     /// Validate an API key by making a test request
     /// </summary>
     public async Task<(bool IsValid, string? Error)> ValidateApiKeyAsync(string apiKey)

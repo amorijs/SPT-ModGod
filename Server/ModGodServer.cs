@@ -965,8 +965,56 @@ public class ForgeStatusHttpListener : IHttpListener
 }
 
 /// <summary>
+/// HTTP listener to get Forge API key (for copy to clipboard)
+/// GET /modgod/api/forge/api-key
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class ForgeGetApiKeyHttpListener : IHttpListener
+{
+    private readonly ForgeService _forgeService;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public ForgeGetApiKeyHttpListener(ForgeService forgeService)
+    {
+        _forgeService = forgeService;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" && 
+               path.Equals("/modgod/api/forge/api-key", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        if (!_forgeService.HasApiKey)
+        {
+            var errorJson = JsonSerializer.Serialize(new { apiKey = (string?)null }, JsonOptions);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(errorJson));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(new { apiKey = _forgeService.ApiKey }, JsonOptions);
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
 /// HTTP listener to delete Forge API key
-/// DELETE /modgod/api/forge/key
+/// DELETE /modgod/api/forge/api-key
 /// </summary>
 [Injectable(TypePriority = 0)]
 public class ForgeDeleteKeyHttpListener : IHttpListener
@@ -991,7 +1039,7 @@ public class ForgeDeleteKeyHttpListener : IHttpListener
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
         return context.Request.Method == "DELETE" && 
-               path.Equals("/modgod/api/forge/key", StringComparison.OrdinalIgnoreCase);
+               path.Equals("/modgod/api/forge/api-key", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)

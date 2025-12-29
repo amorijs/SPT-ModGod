@@ -227,11 +227,34 @@ public class ModDownloadService
     private List<string[]> GenerateInstallPaths(string extractedPath, List<string> topLevelDirs)
     {
         var installPaths = new List<string[]>();
+        
+        // Get effective install path mappings from STAGED config (so changes are reflected immediately)
+        var mappings = DefaultInstallPaths.GetEffectiveMappings(_configService.StagedConfig);
 
-        foreach (var dir in topLevelDirs)
+        // For each mapping, check if the source path exists in the archive
+        // This allows more specific mappings (like BepInEx/plugins) to generate separate install paths
+        foreach (var mapping in mappings)
         {
-            // Source and target are the same relative path (relative to SPT root)
-            installPaths.Add(new[] { dir, dir });
+            var sourcePath = Path.Combine(extractedPath, mapping.Source.Replace('/', Path.DirectorySeparatorChar));
+            
+            // Check if this path exists in the archive (as file or directory)
+            if (Directory.Exists(sourcePath) || File.Exists(sourcePath))
+            {
+                // Target must include <SPT_ROOT> prefix for ModInstallService to resolve the path
+                var target = mapping.Target.StartsWith("<SPT_ROOT>", StringComparison.OrdinalIgnoreCase)
+                    ? mapping.Target
+                    : $"<SPT_ROOT>/{mapping.Target}";
+                installPaths.Add(new[] { mapping.Source, target });
+            }
+        }
+
+        // If no mappings matched, fall back to 1:1 mapping for top-level directories
+        if (installPaths.Count == 0)
+        {
+            foreach (var dir in topLevelDirs)
+            {
+                installPaths.Add(new[] { dir, $"<SPT_ROOT>/{dir}" });
+            }
         }
 
         return installPaths;

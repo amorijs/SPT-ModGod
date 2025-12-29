@@ -79,6 +79,25 @@ public class ClientSyncConfig
     };
 }
 
+/// <summary>
+/// Represents a default install path mapping for auto-generating mod install paths.
+/// When a mod's archive contains a matching source directory, it will be mapped to the target.
+/// </summary>
+public class DefaultInstallPathMapping
+{
+    /// <summary>
+    /// Directory name/path in the mod archive to match (e.g., "BepInEx", "BepInEx/plugins")
+    /// </summary>
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Target path on the server where the source should be installed (e.g., "BepInEx", "BepInEx/plugins_custom")
+    /// </summary>
+    [JsonPropertyName("target")]
+    public string Target { get; set; } = string.Empty;
+}
+
 public class ServerConfig
 {
     [JsonPropertyName("modList")]
@@ -86,11 +105,18 @@ public class ServerConfig
 
     /// <summary>
     /// User-chosen paths to delete when uninstalling a mod (keyed by download URL).
-    /// Paths can be relative (e.g., "BepInEx/plugins/MyMod") or use the legacy <SPT_ROOT> prefix.
+    /// Paths can be relative (e.g., "BepInEx/plugins/MyMod") or use the legacy &lt;SPT_ROOT&gt; prefix.
     /// Forward slashes are preferred.
     /// </summary>
     [JsonPropertyName("removalSelections")]
     public Dictionary<string, List<string>> RemovalSelections { get; set; } = new();
+
+    /// <summary>
+    /// Default install path mappings for auto-generating mod install paths.
+    /// When null, uses the built-in defaults (BepInEx -> BepInEx, SPT -> SPT).
+    /// </summary>
+    [JsonPropertyName("defaultInstallPaths")]
+    public List<DefaultInstallPathMapping>? DefaultInstallPaths { get; set; }
 
     /// <summary>
     /// Sync configuration for player (game) clients
@@ -224,6 +250,29 @@ public static class DefaultSyncExclusions
             return new List<string>();
 
         return config.CustomDefaultExclusions ?? Patterns;
+    }
+}
+
+/// <summary>
+/// Built-in default install path mappings for mods.
+/// </summary>
+public static class DefaultInstallPaths
+{
+    /// <summary>
+    /// Default mappings: standard directories map to themselves.
+    /// </summary>
+    public static readonly List<DefaultInstallPathMapping> Mappings = new()
+    {
+        new() { Source = "BepInEx", Target = "BepInEx" },
+        new() { Source = "SPT", Target = "SPT" }
+    };
+
+    /// <summary>
+    /// Get effective install path mappings from config, or defaults if not configured.
+    /// </summary>
+    public static List<DefaultInstallPathMapping> GetEffectiveMappings(ServerConfig? config)
+    {
+        return config?.DefaultInstallPaths ?? Mappings;
     }
 }
 

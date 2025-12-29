@@ -142,6 +142,12 @@ public class ModInstallService
         result.PlayerExclusionCount = _configService.StagedConfig.PlayerSyncConfig?.ExcludedPaths?.Count ?? 0;
         result.HeadlessSyncPathCount = _configService.StagedConfig.HeadlessSyncConfig?.SyncPaths?.Count ?? 0;
         result.HeadlessExclusionCount = _configService.StagedConfig.HeadlessSyncConfig?.ExcludedPaths?.Count ?? 0;
+        
+        // Track settings changes (default install paths)
+        result.DefaultInstallPathsChanged = !DefaultInstallPathsEqual(
+            _configService.Config.DefaultInstallPaths,
+            _configService.StagedConfig.DefaultInstallPaths);
+        result.DefaultInstallPathCount = DefaultInstallPaths.GetEffectiveMappings(_configService.StagedConfig).Count;
 
         // Apply staged config to live config
         await _configService.ApplyStagedToLiveAsync();
@@ -606,6 +612,28 @@ public class ModInstallService
     }
 
     /// <summary>
+    /// Compare two DefaultInstallPaths lists for equality.
+    /// </summary>
+    private static bool DefaultInstallPathsEqual(List<DefaultInstallPathMapping>? a, List<DefaultInstallPathMapping>? b)
+    {
+        // Get effective mappings (handles null = defaults case)
+        var aEffective = a ?? DefaultInstallPaths.Mappings;
+        var bEffective = b ?? DefaultInstallPaths.Mappings;
+        
+        if (aEffective.Count != bEffective.Count)
+            return false;
+        
+        for (int i = 0; i < aEffective.Count; i++)
+        {
+            if (!aEffective[i].Source.Equals(bEffective[i].Source, StringComparison.OrdinalIgnoreCase) ||
+                !aEffective[i].Target.Equals(bEffective[i].Target, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        
+        return true;
+    }
+
+    /// <summary>
     /// Compare two ClientSyncConfig instances for equality.
     /// </summary>
     private static bool SyncConfigsEqual(ClientSyncConfig? a, ClientSyncConfig? b)
@@ -663,10 +691,19 @@ public class ApplyChangesResult
     public int HeadlessSyncPathCount { get; set; }
     public int HeadlessExclusionCount { get; set; }
     
+    // Settings changes (default install paths)
+    public bool DefaultInstallPathsChanged { get; set; }
+    public int DefaultInstallPathCount { get; set; }
+    
     /// <summary>
     /// Returns true if any sync config (player or headless) changed.
     /// </summary>
     public bool AnySyncConfigChanged => PlayerSyncConfigChanged || HeadlessSyncConfigChanged;
+    
+    /// <summary>
+    /// Returns true if any settings changed.
+    /// </summary>
+    public bool AnySettingsChanged => DefaultInstallPathsChanged;
 }
 
 public class ModOperationResult

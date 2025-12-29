@@ -277,6 +277,24 @@
         <MudTabPanel Text="Health Check (Experimental)" Class="mt-4">
             <HealthCheckTab OnModsStaged="StateHasChanged" />
         </MudTabPanel>
+
+        <MudTabPanel Text="Settings" Class="mt-4">
+            <div style="max-width: 930px;">
+                <!-- Forge Integration (full width row) -->
+                <MudText Typo="Typo.h6" Class="mb-3" Style="color: var(--text-primary);">
+                    <MudIcon Icon="@Icons.Material.Filled.Key" Class="mr-2" Style="vertical-align: middle;" />
+                    Forge Integration
+                </MudText>
+                <ForgeApiKeyInput OnApiKeyChanged="StateHasChanged" />
+
+                <!-- Default Install Paths (full width row) -->
+                <MudText Typo="Typo.h6" Class="mb-3 mt-6" Style="color: var(--text-primary);">
+                    <MudIcon Icon="@Icons.Material.Filled.FolderCopy" Class="mr-2" Style="vertical-align: middle;" />
+                    Default Install Paths
+                </MudText>
+                <DefaultInstallPathsEditor @ref="_defaultInstallPathsEditor" OnChange="StateHasChanged" />
+            </div>
+        </MudTabPanel>
     </MudTabs>
 </MudContainer>
 
@@ -298,12 +316,16 @@
 <!-- Apply Changes Result Dialog -->
 <ApplyResultDialog @bind-Visible="_applyResultDialogVisible" Result="_applyResult" />
 
+<!-- Migration Dialog (for legacy config) -->
+<MigrationDialog @bind-Visible="_migrationDialogVisible" OnMigrationComplete="StateHasChanged" />
+
 @code {
     private bool _hasLoggedInit = false;
     private int _activeTabIndex = 0;
 
-    // Tab reference for refresh on discard
+    // Tab references for refresh on discard
     private SyncRulesTab? _syncRulesTab;
+    private DefaultInstallPathsEditor? _defaultInstallPathsEditor;
 
     // Search and filter
     private string _searchQuery = "";
@@ -315,8 +337,18 @@
         {
             _hasLoggedInit = true;
             await JS.InvokeVoidAsync("console.log", "[ModGod] Frontend loaded!");
+            
+            // Check for legacy config and show migration dialog if needed
+            if (ConfigService.IsLegacyConfig)
+            {
+                _migrationDialogVisible = true;
+                StateHasChanged();
+            }
         }
     }
+    
+    // Migration dialog state
+    private bool _migrationDialogVisible;
 
     // RenderModCard moved to ModCard component
 
@@ -388,6 +420,9 @@
             // Refresh sync rules tab to reload from config
             if (_syncRulesTab != null)
                 await _syncRulesTab.ReloadFromConfigAsync();
+            
+            // Refresh default install paths editor
+            _defaultInstallPathsEditor?.ReloadFromConfig();
 
             Snackbar.Add("Changes discarded.", Severity.Info);
             StateHasChanged();
@@ -403,6 +438,9 @@
         // Refresh sync rules tab to reload from config
         if (_syncRulesTab != null)
             await _syncRulesTab.ReloadFromConfigAsync();
+        
+        // Refresh default install paths editor
+        _defaultInstallPathsEditor?.ReloadFromConfig();
 
         Snackbar.Add("Reloaded config from disk.", Severity.Info);
         StateHasChanged();

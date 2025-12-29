@@ -1,5 +1,6 @@
 @using ModGod.Services
 @using System.Text.Json
+@using Microsoft.JSInterop
 
 <MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <div class="d-flex justify-space-between align-center mb-2">
@@ -47,6 +48,13 @@
             </MudButton>
         </div>
 
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-2" Dense="true">
+                @_error
+            </MudAlert>
+        }
+
         <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank" Typo="Typo.caption" Class="mt-2 d-block">
             <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
             Get your API key here
@@ -54,12 +62,32 @@
     }
     else
     {
-        <div class="d-flex justify-end">
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+            Your API key is securely stored. You can search mods and check for updates.
+        </MudText>
+        <div class="d-flex justify-end gap-2">
+            <MudTooltip Text="Copy API key to clipboard">
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Default"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.ContentCopy"
+                           OnClick="CopyApiKeyToClipboard"
+                           Disabled="_isCopying">
+                    @if (_isCopying)
+                    {
+                        <span>Copied!</span>
+                    }
+                    else
+                    {
+                        <span>Copy Key</span>
+                    }
+                </MudButton>
+            </MudTooltip>
             <MudButton Variant="Variant.Text"
                        Color="Color.Error"
                        Size="Size.Small"
                        StartIcon="@Icons.Material.Filled.Delete"
-                       OnClick="RemoveApiKey">
+                       OnClick="ConfirmRemoveApiKey">
                 Remove Key
             </MudButton>
         </div>
@@ -69,6 +97,9 @@
 @code {
     [Inject] private ForgeService ForgeService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
 
     /// <summary>
     /// Called when the API key status changes (added or removed)
@@ -78,6 +109,7 @@
     private bool _hasApiKey;
     private string _apiKeyInput = "";
     private bool _isValidating;
+    private bool _isCopying;
     private string? _error;
     
     // Get the API base URL dynamically from the current navigation URI
@@ -118,21 +150,110 @@
             {
                 _hasApiKey = true;
                 _apiKeyInput = "";
+                _error = null;
+                Snackbar.Add("API key validated and saved!", Severity.Success);
                 await OnApiKeyChanged.InvokeAsync();
             }
             else
             {
-                _error = result?.Error ?? "Failed to validate API key";
+                _error = GetFriendlyErrorMessage(result?.Error);
             }
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Unable to connect to the server. Please check your network connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _error = "Request timed out. The server may be busy. Please try again.";
         }
         catch (Exception ex)
         {
-            _error = $"Connection error: {ex.Message}";
+            _error = $"An unexpected error occurred: {ex.Message}";
         }
         finally
         {
             _isValidating = false;
             StateHasChanged();
+        }
+    }
+
+    private string GetFriendlyErrorMessage(string? error)
+    {
+        if (string.IsNullOrEmpty(error))
+            return "Failed to validate API key. Please check that the key is correct.";
+        
+        // Map common errors to user-friendly messages
+        if (error.Contains("401") || error.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
+            return "Invalid API key. Please check that you copied the full key from Forge.";
+        
+        if (error.Contains("403") || error.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+            return "API key doesn't have required permissions. Please generate a new key with proper scopes.";
+        
+        if (error.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+            return "Too many requests. Please wait a moment and try again.";
+        
+        if (error.Contains("network", StringComparison.OrdinalIgnoreCase) || error.Contains("connection", StringComparison.OrdinalIgnoreCase))
+            return "Network error. Please check your internet connection and try again.";
+        
+        return error;
+    }
+
+    private async Task CopyApiKeyToClipboard()
+    {
+        try
+        {
+            _isCopying = true;
+            StateHasChanged();
+
+            using var client = new HttpClient(new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            });
+
+            var response = await client.GetAsync($"{ApiBaseUrl}/modgod/api/forge/api-key");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<ApiKeyResponse>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                
+                if (!string.IsNullOrEmpty(result?.ApiKey))
+                {
+                    await JS.InvokeVoidAsync("navigator.clipboard.writeText", result.ApiKey);
+                    Snackbar.Add("API key copied to clipboard!", Severity.Success);
+                    
+                    // Show "Copied!" briefly
+                    await Task.Delay(1500);
+                }
+                else
+                {
+                    Snackbar.Add("Could not retrieve API key.", Severity.Warning);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to copy: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCopying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmRemoveApiKey()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Remove API Key",
+            "Are you sure you want to remove your Forge API key? You'll need to enter it again to search mods or check for updates.",
+            yesText: "Remove",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            await RemoveApiKey();
         }
     }
 
@@ -150,12 +271,17 @@
             if (response.IsSuccessStatusCode)
             {
                 _hasApiKey = false;
+                Snackbar.Add("API key removed.", Severity.Info);
                 await OnApiKeyChanged.InvokeAsync();
             }
+            else
+            {
+                Snackbar.Add("Failed to remove API key.", Severity.Error);
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore errors on remove
+            Snackbar.Add($"Error removing API key: {ex.Message}", Severity.Error);
         }
     }
 
@@ -163,6 +289,11 @@
     {
         public bool Success { get; set; }
         public string? Error { get; set; }
+    }
+
+    private class ApiKeyResponse
+    {
+        public string? ApiKey { get; set; }
     }
 }
 

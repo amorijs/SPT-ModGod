@@ -1,0 +1,139 @@
+@using ModGod.Models
+@using ModGod.Services
+
+<MudDialog @bind-Visible="Visible" Options="@_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.SystemUpdate" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">Configuration Update Required</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            ModGod has detected an older configuration format that needs to be updated to work with the latest version.
+        </MudAlert>
+
+        <MudText Typo="Typo.body1" Class="mb-3" Style="color: var(--text-primary);">
+            Your <code>serverConfig.json</code> uses a legacy format. You have two options:
+        </MudText>
+
+        <MudPaper Class="pa-4 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Color="Color.Success" />
+                <MudText Typo="Typo.subtitle1" Style="color: var(--accent-green); font-weight: 600;">
+                    Transfer Settings (Recommended)
+                </MudText>
+            </div>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Automatically migrate your existing configuration to the new format. Your mod list and sync settings 
+                will be preserved. A backup will be created at <code>serverConfig.json.bak</code>.
+            </MudText>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Info" />
+                <MudText Typo="Typo.subtitle1" Style="color: var(--accent-cyan); font-weight: 600;">
+                    Start Fresh
+                </MudText>
+            </div>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Reset to default settings while keeping your mod list. You'll need to reconfigure sync rules 
+                and other settings. A backup will be created at <code>serverConfig.json.bak</code>.
+            </MudText>
+        </MudPaper>
+
+        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            This action is required to continue using ModGod.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        @if (_isMigrating)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            <MudText>Processing...</MudText>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Default"
+                       OnClick="StartFresh"
+                       StartIcon="@Icons.Material.Filled.RestartAlt">
+                Start Fresh
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Success"
+                       OnClick="TransferSettings"
+                       StartIcon="@Icons.Material.Filled.SwapHoriz">
+                Transfer Settings
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Inject] private ConfigService ConfigService { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback OnMigrationComplete { get; set; }
+
+    private bool _isMigrating;
+
+    // Dialog options that prevent closing
+    private static readonly DialogOptions _dialogOptions = new()
+    {
+        CloseOnEscapeKey = false,
+        CloseButton = false,
+        BackdropClick = false,
+        MaxWidth = MaxWidth.Small,
+        FullWidth = true
+    };
+
+    private async Task TransferSettings()
+    {
+        _isMigrating = true;
+        StateHasChanged();
+
+        try
+        {
+            await ConfigService.MigrateConfigWithBackupAsync();
+            Snackbar.Add("Configuration migrated successfully! Your old config has been backed up.", Severity.Success);
+            await CloseDialog();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Migration failed: {ex.Message}", Severity.Error);
+            _isMigrating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartFresh()
+    {
+        _isMigrating = true;
+        StateHasChanged();
+
+        try
+        {
+            await ConfigService.StartFreshConfigAsync();
+            Snackbar.Add("Started fresh with default settings! Your old config has been backed up.", Severity.Success);
+            await CloseDialog();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to start fresh: {ex.Message}", Severity.Error);
+            _isMigrating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CloseDialog()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+        await OnMigrationComplete.InvokeAsync();
+    }
+}
