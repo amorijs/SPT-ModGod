@@ -90,7 +90,7 @@
             <HeaderContent>
                 <MudTh Style="color: var(--text-secondary);">Source (Server)</MudTh>
                 <MudTh Style="color: var(--text-secondary);">Target (Client)</MudTh>
-                <MudTh Style="width: 80px;"></MudTh>
+                <MudTh Style="width: 100px;"></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Source">
@@ -100,10 +100,16 @@
                     <code style="color: var(--accent-green);">@context.Target</code>
                 </MudTd>
                 <MudTd>
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                   Size="Size.Small"
-                                   Color="Color.Error"
-                                   OnClick="@(() => RemoveSyncPath(context))" />
+                    <div class="d-flex align-center gap-1">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Size="Size.Small"
+                                       Style="color: var(--text-secondary);"
+                                       OnClick="@(() => OpenEditSyncPathDialog(context))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="@(() => RemoveSyncPath(context))" />
+                    </div>
                 </MudTd>
             </RowTemplate>
         </MudTable>
@@ -290,10 +296,12 @@
     </MudExpansionPanel>
 </MudExpansionPanels>
 
-<!-- Add Sync Path Dialog -->
+<!-- Add/Edit Sync Path Dialog -->
 <AddSyncPathDialog @bind-Visible="_showAddSyncPathDialog"
                    ExistingSyncPaths="_syncPaths"
-                   OnPathAdded="OnSyncPathAdded" />
+                   EditEntry="_editSyncPathEntry"
+                   OnPathAdded="OnSyncPathAdded"
+                   OnPathEdited="OnSyncPathEdited" />
 
 <style>
     .strikethrough {
@@ -325,6 +333,7 @@
     // Sync paths
     private List<SyncPathEntry> _syncPaths = new();
     private bool _showAddSyncPathDialog = false;
+    private SyncPathEntry? _editSyncPathEntry = null;
 
     // File tree
     private FileNode? _treeRoot;
@@ -661,6 +670,13 @@
 
     private void OpenAddSyncPathDialog()
     {
+        _editSyncPathEntry = null;
+        _showAddSyncPathDialog = true;
+    }
+
+    private void OpenEditSyncPathDialog(SyncPathEntry entry)
+    {
+        _editSyncPathEntry = entry;
         _showAddSyncPathDialog = true;
     }
 
@@ -677,6 +693,56 @@
         await LoadTreeAsync();
 
         Snackbar.Add($"Added sync path: {entry.Source}", Severity.Success);
+    }
+
+    private async Task OnSyncPathEdited((SyncPathEntry OldEntry, SyncPathEntry NewEntry) args)
+    {
+        // Find and update the existing entry
+        var index = _syncPaths.FindIndex(p => 
+            NormalizePath(p.Source).Equals(NormalizePath(args.OldEntry.Source), StringComparison.OrdinalIgnoreCase));
+        
+        if (index >= 0)
+        {
+            _syncPaths[index] = args.NewEntry;
+        }
+
+        var config = CurrentConfig;
+        config.SyncPaths = _syncPaths.ToList();
+        
+        // If source changed, update exclusions to match new source path
+        var oldSourceNorm = NormalizePath(args.OldEntry.Source);
+        var newSourceNorm = NormalizePath(args.NewEntry.Source);
+        if (!oldSourceNorm.Equals(newSourceNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            // Update exclusions that were under the old source path
+            var updatedExclusions = new List<string>();
+            foreach (var exclusion in _exclusionSet.ToList())
+            {
+                if (exclusion.StartsWith(oldSourceNorm + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Replace old source prefix with new source prefix
+                    var newExclusion = newSourceNorm + exclusion.Substring(oldSourceNorm.Length);
+                    updatedExclusions.Add(newExclusion);
+                    _exclusionSet.Remove(exclusion);
+                    _exclusionSet.Add(newExclusion);
+                }
+                else if (exclusion.Equals(oldSourceNorm, StringComparison.OrdinalIgnoreCase))
+                {
+                    _exclusionSet.Remove(exclusion);
+                    _exclusionSet.Add(newSourceNorm);
+                }
+            }
+            
+            config.ExcludedPaths = _exclusionSet.OrderBy(p => p).ToList();
+        }
+        
+        SaveCurrentConfig(config);
+
+        await ConfigService.SaveStagedConfigAsync();
+        await OnConfigChanged.InvokeAsync();
+        await LoadTreeAsync();
+
+        Snackbar.Add($"Updated sync path: {args.NewEntry.Source}", Severity.Success);
     }
 
     private async Task RemoveSyncPath(SyncPathEntry entry)

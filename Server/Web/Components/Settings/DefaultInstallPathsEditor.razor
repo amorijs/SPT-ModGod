@@ -3,17 +3,18 @@
 
 <MudPaper Class="pa-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
     <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-        When installing a mod, ModGod maps directories from the archive to your server. 
+        When installing a mod, ModGod maps directories from the archive to your server.
         Customize these mappings to redirect specific folders (e.g., install <code>BepInEx/plugins</code> to a custom location).
     </MudText>
 
     <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
-        <strong>How it works:</strong> If a mod archive contains a "BepInEx" folder at the top level, 
-        it will be installed to the "BepInEx" folder on your server (by default). 
-        Add custom mappings to change where specific directories are installed.
+        <strong>How it works:</strong> The <em>contents</em> of the source directory are copied into the target directory.
+        For example, if the archive contains <code>BepInEx/plugins/SomeMod.dll</code> and you map
+        <code>BepInEx/plugins</code> &rarr; <code>BepInEx/plugins_custom</code>,
+        the file will be installed to <code>BepInEx/plugins_custom/SomeMod.dll</code>.
         <br /><br />
-        <strong>Note:</strong> These mappings are used to pre-populate install paths when you add a mod. 
-        You can always customize the final install paths for each mod individually in the Edit Mod dialog.
+        <strong>Note:</strong> These mappings pre-populate install paths when you add a mod.
+        When installing a new mod, you can customize the final installation paths in the Edit Mod dialog.
     </MudAlert>
 
     <!-- Mappings List -->
@@ -41,8 +42,8 @@
                         <td style="color: var(--text-primary);">
                             @if (_editingIndex == index)
                             {
-                                <MudTextField @bind-Value="_editSource" 
-                                              Variant="Variant.Outlined" 
+                                <MudTextField @bind-Value="_editSource"
+                                              Variant="Variant.Outlined"
                                               Margin="Margin.Dense"
                                               Placeholder="e.g., BepInEx/plugins" />
                             }
@@ -57,8 +58,8 @@
                         <td style="color: var(--text-primary);">
                             @if (_editingIndex == index)
                             {
-                                <MudTextField @bind-Value="_editTarget" 
-                                              Variant="Variant.Outlined" 
+                                <MudTextField @bind-Value="_editTarget"
+                                              Variant="Variant.Outlined"
                                               Margin="Margin.Dense"
                                               Placeholder="e.g., BepInEx/plugins_custom" />
                             }
@@ -70,23 +71,23 @@
                         <td>
                             @if (_editingIndex == index)
                             {
-                                <MudIconButton Icon="@Icons.Material.Filled.Check" 
-                                               Color="Color.Success" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Check"
+                                               Color="Color.Success"
                                                Size="Size.Small"
                                                OnClick="() => SaveEdit(index)" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                                               Color="Color.Default" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                               Color="Color.Default"
                                                Size="Size.Small"
                                                OnClick="CancelEdit" />
                             }
                             else
                             {
-                                <MudIconButton Icon="@Icons.Material.Filled.Edit" 
-                                               Color="Color.Default" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Color="Color.Default"
                                                Size="Size.Small"
                                                OnClick="() => StartEdit(index)" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
-                                               Color="Color.Error" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
                                                Size="Size.Small"
                                                OnClick="() => DeleteMapping(index)" />
                             }
@@ -103,27 +104,27 @@
         <MudPaper Class="pa-3 mb-3" Style="background: var(--card-bg); border: 1px dashed var(--border-color); border-radius: 8px;">
             <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">Add New Mapping</MudText>
             <div class="d-flex gap-2 align-center">
-                <MudTextField @bind-Value="_newSource" 
-                              Label="Source" 
+                <MudTextField @bind-Value="_newSource"
+                              Label="Source"
                               Placeholder="e.g., BepInEx/plugins"
-                              Variant="Variant.Outlined" 
+                              Variant="Variant.Outlined"
                               Margin="Margin.Dense"
                               Style="flex: 1;" />
                 <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="color: var(--text-secondary);" />
-                <MudTextField @bind-Value="_newTarget" 
-                              Label="Target" 
+                <MudTextField @bind-Value="_newTarget"
+                              Label="Target"
                               Placeholder="e.g., BepInEx/plugins_custom"
-                              Variant="Variant.Outlined" 
+                              Variant="Variant.Outlined"
                               Margin="Margin.Dense"
                               Style="flex: 1;" />
-                <MudButton Variant="Variant.Filled" 
-                           Color="Color.Success" 
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Success"
                            OnClick="AddMapping"
                            Disabled="@(string.IsNullOrWhiteSpace(_newSource))">
                     Add
                 </MudButton>
-                <MudButton Variant="Variant.Text" 
-                           Color="Color.Default" 
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Default"
                            OnClick="CancelAdd">
                     Cancel
                 </MudButton>
@@ -135,7 +136,7 @@
     <div class="d-flex gap-2">
         @if (!_isAdding)
         {
-            <MudButton Variant="Variant.Outlined" 
+            <MudButton Variant="Variant.Outlined"
                        StartIcon="@Icons.Material.Filled.Add"
                        Color="Color.Primary"
                        OnClick="StartAdd"
@@ -143,8 +144,8 @@
                 Add Mapping
             </MudButton>
         }
-        
-        <MudButton Variant="Variant.Text" 
+
+        <MudButton Variant="Variant.Text"
                    StartIcon="@Icons.Material.Filled.RestartAlt"
                    Color="Color.Warning"
                    OnClick="ResetToDefaults"
@@ -158,7 +159,7 @@
     [Inject] private ConfigService ConfigService { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private IDialogService DialogService { get; set; } = default!;
-    
+
     [Parameter] public EventCallback OnChange { get; set; }
 
     private List<DefaultInstallPathMapping> _mappings = new();
@@ -191,24 +192,24 @@
     {
         // Get effective mappings (from config or defaults)
         var effectiveMappings = DefaultInstallPaths.GetEffectiveMappings(ConfigService.StagedConfig);
-        
+
         // Clone to avoid mutating the original
-        _mappings = effectiveMappings.Select(m => new DefaultInstallPathMapping 
-        { 
-            Source = m.Source, 
-            Target = m.Target 
+        _mappings = effectiveMappings.Select(m => new DefaultInstallPathMapping
+        {
+            Source = m.Source,
+            Target = m.Target
         }).ToList();
     }
 
     private async Task SaveToConfig()
     {
         // Save to staged config only - user must click "Apply Changes" to commit
-        ConfigService.StagedConfig.DefaultInstallPaths = _mappings.Count > 0 
-            ? _mappings.ToList() 
+        ConfigService.StagedConfig.DefaultInstallPaths = _mappings.Count > 0
+            ? _mappings.ToList()
             : null; // null = use defaults
-        
+
         await ConfigService.SaveStagedConfigAsync();
-        
+
         // Notify parent that settings changed (so Apply Changes button appears)
         await OnChange.InvokeAsync();
     }
@@ -234,8 +235,8 @@
             return;
 
         var normalizedSource = NormalizePath(_newSource);
-        var normalizedTarget = string.IsNullOrWhiteSpace(_newTarget) 
-            ? normalizedSource 
+        var normalizedTarget = string.IsNullOrWhiteSpace(_newTarget)
+            ? normalizedSource
             : NormalizePath(_newTarget);
 
         // Check for duplicate source
@@ -254,7 +255,7 @@
         _isAdding = false;
         _newSource = "";
         _newTarget = "";
-        
+
         await SaveToConfig();
         Snackbar.Add("Mapping added.", Severity.Success);
     }
@@ -283,8 +284,8 @@
         }
 
         var normalizedSource = NormalizePath(_editSource);
-        var normalizedTarget = string.IsNullOrWhiteSpace(_editTarget) 
-            ? normalizedSource 
+        var normalizedTarget = string.IsNullOrWhiteSpace(_editTarget)
+            ? normalizedSource
             : NormalizePath(_editTarget);
 
         // Check for duplicate (excluding current item)
@@ -297,11 +298,11 @@
 
         _mappings[index].Source = normalizedSource;
         _mappings[index].Target = normalizedTarget;
-        
+
         _editingIndex = -1;
         _editSource = "";
         _editTarget = "";
-        
+
         await SaveToConfig();
         Snackbar.Add("Mapping updated.", Severity.Success);
     }
@@ -334,12 +335,12 @@
 
         if (result == true)
         {
-            _mappings = DefaultInstallPaths.Mappings.Select(m => new DefaultInstallPathMapping 
-            { 
-                Source = m.Source, 
-                Target = m.Target 
+            _mappings = DefaultInstallPaths.Mappings.Select(m => new DefaultInstallPathMapping
+            {
+                Source = m.Source,
+                Target = m.Target
             }).ToList();
-            
+
             await SaveToConfig();
             Snackbar.Add("Reset to defaults.", Severity.Info);
         }

@@ -289,13 +289,13 @@ public partial class ConfigService : IOnLoad
             _logger.Info($"Created config backup at: {backupPath}");
         }
         
-        // Perform migration
+        // Perform migration on live config
         await MigrateSyncConfigAsync(Config);
         await SaveConfigAsync();
         
-        // Also migrate staged config
-        await MigrateSyncConfigAsync(StagedConfig);
-        await SaveStagedConfigAsync();
+        // Reset staged config from the newly migrated live config
+        // This ensures staged config matches live and has the migrated settings
+        await ResetStagedConfigAsync();
         
         IsLegacyConfig = false;
         _logger.Success("Config migration complete!");

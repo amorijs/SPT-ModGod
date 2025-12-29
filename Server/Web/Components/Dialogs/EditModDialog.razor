@@ -43,9 +43,77 @@
             <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
                 Install Paths
             </MudText>
-            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
-                Map folders from the archive to destinations on your server. All target paths are relative to your SPT root.
-            </MudText>
+            <div class="d-flex align-center justify-space-between mb-3">
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                    Map folders from the archive to destinations on your server. All target paths are relative to your SPT root.
+                </MudText>
+                <div style="position: relative;">
+                    <MudLink Typo="Typo.caption" 
+                             Style="color: var(--accent-cyan); cursor: pointer; white-space: nowrap; margin-left: 16px;"
+                             OnClick="@(() => _isArchiveContentsPopoverOpen = true)">
+                        See Archive Contents
+                    </MudLink>
+                    
+                    @if (_isArchiveContentsPopoverOpen)
+                    {
+                        <div class="file-tree-backdrop" @onclick="@(() => _isArchiveContentsPopoverOpen = false)"></div>
+                        <MudPaper Class="pa-3"
+                                  Style="position: absolute; top: 100%; right: 0; width: 400px; max-height: 350px; background: #1a1a1a; border: 1px solid var(--border-color); z-index: 1001; margin-top: 4px; border-radius: 8px;">
+                            <div class="d-flex justify-space-between align-center mb-2">
+                                <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: var(--text-primary);">
+                                    Archive Contents
+                                </MudText>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                                               Size="Size.Small" 
+                                               Style="color: var(--text-secondary);"
+                                               OnClick="@(() => _isArchiveContentsPopoverOpen = false)" />
+                            </div>
+                            
+                            <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
+                                Files and folders extracted from the mod archive.
+                            </MudText>
+                            
+                            <div style="max-height: 260px; overflow-y: auto;">
+                                @if (_archiveTreeRoot == null || _archiveTreeRoot.Children.Count == 0)
+                                {
+                                    <MudText Typo="Typo.caption" Class="px-2" Style="color: var(--text-secondary);">
+                                        No archive contents available. Try re-downloading the mod.
+                                    </MudText>
+                                }
+                                else
+                                {
+                                    @foreach (var item in GetFlattenedArchiveTreeReadOnly())
+                                    {
+                                        var node = item.Node;
+                                        var depth = item.Depth;
+                                        var isExpanded = node.IsDirectory && _archiveContentsExpandedDirs.Contains(node.RelativePath);
+                                        var capturedNode = node;
+
+                                        <div class="d-flex align-center py-1 source-tree-item"
+                                             style="padding-left:@(depth * 14 + 4)px; border-radius: 4px; margin: 1px 0;">
+
+                                            @if (node.IsDirectory)
+                                            {
+                                                <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ArrowDropDown : Icons.Material.Filled.ArrowRight)"
+                                                               Size="Size.Small"
+                                                               Style="padding: 2px; min-width: 20px; color: var(--text-secondary);"
+                                                               OnClick="@(() => ToggleArchiveContentsExpand(capturedNode))" />
+                                                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" Style="color: var(--accent-cyan);" />
+                                            }
+                                            else
+                                            {
+                                                <span style="width: 24px;"></span>
+                                                <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" Class="mr-2" Style="color: var(--text-secondary);" />
+                                            }
+                                            <span class="mono" style="font-size: 12px; color: var(--text-primary);">@node.Name</span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </MudPaper>
+                    }
+                </div>
+            </div>
 
             @if (_installPaths != null)
             {
@@ -547,6 +615,10 @@
     private HashSet<string> _archiveExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
     private int _activeSourceIndex = -1;
     private bool _isSourcePopoverOpen;
+    
+    // Archive contents viewer (read-only popup)
+    private bool _isArchiveContentsPopoverOpen;
+    private HashSet<string> _archiveContentsExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
 
     // Server tree state for target selection
     private FileNode? _serverTreeRoot;
@@ -622,6 +694,7 @@
             _isSourcePopoverOpen = false;
             _isTargetPopoverOpen = false;
             _isInstalledFilesPopoverOpen = false;
+            _isArchiveContentsPopoverOpen = false;
         }
     }
 
@@ -1042,6 +1115,7 @@
     {
         _archiveTreeRoot = new FileNode { Name = "Archive Root", IsDirectory = true, RelativePath = "" };
         _archiveExpandedDirs.Clear();
+        _archiveContentsExpandedDirs.Clear();
 
         if (_archiveContents == null) return;
 
@@ -1077,7 +1151,11 @@
                     current = newNode;
 
                     // Auto-expand top level folders
-                    if (nodeIsDir && i == 0) _archiveExpandedDirs.Add(accumulated);
+                    if (nodeIsDir && i == 0)
+                    {
+                        _archiveExpandedDirs.Add(accumulated);
+                        _archiveContentsExpandedDirs.Add(accumulated);
+                    }
                 }
                 else
                 {
@@ -1127,6 +1205,47 @@
             _archiveExpandedDirs.Remove(path);
         else
             _archiveExpandedDirs.Add(path);
+    }
+
+    private void ToggleArchiveContentsExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        var path = node.RelativePath;
+        if (_archiveContentsExpandedDirs.Contains(path))
+            _archiveContentsExpandedDirs.Remove(path);
+        else
+            _archiveContentsExpandedDirs.Add(path);
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedArchiveTreeReadOnly()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_archiveTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            if (node == null) return;
+            result.Add((node, depth));
+
+            if (node.IsDirectory && !_archiveContentsExpandedDirs.Contains(node.RelativePath))
+                return;
+
+            var children = node.Children;
+            if (children != null)
+            {
+                foreach (var child in children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+                {
+                    Flatten(child, depth + 1);
+                }
+            }
+        }
+
+        foreach (var child in _archiveTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
     }
 
     private void OpenSourceTree(int index)

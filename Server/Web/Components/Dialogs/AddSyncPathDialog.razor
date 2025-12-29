@@ -4,11 +4,11 @@
 
 @inject ConfigService ConfigService
 
-<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
     <TitleContent>
         <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
-            <MudIcon Icon="@Icons.Material.Filled.CreateNewFolder" Class="mr-2" Style="vertical-align: middle;" />
-            Add Sync Path
+            <MudIcon Icon="@(EditEntry != null ? Icons.Material.Filled.Edit : Icons.Material.Filled.CreateNewFolder)" Class="mr-2" Style="vertical-align: middle;" />
+            @(EditEntry != null ? "Edit Sync Path" : "Add Sync Path")
         </MudText>
     </TitleContent>
     <DialogContent>
@@ -134,7 +134,7 @@
                    Variant="Variant.Filled"
                    Disabled="@(!CanAdd)"
                    OnClick="Add">
-            Add Sync Path
+            @(EditEntry != null ? "Save Changes" : "Add Sync Path")
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -143,6 +143,10 @@
     [Parameter] public bool Visible { get; set; }
     [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
     [Parameter] public EventCallback<SyncPathEntry> OnPathAdded { get; set; }
+    [Parameter] public EventCallback<(SyncPathEntry OldEntry, SyncPathEntry NewEntry)> OnPathEdited { get; set; }
+    
+    // Entry to edit (null for add mode)
+    [Parameter] public SyncPathEntry? EditEntry { get; set; }
     
     // Existing sync paths (to prevent duplicates)
     [Parameter] public List<SyncPathEntry> ExistingSyncPaths { get; set; } = new();
@@ -169,12 +173,38 @@
         if (Visible && !_wasVisible)
         {
             ResetState();
+            
+            // Initialize from edit entry if in edit mode
+            if (EditEntry != null)
+            {
+                _selectedSourcePath = EditEntry.Source;
+                _targetPath = EditEntry.Target;
+            }
+            
             if (_treeRoot == null)
             {
                 await LoadTreeAsync();
             }
+            
+            // Expand path to selected source in edit mode
+            if (EditEntry != null && !string.IsNullOrEmpty(_selectedSourcePath))
+            {
+                ExpandPathTo(_selectedSourcePath);
+            }
         }
         _wasVisible = Visible;
+    }
+    
+    private void ExpandPathTo(string path)
+    {
+        // Expand all parent directories to show the selected path
+        var parts = path.Split('/');
+        var accumulated = "";
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            accumulated = string.IsNullOrEmpty(accumulated) ? parts[i] : $"{accumulated}/{parts[i]}";
+            _expandedDirs.Add(accumulated);
+        }
     }
 
     private void ResetState()
@@ -308,8 +338,12 @@
         var normalizedSource = NormalizePath(_selectedSourcePath);
         var normalizedTarget = NormalizePath(_targetPath);
         
-        // Check for duplicate source
-        if (ExistingSyncPaths.Any(p => NormalizePath(p.Source).Equals(normalizedSource, StringComparison.OrdinalIgnoreCase)))
+        // Check for duplicate source (but allow the current entry when editing)
+        var isDuplicate = ExistingSyncPaths.Any(p => 
+            NormalizePath(p.Source).Equals(normalizedSource, StringComparison.OrdinalIgnoreCase) &&
+            (EditEntry == null || !NormalizePath(EditEntry.Source).Equals(NormalizePath(p.Source), StringComparison.OrdinalIgnoreCase)));
+        
+        if (isDuplicate)
         {
             _validationError = "A sync path with this source already exists.";
             return;
@@ -367,7 +401,16 @@
             Target = NormalizePath(_targetPath)
         };
         
-        await OnPathAdded.InvokeAsync(entry);
+        if (EditEntry != null)
+        {
+            // Edit mode - invoke edit callback with old and new entries
+            await OnPathEdited.InvokeAsync((EditEntry, entry));
+        }
+        else
+        {
+            // Add mode
+            await OnPathAdded.InvokeAsync(entry);
+        }
         await Close();
     }
 

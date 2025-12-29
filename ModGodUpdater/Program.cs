@@ -439,96 +439,173 @@ class Program
             return;
         }
 
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .SpinnerStyle(Style.Parse("cyan"))
-            .StartAsync($"Downloading {EscapeMarkup(mod.ModName)}...", async ctx =>
-            {
-                try
+        var downloadSuccess = false;
+        
+        try
+        {
+            // Download mod with progress
+            using var client = CreateHttpClient();
+            client.Timeout = TimeSpan.FromMinutes(30); // Long timeout for large mods
+
+            // Get headers first to determine content length
+            using var response = await client.GetAsync(mod.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? 0;
+            var tempExtractPath = Path.Combine(TempDownloadPath, Guid.NewGuid().ToString());
+            Directory.CreateDirectory(tempExtractPath);
+            var archivePath = Path.Combine(tempExtractPath, "mod.archive");
+
+            // Download with progress bar
+            await AnsiConsole.Progress()
+                .AutoClear(true)
+                .HideCompleted(true)
+                .Columns(new ProgressColumn[]
                 {
-                    // Download mod (use CreateHttpClient for SSL certificate handling)
-                    using var client = CreateHttpClient();
-                    client.Timeout = TimeSpan.FromMinutes(30); // Long timeout for large mods
-
-                    var response = await client.GetAsync(mod.DownloadUrl);
-                    response.EnsureSuccessStatusCode();
-
-                    // Stream download to file (handles large files efficiently)
-                    var tempExtractPath = Path.Combine(TempDownloadPath, Guid.NewGuid().ToString());
-                    Directory.CreateDirectory(tempExtractPath);
-
-                    var archivePath = Path.Combine(tempExtractPath, "mod.archive");
-                    await using (var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write,
-                                     FileShare.None, 81920, true))
+                    new TaskDescriptionColumn(),
+                    new ProgressBarColumn(),
+                    new PercentageColumn(),
+                    new RemainingTimeColumn(),
+                    new DownloadedColumn(),
+                    new SpinnerColumn()
+                })
+                .StartAsync(async ctx =>
+                {
+                    var downloadTask = ctx.AddTask($"[cyan]{EscapeMarkup(mod.ModName)}[/]", maxValue: totalBytes > 0 ? totalBytes : 100);
+                    
+                    await using var contentStream = await response.Content.ReadAsStreamAsync();
+                    await using var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                    
+                    var buffer = new byte[81920];
+                    long totalRead = 0;
+                    int bytesRead;
+                    
+                    while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                     {
-                        await response.Content.CopyToAsync(fileStream);
+                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                        totalRead += bytesRead;
+                        
+                        if (totalBytes > 0)
+                        {
+                            downloadTask.Value = totalRead;
+                        }
+                        else
+                        {
+                            // Unknown size - just pulse the progress
+                            downloadTask.IsIndeterminate = true;
+                        }
                     }
+                    
+                    downloadTask.Value = downloadTask.MaxValue;
+                });
 
+            // Extract and install with progress bar
+            await AnsiConsole.Progress()
+                .AutoClear(true)
+                .HideCompleted(true)
+                .Columns(new ProgressColumn[]
+                {
+                    new TaskDescriptionColumn(),
+                    new ProgressBarColumn(),
+                    new PercentageColumn(),
+                    new SpinnerColumn()
+                })
+                .StartAsync(async ctx =>
+                {
                     // Extract using SharpCompress (supports .zip, .7z, .rar, .tar.gz, etc.)
                     using (var archive = ArchiveFactory.Open(archivePath))
                     {
-                        foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
+                        var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
+                        var extractTask = ctx.AddTask($"[yellow]Extracting {EscapeMarkup(mod.ModName)}[/]", maxValue: entries.Count);
+                        
+                        foreach (var entry in entries)
                         {
                             entry.WriteToDirectory(tempExtractPath, new ExtractionOptions
                             {
                                 ExtractFullPath = true,
                                 Overwrite = true
                             });
+                            extractTask.Increment(1);
                         }
                     }
 
                     File.Delete(archivePath);
 
-                    ctx.Status($"Installing {EscapeMarkup(mod.ModName)}...");
-
-                    // Copy files according to install paths
+                    // Count total files to install for progress
+                    var filesToInstall = new List<(string Source, string Target)>();
                     foreach (var installPath in mod.InstallPaths)
                     {
                         var sourcePath = Path.Combine(tempExtractPath, installPath[0]);
-                        // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
                         var targetRel = installPath[1].Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
                         var targetPath = Path.Combine(_sptRoot, targetRel);
 
                         if (Directory.Exists(sourcePath))
                         {
-                            CopyDirectory(sourcePath, targetPath);
+                            foreach (var file in Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories))
+                            {
+                                var relativePath = Path.GetRelativePath(sourcePath, file);
+                                var destFile = Path.Combine(targetPath, relativePath);
+                                filesToInstall.Add((file, destFile));
+                            }
                         }
                         else if (File.Exists(sourcePath))
                         {
-                            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-                            File.Copy(sourcePath, targetPath, overwrite: true);
+                            filesToInstall.Add((sourcePath, targetPath));
+                        }
+                    }
+
+                    // Install files with progress
+                    if (filesToInstall.Count > 0)
+                    {
+                        var installTask = ctx.AddTask($"[green]Installing {EscapeMarkup(mod.ModName)}[/]", maxValue: filesToInstall.Count);
+                        
+                        foreach (var (source, target) in filesToInstall)
+                        {
+                            var dir = Path.GetDirectoryName(target);
+                            if (!string.IsNullOrEmpty(dir))
+                            {
+                                Directory.CreateDirectory(dir);
+                            }
+                            File.Copy(source, target, overwrite: true);
+                            installTask.Increment(1);
                         }
                     }
 
                     // Clean up temp directory
                     Directory.Delete(tempExtractPath, true);
+                    
+                    await Task.CompletedTask;
+                });
 
-                    // Update downloaded mods list
-                    if (downloaded != null)
-                    {
-                        downloaded.LastUpdated = mod.LastUpdated;
-                        downloaded.OptIn = optIn;
-                    }
-                    else
-                    {
-                        _modsDownloaded.Add(new DownloadedMod
-                        {
-                            ModName = mod.ModName,
-                            DownloadUrl = mod.DownloadUrl,
-                            LastUpdated = mod.LastUpdated,
-                            OptIn = optIn
-                        });
-                    }
-                }
-                catch (Exception ex)
+            // Update downloaded mods list
+            if (downloaded != null)
+            {
+                downloaded.LastUpdated = mod.LastUpdated;
+                downloaded.OptIn = optIn;
+            }
+            else
+            {
+                _modsDownloaded.Add(new DownloadedMod
                 {
-                    AnsiConsole.MarkupLine(
-                        $"  [red]✗[/] {EscapeMarkup(mod.ModName)} - Failed: {EscapeMarkup(ex.Message)}");
-                    return;
-                }
-            });
+                    ModName = mod.ModName,
+                    DownloadUrl = mod.DownloadUrl,
+                    LastUpdated = mod.LastUpdated,
+                    OptIn = optIn
+                });
+            }
+            
+            downloadSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"  [red]✗[/] {EscapeMarkup(mod.ModName)} - Failed: {EscapeMarkup(ex.Message)}");
+            return;
+        }
 
-        AnsiConsole.MarkupLine($"  [green]✓[/] {EscapeMarkup(mod.ModName)} [cyan](installed)[/]");
+        if (downloadSuccess)
+        {
+            AnsiConsole.MarkupLine($"  [green]✓[/] {EscapeMarkup(mod.ModName)} [cyan](installed)[/]");
+        }
     }
 
     static void CopyDirectory(string sourceDir, string destDir)
