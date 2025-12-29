@@ -93,20 +93,20 @@
         }
     </MudPaper>
 
-    <!-- Stats Bar (Clickable Filters) -->
-    <StatsBar TotalCount="@ConfigService.StagedConfig.ModList.Count"
-              InstalledCount="@GetInstalledModCount()"
-              PendingCount="@GetPendingModCount()"
-              PendingRemovalCount="@GetPendingRemovalCount()"
-              RequiredCount="@ConfigService.StagedConfig.ModList.Count(m => !m.Optional)"
-              OptionalCount="@ConfigService.StagedConfig.ModList.Count(m => m.Optional)"
-              ActiveFilter="@_activeStatusFilter"
-              OnFilterChanged="@((filter) => { _activeStatusFilter = filter; })" />
-
     <MudTabs ActivePanelIndex="@_activeTabIndex"
              ActivePanelIndexChanged="OnTabChanged"
              Class="mb-4">
         <MudTabPanel Text="Mods" class="mt-4">
+            <!-- Stats Bar (Clickable Filters) -->
+            <StatsBar TotalCount="@ConfigService.StagedConfig.ModList.Count"
+                      InstalledCount="@GetInstalledModCount()"
+                      PendingCount="@GetPendingModCount()"
+                      PendingRemovalCount="@GetPendingRemovalCount()"
+                      RequiredCount="@ConfigService.StagedConfig.ModList.Count(m => !m.Optional)"
+                      OptionalCount="@ConfigService.StagedConfig.ModList.Count(m => m.Optional)"
+                      ActiveFilter="@_activeStatusFilter"
+                      OnFilterChanged="@((filter) => { _activeStatusFilter = filter; })" />
+
             <!-- Search Bar -->
             <div class="d-flex align-center justify-space-between mb-4">
                 <div class="d-flex align-center gap-2">
