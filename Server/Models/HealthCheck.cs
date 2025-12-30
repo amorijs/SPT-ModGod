@@ -106,6 +106,15 @@ public class ModHealthInfo
     
     /// <summary>Count of version mismatch dependencies</summary>
     public int VersionMismatchCount => Dependencies.Count(d => d.Status == DependencyStatus.VersionMismatch);
+    
+    /// <summary>Available addons for this mod</summary>
+    public List<AddonInfo> AvailableAddons { get; set; } = [];
+    
+    /// <summary>Whether this mod has addons available</summary>
+    public bool HasAddons => AvailableAddons.Count > 0;
+    
+    /// <summary>Count of addons not yet installed</summary>
+    public int UninstalledAddonsCount => AvailableAddons.Count(a => !a.IsInstalled);
 }
 
 /// <summary>
@@ -124,6 +133,48 @@ public enum DependencyStatus
     
     /// <summary>Unknown - couldn't determine status</summary>
     Unknown
+}
+
+/// <summary>
+/// Information about an available addon for a mod
+/// </summary>
+public class AddonInfo
+{
+    /// <summary>Forge addon ID</summary>
+    public int AddonId { get; set; }
+    
+    /// <summary>Name of the addon</summary>
+    public required string Name { get; set; }
+    
+    /// <summary>Slug for URL construction</summary>
+    public string? Slug { get; set; }
+    
+    /// <summary>Short description/teaser</summary>
+    public string? Teaser { get; set; }
+    
+    /// <summary>Author/owner name</summary>
+    public string? Author { get; set; }
+    
+    /// <summary>Download count</summary>
+    public long Downloads { get; set; }
+    
+    /// <summary>Parent mod ID this addon is for</summary>
+    public int ParentModId { get; set; }
+    
+    /// <summary>Latest version compatible with current SPT (null if none)</summary>
+    public string? LatestCompatibleVersion { get; set; }
+    
+    /// <summary>Download URL for the latest compatible version</summary>
+    public string? DownloadUrl { get; set; }
+    
+    /// <summary>SPT version constraint for the latest compatible version</summary>
+    public string? SptConstraint { get; set; }
+    
+    /// <summary>Whether this addon is already installed</summary>
+    public bool IsInstalled { get; set; }
+    
+    /// <summary>URL to addon page on Forge</summary>
+    public string ForgeUrl => $"https://forge.sp-tarkov.com/addon/{AddonId}/{Slug}";
 }
 
 /// <summary>
@@ -217,6 +268,15 @@ public class HealthCheckResult
     
     /// <summary>Total missing dependencies across all mods</summary>
     public int TotalMissingDependencies => Mods.Sum(m => m.MissingDependencyCount);
+    
+    /// <summary>Mods that have addons available</summary>
+    public int ModsWithAddonsCount => Mods.Count(m => m.HasAddons);
+    
+    /// <summary>Total available addons across all mods</summary>
+    public int TotalAddonsCount => Mods.Sum(m => m.AvailableAddons.Count);
+    
+    /// <summary>Total uninstalled addons across all mods</summary>
+    public int UninstalledAddonsCount => Mods.Sum(m => m.UninstalledAddonsCount);
     
     /// <summary>Overall error message if the check failed</summary>
     public string? Error { get; set; }

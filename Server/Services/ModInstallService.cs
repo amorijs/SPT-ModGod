@@ -284,10 +284,12 @@ public class ModInstallService
             {
                 pathIndex++;
                 var sourcePath = installPath[0]; // e.g., "BepInEx"
-                var targetPath = installPath[1]; // e.g., "<SPT_ROOT>/BepInEx"
+                var targetPath = installPath[1]; // e.g., "BepInEx" (relative to SPT root)
 
                 var fullSourcePath = Path.Combine(extractedPath, sourcePath);
-                var fullTargetPath = targetPath.Replace("<SPT_ROOT>", _configService.SptRoot);
+                // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
+                var targetRel = targetPath.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
+                var fullTargetPath = Path.Combine(_configService.SptRoot, targetRel);
 
                 _logger.Info($"[Install] Processing path {pathIndex}/{mod.InstallPaths.Count}: {sourcePath} -> {targetPath}");
 
@@ -301,7 +303,13 @@ public class ModInstallService
                 {
                     var fileSize = new FileInfo(fullSourcePath).Length;
                     _logger.Info($"[Install] Source is single file ({fileSize / 1024.0:F1}KB)");
-                    CopyFileWithRules(extractedPath, fullSourcePath, fullTargetPath, ignoreRules, lockedFiles, installedFiles);
+                    
+                    // When source is a file, append the filename to the target directory
+                    var fileName = Path.GetFileName(fullSourcePath);
+                    var actualTargetPath = Path.Combine(fullTargetPath, fileName);
+                    _logger.Info($"[Install] Target file path: {actualTargetPath}");
+                    
+                    CopyFileWithRules(extractedPath, fullSourcePath, actualTargetPath, ignoreRules, lockedFiles, installedFiles);
                 }
                 else
                 {

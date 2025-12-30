@@ -375,10 +375,8 @@ public class ModDownloadService
             // Check if this path exists in the archive (as file or directory)
             if (Directory.Exists(sourcePath) || File.Exists(sourcePath))
             {
-                // Target must include <SPT_ROOT> prefix for ModInstallService to resolve the path
-                var target = mapping.Target.StartsWith("<SPT_ROOT>", StringComparison.OrdinalIgnoreCase)
-                    ? mapping.Target
-                    : $"<SPT_ROOT>/{mapping.Target}";
+                // Target is relative to SPT root (strip <SPT_ROOT> prefix if present for backwards compat)
+                var target = mapping.Target.Replace("<SPT_ROOT>", "").TrimStart('/', '\\');
                 installPaths.Add(new[] { mapping.Source, target });
             }
         }
@@ -388,7 +386,7 @@ public class ModDownloadService
         {
             foreach (var dir in topLevelDirs)
             {
-                installPaths.Add(new[] { dir, $"<SPT_ROOT>/{dir}" });
+                installPaths.Add(new[] { dir, dir });
             }
         }
 

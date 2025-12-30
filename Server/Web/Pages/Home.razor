@@ -861,13 +861,19 @@
                     overwriteCount += ow;
                     skippedCount += sk;
                 }
-                else if (File.Exists(sourcePath) && File.Exists(targetBasePath))
+                else if (File.Exists(sourcePath))
                 {
-                    var relPath = NormalizeRulePath(source);
-                    if (IsPathInIgnoreSet(relPath, ignoredPaths))
-                        skippedCount++;
-                    else
-                        overwriteCount++;
+                    // For single file sources, append the filename to the target path
+                    var fileName = Path.GetFileName(sourcePath);
+                    var targetFilePath = Path.Combine(targetBasePath, fileName);
+                    if (File.Exists(targetFilePath))
+                    {
+                        var relPath = NormalizeRulePath(source);
+                        if (IsPathInIgnoreSet(relPath, ignoredPaths))
+                            skippedCount++;
+                        else
+                            overwriteCount++;
+                    }
                 }
             }
 

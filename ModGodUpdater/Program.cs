@@ -575,7 +575,10 @@ class Program
                         }
                         else if (File.Exists(sourcePath))
                         {
-                            filesToInstall.Add((sourcePath, targetPath));
+                            // When source is a single file, append filename to target directory
+                            var fileName = Path.GetFileName(sourcePath);
+                            var destFile = Path.Combine(targetPath, fileName);
+                            filesToInstall.Add((sourcePath, destFile));
                         }
                     }
 

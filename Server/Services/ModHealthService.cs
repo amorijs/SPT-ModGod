@@ -754,6 +754,110 @@ public class ModHealthService(
     }
 
     /// <summary>
+    /// Check for available addons for all mods that have a ForgeModId.
+    /// </summary>
+    /// <param name="mods">List of mods to check addons for</param>
+    /// <param name="scannedMods">All scanned mods (for detecting installed addons)</param>
+    /// <param name="sptVersion">Current SPT version for filtering compatibility</param>
+    /// <param name="onlyCompatibleWithSpt">If true, only return addons compatible with current SPT version</param>
+    public async Task CheckAddonsAsync(
+        List<ModHealthInfo> mods, 
+        List<ScannedMod>? scannedMods = null, 
+        string? sptVersion = null,
+        bool onlyCompatibleWithSpt = true)
+    {
+        // Get mods that have a ForgeModId (found on Forge)
+        var modsWithForgeId = mods.Where(m => m.ForgeModId.HasValue).ToList();
+        
+        if (modsWithForgeId.Count == 0)
+        {
+            logger.Debug("No mods with ForgeModId found, skipping addon check");
+            return;
+        }
+
+        logger.Info($"Checking addons for {modsWithForgeId.Count} mods...");
+        
+        // Build a set of registered download URLs for reliable addon installation detection
+        // Addons are treated as normal mods when installed, so we check if their download URL is registered
+        var registeredUrls = configService.Config.ModList
+            .Where(m => !string.IsNullOrEmpty(m.DownloadUrl))
+            .Select(m => m.DownloadUrl!.ToLowerInvariant())
+            .ToHashSet();
+        
+        // Also build a set of installed mod GUIDs as a fallback
+        var installedGuids = scannedMods?
+            .Select(m => m.Guid.ToLowerInvariant())
+            .ToHashSet() ?? new HashSet<string>();
+
+        var addonCount = 0;
+        
+        foreach (var mod in modsWithForgeId)
+        {
+            try
+            {
+                var addonsResponse = await forgeService.GetModAddonsAsync(mod.ForgeModId!.Value);
+                
+                if (addonsResponse?.Success != true || addonsResponse.Addons.Count == 0)
+                    continue;
+
+                foreach (var addon in addonsResponse.Addons)
+                {
+                    // Get versions for this addon
+                    var versionsResponse = await forgeService.GetAddonVersionsAsync(addon.Id);
+                    
+                    if (versionsResponse?.Success != true || versionsResponse.Versions.Count == 0)
+                        continue;
+
+                    // Find the latest compatible version
+                    // Note: Addon versions have mod_version_constraint but we're filtering by 
+                    // the parent mod being installed, not directly by SPT version
+                    var latestVersion = versionsResponse.Versions
+                        .OrderByDescending(v => v.PublishedAt)
+                        .FirstOrDefault();
+
+                    if (latestVersion == null)
+                        continue;
+
+                    // Check if this addon is already installed
+                    // Primary check: addon's download URL is registered in the mod list
+                    // Fallback: check if any scanned mod name/GUID matches (heuristic)
+                    var isInstalledByUrl = !string.IsNullOrEmpty(latestVersion.Link) && 
+                                           registeredUrls.Contains(latestVersion.Link.ToLowerInvariant());
+                    var isInstalledByName = scannedMods?.Any(s => 
+                        s.Name?.Contains(addon.Name, StringComparison.OrdinalIgnoreCase) == true ||
+                        (!string.IsNullOrEmpty(addon.Slug) && s.Guid.Contains(addon.Slug, StringComparison.OrdinalIgnoreCase))) ?? false;
+                    var isInstalled = isInstalledByUrl || isInstalledByName;
+
+                    var addonInfo = new AddonInfo
+                    {
+                        AddonId = addon.Id,
+                        Name = addon.Name,
+                        Slug = addon.Slug,
+                        Teaser = addon.Teaser,
+                        Author = addon.Owner?.Name,
+                        Downloads = addon.Downloads,
+                        ParentModId = mod.ForgeModId!.Value,
+                        LatestCompatibleVersion = latestVersion.Version,
+                        DownloadUrl = latestVersion.Link,
+                        SptConstraint = latestVersion.ModVersionConstraint, // This is mod version constraint, not SPT
+                        IsInstalled = isInstalled
+                    };
+
+                    mod.AvailableAddons.Add(addonInfo);
+                    addonCount++;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Debug($"Error checking addons for {mod.DisplayName}: {ex.Message}");
+            }
+        }
+
+        var installedAddons = mods.Sum(m => m.AvailableAddons.Count(a => a.IsInstalled));
+        logger.Info($"Found {addonCount} addons across {modsWithForgeId.Count} mods ({installedAddons} installed)");
+    }
+
+    /// <summary>
     /// Gets all types from an assembly, handling types that fail to load
     /// </summary>
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)

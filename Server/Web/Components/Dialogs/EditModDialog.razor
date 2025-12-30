@@ -11,8 +11,8 @@
     <TitleContent>
         <div class="d-flex justify-space-between align-center" style="width: 100%;">
             <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Mod</MudText>
-            <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                           Size="Size.Small" 
+            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                           Size="Size.Small"
                            Style="color: var(--text-secondary);"
                            OnClick="Close" />
         </div>
@@ -43,17 +43,17 @@
             <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2" Style="color: var(--text-primary); font-weight: 600;">
                 Install Paths
             </MudText>
-            <div class="d-flex align-center justify-space-between mb-3">
+            <div class="d-flex align-center justify-space-between mb-2">
                 <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
                     Map folders from the archive to destinations on your server. All target paths are relative to your SPT root.
                 </MudText>
                 <div style="position: relative;">
-                    <MudLink Typo="Typo.caption" 
+                    <MudLink Typo="Typo.caption"
                              Style="color: var(--accent-cyan); cursor: pointer; white-space: nowrap; margin-left: 16px;"
                              OnClick="@(() => _isArchiveContentsPopoverOpen = true)">
                         See Archive Contents
                     </MudLink>
-                    
+
                     @if (_isArchiveContentsPopoverOpen)
                     {
                         <div class="file-tree-backdrop" @onclick="@(() => _isArchiveContentsPopoverOpen = false)"></div>
@@ -63,16 +63,16 @@
                                 <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: var(--text-primary);">
                                     Archive Contents
                                 </MudText>
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                                               Size="Size.Small" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                               Size="Size.Small"
                                                Style="color: var(--text-secondary);"
                                                OnClick="@(() => _isArchiveContentsPopoverOpen = false)" />
                             </div>
-                            
+
                             <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
                                 Files and folders extracted from the mod archive.
                             </MudText>
-                            
+
                             <div style="max-height: 260px; overflow-y: auto;">
                                 @if (_archiveTreeRoot == null || _archiveTreeRoot.Children.Count == 0)
                                 {
@@ -114,6 +114,10 @@
                     }
                 </div>
             </div>
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary); opacity: 0.8;">
+                <b>Tip:</b> If you select a <b>directory</b> as the source, its contents will be merged into the target.
+                If you select a <b>file</b>, it will be copied directly into the target directory.
+            </MudText>
 
             @if (_installPaths != null)
             {
@@ -138,7 +142,7 @@
                                     <input type="text"
                                            class="mono"
                                            style="flex: 1; background: transparent; border: none; outline: none; color: var(--text-primary); font-size: 14px; padding: 0 12px;"
-                                           placeholder="BepInEx"
+                                           placeholder="Select a directory or file"
                                            value="@_installPaths[index].Source"
                                            @onchange="@((ChangeEventArgs e) => OnInstallPathChanged(index, e.Value?.ToString() ?? "", isSource: true))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
@@ -216,7 +220,7 @@
                                     <input type="text"
                                            class="mono"
                                            style="flex: 1; background: transparent; border: none; outline: none; color: var(--text-primary); font-size: 14px; padding: 0 8px;"
-                                           placeholder="BepInEx/plugins"
+                                           placeholder="Select a directory"
                                            value="@_installPaths[index].Target"
                                            @onchange="@((ChangeEventArgs e) => OnInstallPathChanged(index, e.Value?.ToString() ?? "", isSource: false))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
@@ -301,7 +305,7 @@
                     @_installedFilesSet.Count file(s)
                 </MudChip>
             </div>
-            
+
             <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
                 ModGod tracks which files belong to this mod for two purposes:
                 <b>automatic cleanup</b> when uninstalling, and <b>skipping verification</b> for optional mods.
@@ -343,8 +347,8 @@
                                 <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@file">@file</span>
                             </div>
                             <MudTooltip Text="Remove from tracking">
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                                               Size="Size.Small" 
+                                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                               Size="Size.Small"
                                                Style="color: var(--text-secondary); padding: 2px;"
                                                OnClick="@(() => RemoveInstalledFile(capturedFile))" />
                             </MudTooltip>
@@ -371,16 +375,16 @@
                             <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: var(--text-primary);">
                                 Select Files to Track
                             </MudText>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                                           Size="Size.Small" 
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
                                            Style="color: var(--text-secondary);"
                                            OnClick="@(() => _isInstalledFilesPopoverOpen = false)" />
                         </div>
-                        
+
                         <MudText Typo="Typo.caption" Class="mb-2" Style="color: var(--text-secondary);">
                             Select a folder to track all files within it.
                         </MudText>
-                        
+
                         <div style="max-height: 260px; overflow-y: auto;">
                             @if (_installedFilesTreeRoot == null || _installedFilesTreeRoot.Children.Count == 0)
                             {
@@ -398,7 +402,7 @@
                                     var capturedNode = node;
                                     var dirState = node.IsDirectory ? GetDirectoryTrackingState(node) : null;
                                     var isTracked = !node.IsDirectory && _installedFilesSet.Contains(node.RelativePath);
-                                    
+
                                     // Compute directory checkbox icon and color
                                     var dirIcon = dirState switch
                                     {
@@ -412,10 +416,10 @@
                                         FileRuleState.Ignore => "var(--text-secondary)",
                                         _ => "var(--accent-orange)"
                                     };
-                                    
+
                                     <div class="d-flex align-center py-1 source-tree-item"
                                          style="padding-left:@(depth * 14 + 4)px; border-radius: 4px; margin: 1px 0;">
-                                        
+
                                         @if (node.IsDirectory)
                                         {
                                             <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ArrowDropDown : Icons.Material.Filled.ArrowRight)"
@@ -435,7 +439,7 @@
                                         else
                                         {
                                             <span style="width: 24px;"></span>
-                                            <MudCheckBox T="bool" 
+                                            <MudCheckBox T="bool"
                                                          Value="@isTracked"
                                                          ValueChanged="@((bool val) => ToggleInstalledFile(capturedNode.RelativePath, val))"
                                                          Size="Size.Small"
@@ -571,8 +575,8 @@
     </DialogContent>
     <DialogActions>
         <div class="d-flex justify-space-between align-center" style="width: 100%;">
-            <MudButton OnClick="Reset" 
-                       Variant="Variant.Text" 
+            <MudButton OnClick="Reset"
+                       Variant="Variant.Text"
                        StartIcon="@Icons.Material.Filled.Refresh"
                        Style="color: var(--text-secondary);">
                 Reset
@@ -615,7 +619,7 @@
     private HashSet<string> _archiveExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
     private int _activeSourceIndex = -1;
     private bool _isSourcePopoverOpen;
-    
+
     // Archive contents viewer (read-only popup)
     private bool _isArchiveContentsPopoverOpen;
     private HashSet<string> _archiveContentsExpandedDirs = new(StringComparer.OrdinalIgnoreCase);
@@ -756,7 +760,9 @@
                 }
                 else if (File.Exists(sourcePath))
                 {
-                    var targetFile = Path.Combine(targetBasePath);
+                    // For single file sources, append the filename to the target path
+                    var fileName = Path.GetFileName(sourcePath);
+                    var targetFile = Path.Combine(targetBasePath, fileName);
                     if (File.Exists(targetFile))
                     {
                         AddFileNode(root, NormalizePath(install.Source));
@@ -1389,7 +1395,7 @@
     private async Task Reset()
     {
         if (Mod == null) return;
-        
+
         // Reset to original mod values
         _modName = Mod.ModName ?? "";
         _downloadUrl = Mod.DownloadUrl ?? "";
@@ -1525,7 +1531,7 @@
         {
             result.Add((node, depth));
             if (!node.IsDirectory || !_installedFilesExpandedDirs.Contains(node.RelativePath)) return;
-            
+
             var children = node.Children;
             if (children != null)
             {
@@ -1549,7 +1555,7 @@
             _installedFilesSet.Add(path);
         else
             _installedFilesSet.Remove(path);
-        
+
         _installedFilesModified = true;
     }
 
@@ -1562,12 +1568,12 @@
     private FileRuleState? GetDirectoryTrackingState(FileNode dirNode)
     {
         if (!dirNode.IsDirectory) return null;
-        
+
         var allFiles = GetAllDescendantFiles(dirNode).ToList();
         if (allFiles.Count == 0) return FileRuleState.Ignore;
-        
+
         var trackedCount = allFiles.Count(f => _installedFilesSet.Contains(f));
-        
+
         if (trackedCount == 0) return FileRuleState.Ignore;
         if (trackedCount == allFiles.Count) return FileRuleState.Overwrite;
         return FileRuleState.Mixed;
@@ -1576,10 +1582,10 @@
     private void ToggleDirectoryTracking(FileNode dirNode)
     {
         if (!dirNode.IsDirectory) return;
-        
+
         var allFiles = GetAllDescendantFiles(dirNode).ToList();
         var currentState = GetDirectoryTrackingState(dirNode);
-        
+
         // If all or some are tracked, untrack all. If none tracked, track all.
         if (currentState == FileRuleState.Overwrite || currentState == FileRuleState.Mixed)
         {
@@ -1591,7 +1597,7 @@
             foreach (var file in allFiles)
                 _installedFilesSet.Add(file);
         }
-        
+
         _installedFilesModified = true;
     }
 
@@ -1602,7 +1608,7 @@
             yield return node.RelativePath;
             yield break;
         }
-        
+
         foreach (var child in node.Children ?? Enumerable.Empty<FileNode>())
         {
             foreach (var file in GetAllDescendantFiles(child))
@@ -1624,7 +1630,7 @@
         bottom: 0;
         z-index: 1000;
     }
-    
+
     .installed-file-row:hover {
         background: rgba(255, 255, 255, 0.05);
     }
