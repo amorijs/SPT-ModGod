@@ -38,6 +38,11 @@ public class ModEntry
 // File manifest models for file sync
 public class FileManifest
 {
+    /// <summary>
+    /// ModGod server version - clients must match this version
+    /// </summary>
+    public string ModGodVersion { get; set; } = string.Empty;
+    
     public string GeneratedAt { get; set; } = string.Empty;
     public long GenerationTimeMs { get; set; }
     public Dictionary<string, FileEntry> Files { get; set; } = new();

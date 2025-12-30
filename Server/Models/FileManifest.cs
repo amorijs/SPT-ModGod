@@ -6,6 +6,11 @@ namespace ModGod.Models;
 public class FileManifest
 {
     /// <summary>
+    /// ModGod server version - clients must match this version
+    /// </summary>
+    public string ModGodVersion { get; set; } = string.Empty;
+    
+    /// <summary>
     /// When the manifest was generated
     /// </summary>
     public string GeneratedAt { get; set; } = DateTime.UtcNow.ToString("o");

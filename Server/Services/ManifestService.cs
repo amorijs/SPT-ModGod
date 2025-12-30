@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using ModGod.Models;
 using SPTarkov.DI.Annotations;
@@ -15,6 +16,9 @@ public class ManifestService(
     ConfigService configService,
     ISptLogger<ManifestService> logger)
 {
+    private static readonly string ServerVersion = 
+        typeof(ManifestService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+
     /// <summary>
     /// Generate a file manifest for player (game) clients.
     /// Uses PlayerSyncConfig to determine what files to include.
@@ -22,7 +26,7 @@ public class ManifestService(
     public FileManifest GenerateManifest()
     {
         var stopwatch = Stopwatch.StartNew();
-        var manifest = new FileManifest();
+        var manifest = new FileManifest { ModGodVersion = ServerVersion };
 
         var playerConfig = configService.Config.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig();
         
@@ -132,7 +136,7 @@ public class ManifestService(
     public FileManifest GenerateHeadlessManifest()
     {
         var stopwatch = Stopwatch.StartNew();
-        var manifest = new FileManifest();
+        var manifest = new FileManifest { ModGodVersion = ServerVersion };
 
         var headlessConfig = configService.Config.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig();
         

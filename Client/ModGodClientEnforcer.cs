@@ -18,10 +18,13 @@ using UnityEngine;
 
 namespace ModGod.ClientEnforcer
 {
-    [BepInPlugin("com.modgod.clientenforcer", "ModGod Client Enforcer", "1.0.0")]
+    [BepInPlugin("com.modgod.clientenforcer", "ModGod Client Enforcer", "2.0.3")]
     public class ModGodClientEnforcerPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
+        
+        private static readonly string ClientVersion = 
+            System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
         
@@ -178,8 +181,21 @@ namespace ModGod.ClientEnforcer
                 catch (Exception ex)
                 {
                     LogSource.LogWarning($"ModGod: Could not fetch manifest from server: {ex.Message}");
-                    // Fall back to legacy verification
                     return LegacyVerifyMods(clientConfig);
+                }
+
+                if (!string.IsNullOrEmpty(manifest.ModGodVersion) && manifest.ModGodVersion != ClientVersion)
+                {
+                    LogSource.LogError($"ModGod: VERSION MISMATCH! Server={manifest.ModGodVersion}, Client={ClientVersion}");
+                    issues.Add(new FileIssue
+                    {
+                        Type = FileIssueType.VersionMismatch,
+                        FilePath = "ModGodUpdater.exe",
+                        ModName = "ModGod",
+                        Required = true,
+                        Details = $"Server: {manifest.ModGodVersion}, Client: {ClientVersion}"
+                    });
+                    return issues;
                 }
 
                 var exclusions = BuildExclusionSet(manifest.SyncExclusions);
@@ -670,6 +686,7 @@ namespace ModGod.ClientEnforcer
                 normal = { textColor = new Color(0.6f, 0.8f, 1f) }
             };
 
+            var versionMismatch = Issues.FirstOrDefault(i => i.Type == FileIssueType.VersionMismatch);
             var missingFiles = Issues.Where(i => i.Type == FileIssueType.Missing).ToList();
             var hashMismatches = Issues.Where(i => i.Type == FileIssueType.HashMismatch).ToList();
             var extraFiles = Issues.Where(i => i.Type == FileIssueType.ExtraFile).ToList();
@@ -678,83 +695,84 @@ namespace ModGod.ClientEnforcer
 
             GUILayout.Space(15);
             
-            // Dynamic title based on issue type
-            if (hasOnlyExtras)
+            if (versionMismatch != null)
+            {
+                var versionTitleStyle = new GUIStyle(titleStyle) { normal = { textColor = new Color(1f, 0.3f, 0.3f) } };
+                GUILayout.Label("⚠ ModGod - Update Required", versionTitleStyle);
+                GUILayout.Space(10);
+                
+                GUILayout.Label("Version Mismatch Detected", headerStyle);
+                GUILayout.Space(5);
+                GUILayout.Label($"Your ModGod client is out of date.\n\n{versionMismatch.Details}\n\nPlease download the latest ModGodUpdater.exe from your server administrator and run it to update.", bodyStyle);
+                GUILayout.Space(10);
+            }
+            else if (hasOnlyExtras)
             {
                 var extraTitleStyle = new GUIStyle(titleStyle) { normal = { textColor = new Color(0.6f, 0.8f, 1f) } };
                 GUILayout.Label("⚠ ModGod - Extra Mods Detected", extraTitleStyle);
-            }
-            else
-            {
-                GUILayout.Label("⚠ ModGod - File Verification Issues", titleStyle);
-            }
-            GUILayout.Space(10);
-
-            // Summary with context
-            if (hasOnlyExtras)
-            {
+                GUILayout.Space(10);
                 GUILayout.Label($"Found {extraFiles.Count} mod file(s) not managed by the server:", headerStyle);
                 GUILayout.Label("These mods are not in the server's mod list - you may want to remove them.", bodyStyle);
             }
             else
             {
+                GUILayout.Label("⚠ ModGod - File Verification Issues", titleStyle);
+                GUILayout.Space(10);
                 GUILayout.Label($"Found {Issues.Count} issue(s):", headerStyle);
             }
             GUILayout.Space(5);
 
-            _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, GUILayout.Height(250));
-
-            // Missing files - grouped by folder (derive mod name from path)
-            if (missingFiles.Any())
+            if (versionMismatch == null)
             {
-                GUILayout.Label($"Missing Files ({missingFiles.Count}):", bodyStyle);
-                var groupedMissing = missingFiles.GroupBy(f => GetModFolderFromPath(f.FilePath));
-                foreach (var group in groupedMissing.OrderBy(g => g.Key))
+                _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, GUILayout.Height(250));
+
+                if (missingFiles.Any())
                 {
-                    GUILayout.Label($"  [{group.Key}]:", missingStyle);
-                    foreach (var issue in group)
+                    GUILayout.Label($"Missing Files ({missingFiles.Count}):", bodyStyle);
+                    var groupedMissing = missingFiles.GroupBy(f => GetModFolderFromPath(f.FilePath));
+                    foreach (var group in groupedMissing.OrderBy(g => g.Key))
                     {
-                        GUILayout.Label($"    • {issue.FilePath}", missingStyle);
+                        GUILayout.Label($"  [{group.Key}]:", missingStyle);
+                        foreach (var issue in group)
+                        {
+                            GUILayout.Label($"    • {issue.FilePath}", missingStyle);
+                        }
+                    }
+                    GUILayout.Space(10);
+                }
+
+                if (hashMismatches.Any())
+                {
+                    GUILayout.Label($"Modified Files ({hashMismatches.Count}):", bodyStyle);
+                    var groupedModified = hashMismatches.GroupBy(f => GetModFolderFromPath(f.FilePath));
+                    foreach (var group in groupedModified.OrderBy(g => g.Key))
+                    {
+                        GUILayout.Label($"  [{group.Key}]:", modifiedStyle);
+                        foreach (var issue in group)
+                        {
+                            GUILayout.Label($"    • {issue.FilePath}", modifiedStyle);
+                        }
+                    }
+                    GUILayout.Space(10);
+                }
+
+                if (extraFiles.Any())
+                {
+                    if (!hasOnlyExtras)
+                    {
+                        GUILayout.Label($"Extra Files ({extraFiles.Count}) - not in server mod list:", bodyStyle);
+                    }
+                    foreach (var issue in extraFiles)
+                    {
+                        GUILayout.Label($"  • {issue.FilePath}", extraStyle);
                     }
                 }
+
+                GUILayout.EndScrollView();
+
                 GUILayout.Space(10);
+                GUILayout.Label("Run ModGodUpdater.exe to sync your mods with the server.", bodyStyle);
             }
-
-            // Hash mismatches - grouped by folder (derive mod name from path)
-            if (hashMismatches.Any())
-            {
-                GUILayout.Label($"Modified Files ({hashMismatches.Count}):", bodyStyle);
-                var groupedModified = hashMismatches.GroupBy(f => GetModFolderFromPath(f.FilePath));
-                foreach (var group in groupedModified.OrderBy(g => g.Key))
-                {
-                    GUILayout.Label($"  [{group.Key}]:", modifiedStyle);
-                    foreach (var issue in group)
-                    {
-                        GUILayout.Label($"    • {issue.FilePath}", modifiedStyle);
-                    }
-                }
-                GUILayout.Space(10);
-            }
-
-            // Extra files
-            if (extraFiles.Any())
-            {
-                if (!hasOnlyExtras)
-                {
-                    GUILayout.Label($"Extra Files ({extraFiles.Count}) - not in server mod list:", bodyStyle);
-                }
-                foreach (var issue in extraFiles)
-                {
-                    GUILayout.Label($"  • {issue.FilePath}", extraStyle);
-                }
-            }
-
-            GUILayout.EndScrollView();
-
-            GUILayout.Space(10);
-            
-            // Help text - updater handles all issues now
-            GUILayout.Label("Run ModGodUpdater.exe to sync your mods with the server.", bodyStyle);
 
             GUILayout.FlexibleSpace();
 

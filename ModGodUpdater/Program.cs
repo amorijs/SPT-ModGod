@@ -15,6 +15,9 @@ class Program
     private static readonly string InternalDataFolderName = "ModGodData";
     private static readonly string TempDownloadPath = Path.Combine(Path.GetTempPath(), "ModGod");
     private static readonly string LogFileName = "ModGodUpdater.log";
+    
+    private static readonly string UpdaterVersion = 
+        typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -680,6 +683,23 @@ class Program
         }
 
         Log($"Manifest received: {manifest.Files.Count} files");
+
+        if (!string.IsNullOrEmpty(manifest.ModGodVersion) && manifest.ModGodVersion != UpdaterVersion)
+        {
+            Log($"VERSION MISMATCH: Server={manifest.ModGodVersion}, Updater={UpdaterVersion}");
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(
+                new Panel(
+                    new Markup($"[red bold]VERSION MISMATCH[/]\n\n" +
+                               $"Server version: [cyan]{EscapeMarkup(manifest.ModGodVersion)}[/]\n" +
+                               $"Updater version: [cyan]{EscapeMarkup(UpdaterVersion)}[/]\n\n" +
+                               "[yellow]Please download the latest ModGodUpdater.exe from the server administrator.[/]"))
+                    .Header("[red]Update Required[/]")
+                    .BorderColor(Color.Red)
+                    .Padding(1, 1, 1, 1));
+            AnsiConsole.WriteLine();
+            return;
+        }
 
         if (_clientConfig.Headless)
         {

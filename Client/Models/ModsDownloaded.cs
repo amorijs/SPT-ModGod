@@ -38,6 +38,11 @@ namespace ModGod.ClientEnforcer.Models
     /// </summary>
     public class FileManifest
     {
+        /// <summary>
+        /// ModGod server version - clients must match this version
+        /// </summary>
+        public string ModGodVersion { get; set; } = string.Empty;
+        
         public string GeneratedAt { get; set; } = string.Empty;
         public long GenerationTimeMs { get; set; }
         public Dictionary<string, FileEntry> Files { get; set; } = new Dictionary<string, FileEntry>();
@@ -66,9 +71,10 @@ namespace ModGod.ClientEnforcer.Models
     /// </summary>
     public enum FileIssueType
     {
-        Missing,      // File should exist but doesn't
-        HashMismatch, // File exists but hash doesn't match
-        ExtraFile     // File exists but isn't in manifest (unknown mod file)
+        Missing,         // File should exist but doesn't
+        HashMismatch,    // File exists but hash doesn't match
+        ExtraFile,       // File exists but isn't in manifest (unknown mod file)
+        VersionMismatch  // Client/Updater version doesn't match server version
     }
 
     /// <summary>
