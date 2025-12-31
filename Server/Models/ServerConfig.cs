@@ -108,6 +108,14 @@ public class ServerConfig
     public Dictionary<string, List<string>> RemovalSelections { get; set; } = new();
 
     /// <summary>
+    /// URLs of mods that are pending reinstall (in staged config only).
+    /// These mods should be treated as "pending install" in the UI even though they exist in live config.
+    /// Cleared after Apply.
+    /// </summary>
+    [JsonPropertyName("pendingReinstallUrls")]
+    public HashSet<string> PendingReinstallUrls { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Default install path mappings for auto-generating mod install paths.
     /// When null, uses the built-in defaults (BepInEx -> BepInEx, SPT -> SPT).
     /// </summary>

@@ -100,12 +100,16 @@ public partial class ConfigService
         return File.Exists(StagedConfigPath);
     }
     
-    /// <summary>
+/// <summary>
     /// Detailed check of what changes exist between staged and live config.
     /// Use this for the Apply button to see actual differences.
     /// </summary>
     public bool HasActualStagedChanges()
     {
+        // Check for pending reinstalls
+        if (StagedConfig.PendingReinstallUrls.Count > 0)
+            return true;
+        
         // Compare mod lists
         var liveUrls = Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
         var stagedUrls = StagedConfig.ModList.Select(m => m.DownloadUrl).ToHashSet();
@@ -268,6 +272,9 @@ public partial class ConfigService
     public async Task<StagedChanges> ApplyStagedToLiveAsync()
     {
         var changes = CalculateStagedChanges();
+        
+        // Clear pending reinstall tracking - these are now applied
+        StagedConfig.PendingReinstallUrls.Clear();
         
         // Replace live config with staged config
         var json = JsonSerializer.Serialize(StagedConfig, JsonOptions);

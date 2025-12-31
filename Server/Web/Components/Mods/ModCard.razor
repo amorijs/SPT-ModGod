@@ -47,6 +47,12 @@
                             <MudMenuItem OnClick="@(() => OnEdit.InvokeAsync(Mod))">
                                 <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
                             </MudMenuItem>
+                            @if (!IsPendingInstall && !string.IsNullOrEmpty(Mod.DownloadUrl))
+                            {
+                                <MudMenuItem OnClick="@(() => OnReinstall.InvokeAsync(Mod))" Style="color: var(--accent-cyan);">
+                                    <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                                </MudMenuItem>
+                            }
                             <MudMenuItem OnClick="@(() => OnDelete.InvokeAsync(Mod))" Style="color: var(--accent-red);">
                                 <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
                                 @(IsPendingInstall ? "Remove" : "Uninstall")
@@ -158,6 +164,7 @@
     [Parameter] public EventCallback<ModEntry> OnToggleOptional { get; set; }
     [Parameter] public EventCallback<ModEntry> OnOpenUninstallDialog { get; set; }
     [Parameter] public EventCallback<ModEntry> OnUndoRemoval { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnReinstall { get; set; }
     
     private void OnCardClick()
     {

@@ -312,20 +312,20 @@
                 You can manually add or remove files if the tracking is incorrect.
             </MudText>
 
-            @if (_installedFilesSet.Count == 0)
+@if (_installedFilesSet.Count == 0)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
                     <b>No files are being tracked.</b> This may be because the mod was installed manually or with an older version of ModGod.
                     <br /><br />
-                    You can either use "Browse & Add Files" below to manually select the files, or remove this mod and reinstall it through ModGod to automatically track files.
+                    You can use "Browse & Add Files" below to manually select the files, or use <b>Reinstall</b> from the mod's menu (⋮) to re-download and automatically track files.
                 </MudAlert>
             }
             else
             {
-                @if (MissingFiles.Count > 0)
+@if (MissingFiles.Count > 0)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                        @MissingFiles.Count tracked file(s) missing from disk. Consider removing them from tracking.
+                        @MissingFiles.Count tracked file(s) missing from disk. You can remove them from tracking below, or use <b>Reinstall</b> from the mod's menu (⋮) to restore missing files.
                     </MudAlert>
                 }
 

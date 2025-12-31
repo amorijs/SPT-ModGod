@@ -15,6 +15,7 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject ModDownloadService ModDownloadService
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge">
     <!-- Header Section -->
@@ -129,6 +130,34 @@
                         </MudButton>
                     }
                 </div>
+                @{
+                    var modsWithWarnings = GetModsWithWarnings();
+                    var warningCount = modsWithWarnings.Count;
+                }
+                @if (warningCount > 0)
+                {
+                    <MudTooltip>
+                        <TooltipContent>
+                            <div style="max-width: 300px;">
+                                <MudText Typo="Typo.body2" Class="mb-2"><b>Why reinstall mods with warnings?</b></MudText>
+                                <MudText Typo="Typo.caption">
+                                    Mods with warnings have missing files or aren't being tracked by ModGod. 
+                                    Reinstalling will re-download these mods and refresh their file tracking, 
+                                    which helps ensure clients sync properly.
+                                </MudText>
+                            </div>
+                        </TooltipContent>
+                        <ChildContent>
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Color="Color.Warning"
+                                       Style="font-weight: 600; border-color: var(--accent-orange); color: var(--accent-orange);"
+                                       OnClick="ReinstallAllModsWithWarnings">
+                                Reinstall @warningCount with Warnings
+                            </MudButton>
+                        </ChildContent>
+                    </MudTooltip>
+                }
                 <MudButton Variant="Variant.Filled"
                            StartIcon="@Icons.Material.Filled.Add"
                            Color="Color.Primary"
@@ -193,7 +222,7 @@
                         <MudGrid Class="mb-4">
                             @foreach (var mod in pendingMods)
                             {
-                                <ModCard Mod="@mod"
+<ModCard Mod="@mod"
                                          IsPendingInstall="@IsModPendingInstall(mod)"
                                          IsPendingRemoval="@IsModPendingRemoval(mod)"
                                          NeedsConfiguration="@ModNeedsConfiguration(mod)"
@@ -207,7 +236,8 @@
                                          OnDelete="DeleteMod"
                                          OnToggleOptional="ToggleModOptional"
                                          OnOpenUninstallDialog="OpenUninstallDialog"
-                                         OnUndoRemoval="UndoRemoval" />
+                                         OnUndoRemoval="UndoRemoval"
+                                         OnReinstall="ReinstallMod" />
                             }
                         </MudGrid>
                     }
@@ -221,7 +251,7 @@
                         <MudGrid Class="mb-4">
                             @foreach (var mod in removalMods)
                             {
-                                <ModCard Mod="@mod"
+<ModCard Mod="@mod"
                                          IsPendingInstall="@IsModPendingInstall(mod)"
                                          IsPendingRemoval="@IsModPendingRemoval(mod)"
                                          NeedsConfiguration="@ModNeedsConfiguration(mod)"
@@ -235,7 +265,8 @@
                                          OnDelete="DeleteMod"
                                          OnToggleOptional="ToggleModOptional"
                                          OnOpenUninstallDialog="OpenUninstallDialog"
-                                         OnUndoRemoval="UndoRemoval" />
+                                         OnUndoRemoval="UndoRemoval"
+                                         OnReinstall="ReinstallMod" />
                             }
                         </MudGrid>
                     }
@@ -249,7 +280,7 @@
                         <MudGrid>
                             @foreach (var mod in installedMods)
                             {
-                                <ModCard Mod="@mod"
+<ModCard Mod="@mod"
                                          IsPendingInstall="@IsModPendingInstall(mod)"
                                          IsPendingRemoval="@IsModPendingRemoval(mod)"
                                          NeedsConfiguration="@ModNeedsConfiguration(mod)"
@@ -263,7 +294,8 @@
                                          OnDelete="DeleteMod"
                                          OnToggleOptional="ToggleModOptional"
                                          OnOpenUninstallDialog="OpenUninstallDialog"
-                                         OnUndoRemoval="UndoRemoval" />
+                                         OnUndoRemoval="UndoRemoval"
+                                         OnReinstall="ReinstallMod" />
                             }
                         </MudGrid>
                     }
@@ -319,6 +351,11 @@
 
 <!-- Migration Dialog (for legacy config) -->
 <MigrationDialog @bind-Visible="_migrationDialogVisible" OnMigrationComplete="StateHasChanged" />
+
+<!-- Reinstall Progress Dialog -->
+<ReinstallProgressDialog @bind-Visible="_reinstallDialogVisible"
+                         ModsToReinstall="_modsToReinstall"
+                         OnReinstallComplete="StateHasChanged" />
 
 @code {
     private bool _hasLoggedInit = false;
@@ -380,6 +417,10 @@
     // Uninstall dialog - state managed by UninstallDialog component
     private bool _uninstallDialogVisible;
     private ModEntry? _uninstallMod;
+
+    // Reinstall progress dialog
+    private bool _reinstallDialogVisible;
+    private List<ModEntry> _modsToReinstall = new();
 
     // Apply Changes
     private async Task ApplyChanges()
@@ -468,6 +509,8 @@
         _uninstallDialogVisible = false;
         _uninstallMod = null;
         _addDialogVisible = false;
+        _reinstallDialogVisible = false;
+        _modsToReinstall.Clear();
     }
 
     // Edit Mod Dialog Methods
@@ -637,13 +680,15 @@
         _activeStatusFilter = null;
     }
 
-    // Utility Methods
+// Utility Methods
     /// <summary>
-    /// Check if a mod is pending install (in staged but not in live config)
+    /// Check if a mod is pending install (in staged but not in live config, OR pending reinstall)
     /// </summary>
     private bool IsModPendingInstall(ModEntry mod)
     {
-        return !ConfigService.Config.ModList.Any(m => m.DownloadUrl == mod.DownloadUrl);
+        // True if mod is new (not in live config) OR if it's marked for reinstall
+        return !ConfigService.Config.ModList.Any(m => m.DownloadUrl == mod.DownloadUrl)
+            || ConfigService.StagedConfig.PendingReinstallUrls.Contains(mod.DownloadUrl);
     }
 
     /// <summary>
@@ -656,22 +701,26 @@
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Get count of mods that are already installed (in both staged and live)
+/// <summary>
+    /// Get count of mods that are already installed (in both staged and live, and NOT pending reinstall)
     /// </summary>
     private int GetInstalledModCount()
     {
         var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
-        return ConfigService.StagedConfig.ModList.Count(m => liveUrls.Contains(m.DownloadUrl));
+        var reinstallUrls = ConfigService.StagedConfig.PendingReinstallUrls;
+        return ConfigService.StagedConfig.ModList.Count(m => 
+            liveUrls.Contains(m.DownloadUrl) && !reinstallUrls.Contains(m.DownloadUrl));
     }
 
     /// <summary>
-    /// Get count of mods pending install (in staged but not in live)
+    /// Get count of mods pending install (in staged but not in live, OR pending reinstall)
     /// </summary>
     private int GetPendingModCount()
     {
         var liveUrls = ConfigService.Config.ModList.Select(m => m.DownloadUrl).ToHashSet();
-        return ConfigService.StagedConfig.ModList.Count(m => !liveUrls.Contains(m.DownloadUrl));
+        var reinstallUrls = ConfigService.StagedConfig.PendingReinstallUrls;
+        return ConfigService.StagedConfig.ModList.Count(m => 
+            !liveUrls.Contains(m.DownloadUrl) || reinstallUrls.Contains(m.DownloadUrl));
     }
 
     /// <summary>
@@ -812,6 +861,63 @@
         {
             Snackbar.Add($"Failed to undo removal: {ex.Message}", Severity.Error);
         }
+    }
+
+// Reinstall mod (re-download and stage) - opens progress dialog
+    private void ReinstallMod(ModEntry mod)
+    {
+        CloseAllDialogs();
+
+        if (string.IsNullOrEmpty(mod.DownloadUrl))
+        {
+            Snackbar.Add("Cannot reinstall: mod has no download URL.", Severity.Error);
+            return;
+        }
+
+        _modsToReinstall = new List<ModEntry> { mod };
+        _reinstallDialogVisible = true;
+        StateHasChanged();
+    }
+
+    // Get mods that have warnings (missing files or no files tracked)
+    private List<ModEntry> GetModsWithWarnings()
+    {
+        var sptRoot = ConfigService?.SptRoot;
+        if (string.IsNullOrWhiteSpace(sptRoot) || ConfigService == null) return new List<ModEntry>();
+
+        return ConfigService.StagedConfig.ModList
+            .Where(m => !m.IsProtected && !IsModPendingInstall(m) && !IsModPendingRemoval(m))
+            .Where(m => !string.IsNullOrEmpty(m.DownloadUrl))
+            .Where(m => 
+            {
+                var installedFiles = m.InstalledFiles ?? new List<string>();
+                // No files tracked
+                if (installedFiles.Count == 0) return true;
+                // Has missing files
+                return installedFiles.Any(f =>
+                {
+                    var fullPath = Path.Combine(sptRoot, f.Replace("/", Path.DirectorySeparatorChar.ToString()));
+                    return !File.Exists(fullPath);
+                });
+            })
+            .ToList();
+    }
+
+    // Reinstall all mods with warnings
+    private void ReinstallAllModsWithWarnings()
+    {
+        CloseAllDialogs();
+
+        var modsWithWarnings = GetModsWithWarnings();
+        if (modsWithWarnings.Count == 0)
+        {
+            Snackbar.Add("No mods with warnings found.", Severity.Info);
+            return;
+        }
+
+        _modsToReinstall = modsWithWarnings;
+        _reinstallDialogVisible = true;
+        StateHasChanged();
     }
 
     // Legacy helpers for backwards compatibility
