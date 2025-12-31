@@ -206,12 +206,17 @@ class Program
         AnsiConsole.MarkupLine($"[green]✓[/] Found [cyan]{serverConfig.ModList.Count}[/] mod(s) on server");
         AnsiConsole.WriteLine();
 
-        Log("Fetching manifest for exclusions...");
+        Log("Fetching manifest for exclusions and sync roots...");
         _cachedManifest = await FetchManifestAsync(_clientConfig.Headless);
         var exclusions = BuildExclusionSet(_cachedManifest?.SyncExclusions);
+        var syncRoots = BuildSyncRootsSet(_cachedManifest?.SyncRoots);
         if (exclusions.Count > 0)
         {
             Log($"Loaded {exclusions.Count} exclusion pattern(s)");
+        }
+        if (syncRoots.Count > 0)
+        {
+            Log($"Loaded {syncRoots.Count} sync root(s): {string.Join(", ", syncRoots)}");
         }
 
         // Process mods (skip for headless clients)
@@ -223,7 +228,7 @@ class Program
         else
         {
             Log("Processing mods...");
-            await ProcessModsAsync(serverConfig, exclusions);
+            await ProcessModsAsync(serverConfig, exclusions, syncRoots);
         }
 
         AnsiConsole.WriteLine();
@@ -358,7 +363,7 @@ class Program
             });
     }
 
-    static async Task ProcessModsAsync(ServerConfig serverConfig, HashSet<string> exclusions)
+    static async Task ProcessModsAsync(ServerConfig serverConfig, HashSet<string> exclusions, HashSet<string> syncRoots)
     {
         var requiredMods = serverConfig.ModList.Where(m => !m.Optional).ToList();
         var optionalMods = serverConfig.ModList.Where(m => m.Optional).ToList();
@@ -370,7 +375,7 @@ class Program
 
             foreach (var mod in requiredMods)
             {
-                await ProcessModAsync(mod, isOptional: false, exclusions);
+                await ProcessModAsync(mod, isOptional: false, exclusions, syncRoots);
             }
         }
 
@@ -411,14 +416,14 @@ class Program
                 var choiceName = optionalChoices[index];
                 var isSelected = selectedNames.Any(s => s == choiceName);
 
-                await ProcessModAsync(mod, isOptional: true, exclusions, optIn: isSelected);
+                await ProcessModAsync(mod, isOptional: true, exclusions, syncRoots, optIn: isSelected);
             }
         }
 
         await SaveModsDownloadedAsync();
     }
 
-    static async Task ProcessModAsync(ModEntry mod, bool isOptional, HashSet<string> exclusions, bool optIn = true)
+    static async Task ProcessModAsync(ModEntry mod, bool isOptional, HashSet<string> exclusions, HashSet<string> syncRoots, bool optIn = true)
     {
         // Skip protected/baked-in mods (e.g., ModGod itself) - they don't need downloading
         if (mod.IsProtected || string.IsNullOrWhiteSpace(mod.DownloadUrl))
@@ -565,7 +570,8 @@ class Program
                     File.Delete(archivePath);
 
                     var filesToInstall = new List<(string Source, string Target)>();
-                    var skippedCount = 0;
+                    var skippedExcluded = 0;
+                    var skippedNotInSyncPath = 0;
                     
                     foreach (var installPath in mod.InstallPaths)
                     {
@@ -581,10 +587,19 @@ class Program
                                 var destFile = Path.Combine(targetPath, relativePath);
                                 var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
                                 
+                                // Check if path is within a registered sync path
+                                if (!IsInSyncPath(destRelative, syncRoots))
+                                {
+                                    Log($"Skipping (not in sync path): {destRelative}");
+                                    skippedNotInSyncPath++;
+                                    continue;
+                                }
+                                
+                                // Check if path is excluded
                                 if (IsExcluded(destRelative, exclusions))
                                 {
                                     Log($"Skipping excluded: {destRelative}");
-                                    skippedCount++;
+                                    skippedExcluded++;
                                     continue;
                                 }
                                 
@@ -597,10 +612,19 @@ class Program
                             var destFile = Path.Combine(targetPath, fileName);
                             var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
                             
+                            // Check if path is within a registered sync path
+                            if (!IsInSyncPath(destRelative, syncRoots))
+                            {
+                                Log($"Skipping (not in sync path): {destRelative}");
+                                skippedNotInSyncPath++;
+                                continue;
+                            }
+                            
+                            // Check if path is excluded
                             if (IsExcluded(destRelative, exclusions))
                             {
                                 Log($"Skipping excluded: {destRelative}");
-                                skippedCount++;
+                                skippedExcluded++;
                                 continue;
                             }
                             
@@ -608,9 +632,9 @@ class Program
                         }
                     }
                     
-                    if (skippedCount > 0)
+                    if (skippedExcluded > 0 || skippedNotInSyncPath > 0)
                     {
-                        Log($"Skipped {skippedCount} excluded file(s) for {mod.ModName}");
+                        Log($"Skipped {skippedExcluded} excluded + {skippedNotInSyncPath} outside sync paths for {mod.ModName}");
                     }
 
                     if (filesToInstall.Count > 0)
@@ -1080,6 +1104,42 @@ class Program
         return new HashSet<string>(
             (exclusions ?? []).Select(p => p.Replace('\\', '/').TrimStart('/')),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    static HashSet<string> BuildSyncRootsSet(IEnumerable<string>? syncRoots)
+    {
+        // Default to standard sync paths if none provided (backwards compatibility)
+        var roots = syncRoots?.ToList() ?? new List<string>();
+        if (roots.Count == 0)
+        {
+            roots = new List<string> { "BepInEx/plugins", "SPT/user/mods" };
+        }
+        return new HashSet<string>(
+            roots.Select(p => p.Replace('\\', '/').TrimStart('/')),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Check if a path is within one of the registered sync roots.
+    /// Only files within sync roots should be installed/synced.
+    /// </summary>
+    static bool IsInSyncPath(string relativePath, HashSet<string> syncRoots)
+    {
+        if (syncRoots.Count == 0) return true; // No restrictions if no sync roots defined
+        
+        var norm = relativePath.Replace('\\', '/').TrimStart('/');
+        
+        foreach (var root in syncRoots)
+        {
+            // Check if path equals the sync root or is under it
+            if (norm.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                norm.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     static bool IsExcluded(string relativePath, HashSet<string> exclusions)
