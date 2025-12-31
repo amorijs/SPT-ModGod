@@ -1,0 +1,301 @@
+@using ModGod.Models
+@using ModGod.Services
+@using Color = MudBlazor.Color
+
+@inject ModDownloadService ModDownloadService
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = false, BackdropClick = false })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            @if (_step == ReinstallStep.Confirm)
+            {
+                <span>Reinstall Mods</span>
+            }
+            else if (_step == ReinstallStep.Downloading)
+            {
+                <span>Reinstalling Mods...</span>
+            }
+            else
+            {
+                <span>Reinstall Complete</span>
+            }
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_step == ReinstallStep.Confirm)
+        {
+            <div class="pa-2">
+                <MudText Typo="Typo.body1" Class="mb-3" Style="color: var(--text-primary);">
+                    The following mod(s) will be re-downloaded and staged for installation:
+                </MudText>
+                
+                <MudList T="string" Dense="true" Class="mb-4" Style="max-height: 300px; overflow-y: auto;">
+                    @foreach (var mod in ModsToReinstall)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Refresh" IconColor="Color.Primary">
+                            <MudText Style="color: var(--text-primary);">@mod.ModName</MudText>
+                            @if (HasWarning(mod))
+                            {
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                    @GetWarningText(mod)
+                                </MudText>
+                            }
+                        </MudListItem>
+                    }
+                </MudList>
+                
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    After reinstalling, you can customize install paths and file rules before applying changes.
+                </MudAlert>
+            </div>
+        }
+        else if (_step == ReinstallStep.Downloading)
+        {
+            <div class="pa-4">
+                <MudText Typo="Typo.body1" Class="mb-2" Style="color: var(--text-primary);">
+                    Processing @(_currentIndex + 1) of @ModsToReinstall.Count
+                </MudText>
+                <MudProgressLinear Value="@((_currentIndex + 1) * 100.0 / ModsToReinstall.Count)" 
+                                   Color="Color.Primary" 
+                                   Rounded="true" 
+                                   Size="Size.Large"
+                                   Class="mb-4" />
+                
+                <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--text-primary); font-weight: 500;">
+                    @(_currentModName ?? "Starting...")
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mono" Style="color: var(--text-secondary); word-break: break-all;">
+                    @(_currentUrl ?? "")
+                </MudText>
+                
+                @if (_results.Count > 0)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-secondary);">
+                        Status: @_results.Count(r => r.Success) succeeded, @_results.Count(r => !r.Success) failed
+                    </MudText>
+                }
+            </div>
+        }
+        else if (_step == ReinstallStep.Results)
+        {
+            <div class="pa-2">
+                @{
+                    var successes = _results.Where(r => r.Success).ToList();
+                    var failures = _results.Where(r => !r.Success).ToList();
+                }
+                
+                @if (failures.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">
+                        Failed to reinstall @failures.Count mod(s)
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-red);">
+                        Failed (@failures.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in failures)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                    @result.Error
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                @if (successes.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">
+                        Successfully staged @successes.Count mod(s) for reinstallation
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
+                        Staged (@successes.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var result in successes)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_step == ReinstallStep.Confirm)
+        {
+            <MudButton OnClick="Close" Variant="Variant.Text">Cancel</MudButton>
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       OnClick="StartReinstall"
+                       Disabled="@(ModsToReinstall.Count == 0)">
+                Reinstall @ModsToReinstall.Count Mod(s)
+            </MudButton>
+        }
+        else if (_step == ReinstallStep.Downloading)
+        {
+            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                Please wait...
+            </MudText>
+        }
+        else if (_step == ReinstallStep.Results)
+        {
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       OnClick="Close">
+                Done
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public List<ModEntry> ModsToReinstall { get; set; } = new();
+    [Parameter] public EventCallback OnReinstallComplete { get; set; }
+    
+    private enum ReinstallStep { Confirm, Downloading, Results }
+    private ReinstallStep _step = ReinstallStep.Confirm;
+    
+    private int _currentIndex;
+    private string? _currentModName;
+    private string? _currentUrl;
+    private List<ReinstallResult> _results = new();
+    
+    protected override void OnParametersSet()
+    {
+        if (!Visible)
+        {
+            ResetState();
+        }
+    }
+    
+    private void ResetState()
+    {
+        _step = ReinstallStep.Confirm;
+        _currentIndex = 0;
+        _currentModName = null;
+        _currentUrl = null;
+        _results.Clear();
+    }
+    
+    private bool HasWarning(ModEntry mod)
+    {
+        var installedFiles = mod.InstalledFiles ?? new List<string>();
+        if (installedFiles.Count == 0) return true;
+        
+        // Check for missing files
+        var sptRoot = ConfigService?.SptRoot;
+        if (string.IsNullOrWhiteSpace(sptRoot)) return false;
+        
+        foreach (var file in installedFiles)
+        {
+            var fullPath = Path.Combine(sptRoot, file.Replace("/", Path.DirectorySeparatorChar.ToString()));
+            if (!File.Exists(fullPath)) return true;
+        }
+        
+        return false;
+    }
+    
+    private string GetWarningText(ModEntry mod)
+    {
+        var installedFiles = mod.InstalledFiles ?? new List<string>();
+        if (installedFiles.Count == 0)
+            return "No files tracked";
+        
+        var sptRoot = ConfigService?.SptRoot;
+        if (string.IsNullOrWhiteSpace(sptRoot)) return "";
+        
+        var missingCount = installedFiles.Count(f => 
+        {
+            var fullPath = Path.Combine(sptRoot, f.Replace("/", Path.DirectorySeparatorChar.ToString()));
+            return !File.Exists(fullPath);
+        });
+        
+        return missingCount > 0 ? $"{missingCount} file(s) missing" : "";
+    }
+    
+    private async Task StartReinstall()
+    {
+        _step = ReinstallStep.Downloading;
+        _results.Clear();
+        _currentIndex = 0;
+        await InvokeAsync(StateHasChanged);
+        
+        foreach (var mod in ModsToReinstall)
+        {
+            _currentModName = mod.ModName;
+            _currentUrl = mod.DownloadUrl;
+            await InvokeAsync(StateHasChanged);
+            
+            var result = new ReinstallResult { ModName = mod.ModName, Url = mod.DownloadUrl };
+            
+            try
+            {
+                if (string.IsNullOrEmpty(mod.DownloadUrl))
+                {
+                    result.Success = false;
+                    result.Error = "No download URL";
+                }
+                else
+                {
+                    // Clear existing staging data
+                    await ConfigService.ClearStagingForUrlAsync(mod.DownloadUrl);
+                    
+                    // Download and stage
+                    var (success, error) = await ModDownloadService.DownloadAndStageAsync(
+                        mod.DownloadUrl, mod.ModName, mod.Optional);
+                    
+                    result.Success = success;
+                    result.Error = error;
+                    
+                    if (success)
+                    {
+                        // Mark as pending reinstall
+                        ConfigService.StagedConfig.PendingReinstallUrls.Add(mod.DownloadUrl);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Error = ex.Message;
+            }
+            
+            _results.Add(result);
+            _currentIndex++;
+            await InvokeAsync(StateHasChanged);
+        }
+        
+        // Save config changes
+        await ConfigService.SaveStagedConfigAsync();
+        
+        _step = ReinstallStep.Results;
+        await OnReinstallComplete.InvokeAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+    
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+    
+    private class ReinstallResult
+    {
+        public string ModName { get; set; } = "";
+        public string? Url { get; set; }
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+}
