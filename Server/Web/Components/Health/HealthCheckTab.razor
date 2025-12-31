@@ -14,22 +14,35 @@
                 Scans all installed mods for dependencies, updates, and compatibility issues using the Forge API.
             </MudText>
         </div>
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   Style="background: var(--accent-cyan); color: #000; font-weight: 600;"
-                   StartIcon="@(_isChecking ? null : Icons.Material.Filled.Refresh)"
-                   Disabled="_isChecking || !HasApiKey"
-                   OnClick="RunHealthCheckAsync">
-            @if (_isChecking)
+        <div class="d-flex gap-2">
+            @if (_result != null && GetUpdatableMods().Count > 0)
             {
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                <span>Scanning...</span>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Warning"
+                           Style="font-weight: 600;"
+                           StartIcon="@Icons.Material.Filled.SystemUpdateAlt"
+                           Disabled="_isChecking || _isBulkUpdating"
+                           OnClick="OpenBulkUpdateDialog">
+                    Bulk Update (@GetUpdatableMods().Count)
+                </MudButton>
             }
-            else
-            {
-                <span>Check Mod Health</span>
-            }
-        </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Style="background: var(--accent-cyan); color: #000; font-weight: 600;"
+                       StartIcon="@(_isChecking ? null : Icons.Material.Filled.Refresh)"
+                       Disabled="_isChecking || !HasApiKey"
+                       OnClick="RunHealthCheckAsync">
+                @if (_isChecking)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <span>Scanning...</span>
+                }
+                else
+                {
+                    <span>Check Mod Health</span>
+                }
+            </MudButton>
+        </div>
     </div>
 
     @if (!HasApiKey)
@@ -588,6 +601,185 @@
     </DialogActions>
 </MudDialog>
 
+<!-- Bulk Update Dialog -->
+<MudDialog @bind-Visible="_showBulkUpdateDialog" Options="new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = !_isBulkUpdating, BackdropClick = !_isBulkUpdating }">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            @if (_bulkUpdateStep == BulkUpdateStep.Select)
+            {
+                <span>Bulk Update Mods</span>
+            }
+            else if (_bulkUpdateStep == BulkUpdateStep.Updating)
+            {
+                <span>Updating Mods...</span>
+            }
+            else
+            {
+                <span>Update Complete</span>
+            }
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_bulkUpdateStep == BulkUpdateStep.Select)
+        {
+            <div class="pa-2">
+                <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                    Select which mods you want to update. All mods with available updates are checked by default.
+                </MudText>
+                
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <MudButton Variant="Variant.Text" 
+                               Size="Size.Small" 
+                               OnClick="ToggleAllBulkUpdateSelection"
+                               StartIcon="@(_bulkUpdateSelection.All(kv => kv.Value) ? Icons.Material.Filled.CheckBoxOutlineBlank : Icons.Material.Filled.CheckBox)">
+                        @(_bulkUpdateSelection.All(kv => kv.Value) ? "Deselect All" : "Select All")
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        @_bulkUpdateSelection.Count(kv => kv.Value) of @_bulkUpdateSelection.Count selected
+                    </MudText>
+                </div>
+                
+                <MudList T="string" Dense="true" Style="max-height: 400px; overflow-y: auto;">
+                    @foreach (var mod in GetUpdatableMods())
+                    {
+                        <MudListItem T="string" @onclick="@(() => ToggleBulkUpdateSelection(mod))">
+                            <div class="d-flex align-center gap-3" style="width: 100%;">
+                                <MudCheckBox T="bool" 
+                                             Value="@(_bulkUpdateSelection.GetValueOrDefault(mod.DisplayName, true))"
+                                             ValueChanged="@((bool val) => SetBulkUpdateSelection(mod, val))"
+                                             Color="Color.Warning"
+                                             @onclick:stopPropagation="true" />
+                                <div style="flex: 1;">
+                                    <MudText Style="color: var(--text-primary); font-weight: 500;">@mod.DisplayName</MudText>
+                                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                        <code>@mod.InstalledVersion</code> → <code style="color: var(--accent-orange);">@mod.LatestVersion</code>
+                                    </MudText>
+                                </div>
+                                @if (!mod.IsTracked)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Style="color: var(--accent-purple); border-color: var(--accent-purple);">
+                                        Untracked
+                                    </MudChip>
+                                }
+                            </div>
+                        </MudListItem>
+                        <MudDivider />
+                    }
+                </MudList>
+                
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                    Updated mods will be staged. You'll need to click "Apply Changes" to complete the installation.
+                </MudAlert>
+            </div>
+        }
+        else if (_bulkUpdateStep == BulkUpdateStep.Updating)
+        {
+            <div class="pa-4">
+                <MudText Typo="Typo.body1" Class="mb-2" Style="color: var(--text-primary);">
+                    Updating @(_bulkUpdateCurrentIndex + 1) of @_bulkUpdateTotalCount
+                </MudText>
+                <MudProgressLinear Value="@((_bulkUpdateCurrentIndex + 1) * 100.0 / _bulkUpdateTotalCount)" 
+                                   Color="Color.Warning" 
+                                   Rounded="true" 
+                                   Size="Size.Large"
+                                   Class="mb-4" />
+                
+                <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--text-primary); font-weight: 500;">
+                    @(_bulkUpdateCurrentMod ?? "Starting...")
+                </MudText>
+                
+                @if (_bulkUpdateResults.Count > 0)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-secondary);">
+                        Status: @_bulkUpdateResults.Count(r => r.Success) succeeded, @_bulkUpdateResults.Count(r => !r.Success) failed
+                    </MudText>
+                }
+            </div>
+        }
+        else if (_bulkUpdateStep == BulkUpdateStep.Results)
+        {
+            <div class="pa-2">
+                @{
+                    var successes = _bulkUpdateResults.Where(r => r.Success).ToList();
+                    var failures = _bulkUpdateResults.Where(r => !r.Success).ToList();
+                }
+                
+                @if (failures.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">
+                        Failed to update @failures.Count mod(s)
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-red);">
+                        Failed (@failures.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in failures)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                    @result.Error
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                @if (successes.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">
+                        Successfully staged @successes.Count mod(s) for update
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
+                        Updated (@successes.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var result in successes)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    Updated to @result.NewVersion
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_bulkUpdateStep == BulkUpdateStep.Select)
+        {
+            <MudButton OnClick="CloseBulkUpdateDialog" Variant="Variant.Text">Cancel</MudButton>
+            <MudButton Color="Color.Warning" 
+                       Variant="Variant.Filled"
+                       Disabled="@(!_bulkUpdateSelection.Any(kv => kv.Value))"
+                       OnClick="StartBulkUpdate">
+                <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Class="mr-1" />
+                Update @_bulkUpdateSelection.Count(kv => kv.Value) Mod(s)
+            </MudButton>
+        }
+        else if (_bulkUpdateStep == BulkUpdateStep.Updating)
+        {
+            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                Please wait...
+            </MudText>
+        }
+        else if (_bulkUpdateStep == BulkUpdateStep.Results)
+        {
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       OnClick="CloseBulkUpdateDialog">
+                Done
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
 @code {
     [Inject] private ModHealthService HealthService { get; set; } = default!;
     [Inject] private ForgeService ForgeService { get; set; } = default!;
@@ -624,6 +816,26 @@
     // Update confirmation dialog state
     private bool _showUpdateConfirmDialog = false;
     private ModHealthInfo? _modToUpdate;
+
+    // Bulk update dialog state
+    private bool _showBulkUpdateDialog = false;
+    private bool _isBulkUpdating = false;
+    private Dictionary<string, bool> _bulkUpdateSelection = new();
+    private BulkUpdateStep _bulkUpdateStep = BulkUpdateStep.Select;
+    private int _bulkUpdateCurrentIndex = 0;
+    private int _bulkUpdateTotalCount = 0;
+    private string? _bulkUpdateCurrentMod;
+    private List<BulkUpdateResult> _bulkUpdateResults = new();
+
+    private enum BulkUpdateStep { Select, Updating, Results }
+    
+    private class BulkUpdateResult
+    {
+        public string ModName { get; set; } = "";
+        public string? NewVersion { get; set; }
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
 
     private bool HasApiKey => ForgeService.HasApiKey;
 
@@ -1030,5 +1242,151 @@
             await UpdateModAsync(_modToUpdate);
         }
         _modToUpdate = null;
+    }
+
+    // Bulk Update Methods
+    private List<ModHealthInfo> GetUpdatableMods()
+    {
+        if (_result == null) return new List<ModHealthInfo>();
+        
+        return _result.Mods
+            .Where(m => m.Status == ModHealthStatus.UpdateAvailable && !string.IsNullOrEmpty(m.LatestDownloadUrl))
+            .OrderBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void OpenBulkUpdateDialog()
+    {
+        var updatableMods = GetUpdatableMods();
+        _bulkUpdateSelection = updatableMods.ToDictionary(m => m.DisplayName, _ => true);
+        _bulkUpdateStep = BulkUpdateStep.Select;
+        _bulkUpdateResults.Clear();
+        _bulkUpdateCurrentIndex = 0;
+        _bulkUpdateCurrentMod = null;
+        _showBulkUpdateDialog = true;
+    }
+
+    private void CloseBulkUpdateDialog()
+    {
+        _showBulkUpdateDialog = false;
+        _isBulkUpdating = false;
+    }
+
+    private void ToggleBulkUpdateSelection(ModHealthInfo mod)
+    {
+        if (_bulkUpdateSelection.ContainsKey(mod.DisplayName))
+        {
+            _bulkUpdateSelection[mod.DisplayName] = !_bulkUpdateSelection[mod.DisplayName];
+        }
+    }
+
+    private void SetBulkUpdateSelection(ModHealthInfo mod, bool value)
+    {
+        _bulkUpdateSelection[mod.DisplayName] = value;
+    }
+
+    private void ToggleAllBulkUpdateSelection()
+    {
+        var allSelected = _bulkUpdateSelection.All(kv => kv.Value);
+        var newValue = !allSelected;
+        foreach (var key in _bulkUpdateSelection.Keys.ToList())
+        {
+            _bulkUpdateSelection[key] = newValue;
+        }
+    }
+
+    private async Task StartBulkUpdate()
+    {
+        var selectedMods = GetUpdatableMods()
+            .Where(m => _bulkUpdateSelection.GetValueOrDefault(m.DisplayName, false))
+            .ToList();
+
+        if (selectedMods.Count == 0) return;
+
+        _isBulkUpdating = true;
+        _bulkUpdateStep = BulkUpdateStep.Updating;
+        _bulkUpdateResults.Clear();
+        _bulkUpdateCurrentIndex = 0;
+        _bulkUpdateTotalCount = selectedMods.Count;
+        await InvokeAsync(StateHasChanged);
+
+        foreach (var mod in selectedMods)
+        {
+            _bulkUpdateCurrentMod = mod.DisplayName;
+            await InvokeAsync(StateHasChanged);
+
+            var result = new BulkUpdateResult 
+            { 
+                ModName = mod.DisplayName,
+                NewVersion = mod.LatestVersion
+            };
+
+            try
+            {
+                if (string.IsNullOrEmpty(mod.LatestDownloadUrl))
+                {
+                    result.Success = false;
+                    result.Error = "No download URL available";
+                }
+                else
+                {
+                    // If mod is tracked, remove it from staged config so it gets uninstalled
+                    if (mod.TrackedMod != null)
+                    {
+                        var existingMod = ConfigService.StagedConfig.ModList
+                            .FirstOrDefault(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl);
+                        
+                        if (existingMod != null)
+                        {
+                            ConfigService.StagedConfig.ModList.Remove(existingMod);
+                            ConfigService.ClearStagingForUrl(existingMod.DownloadUrl);
+                        }
+                    }
+
+                    // Download and stage the new version
+                    var (success, error) = await ModDownloadService.DownloadAndStageAsync(
+                        mod.LatestDownloadUrl, 
+                        mod.DisplayName);
+
+                    result.Success = success;
+                    result.Error = error;
+
+                    if (success)
+                    {
+                        // Update the UI state to show update is staged
+                        mod.InstalledVersion = $"{mod.InstalledVersion} → {mod.LatestVersion}";
+                        mod.Status = ModHealthStatus.UpToDate;
+                        mod.LatestDownloadUrl = null;
+                    }
+                    else if (mod.TrackedMod != null)
+                    {
+                        // Rollback: re-add the old mod if we removed it
+                        if (!ConfigService.StagedConfig.ModList.Any(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl))
+                        {
+                            ConfigService.StagedConfig.ModList.Add(mod.TrackedMod);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Error = ex.Message;
+            }
+
+            _bulkUpdateResults.Add(result);
+            _bulkUpdateCurrentIndex++;
+            await InvokeAsync(StateHasChanged);
+        }
+
+        // Save the staged config with all changes
+        await ConfigService.SaveStagedConfigAsync();
+
+        _bulkUpdateStep = BulkUpdateStep.Results;
+        _isBulkUpdating = false;
+        
+        // Notify parent to refresh UI
+        await OnModsStaged.InvokeAsync();
+        await InvokeAsync(StateHasChanged);
     }
 }
