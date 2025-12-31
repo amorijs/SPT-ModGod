@@ -1,0 +1,188 @@
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+
+<div style="max-width: 800px;">
+    <!-- Forge API Key -->
+    <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+        <MudText Typo="Typo.h6" Class="mb-3" Style="color: var(--text-primary);">
+            <MudIcon Icon="@Icons.Material.Filled.Key" Class="mr-2" Style="vertical-align: middle;" />
+            Forge Integration
+        </MudText>
+
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+            Enter your Forge API key to enable mod search and health check features.
+            Get a key from <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank">forge.sp-tarkov.com</MudLink>
+        </MudText>
+
+        <div class="d-flex gap-2">
+            <MudTextField @bind-Value="_forgeApiKey"
+                          Label="Forge API Key"
+                          Variant="Variant.Outlined"
+                          InputType="@(_showApiKey ? InputType.Text : InputType.Password)"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@(_showApiKey ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                          OnAdornmentClick="@(() => _showApiKey = !_showApiKey)"
+                          Style="flex: 1;" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="SaveApiKey">
+                Save
+            </MudButton>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_forgeApiKey))
+        {
+            <MudAlert Severity="Severity.Success" Class="mt-3" Dense="true">
+                Forge API key is configured
+            </MudAlert>
+        }
+    </MudPaper>
+
+    <!-- Default Install Paths -->
+    <MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+        <MudText Typo="Typo.h6" Class="mb-3" Style="color: var(--text-primary);">
+            <MudIcon Icon="@Icons.Material.Filled.FolderCopy" Class="mr-2" Style="vertical-align: middle;" />
+            Default Install Paths
+        </MudText>
+
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+            When adding a mod, these mappings help auto-detect where files should be installed.
+            Source paths from archives are matched to target paths on your server.
+        </MudText>
+
+        <MudSimpleTable Dense="true" Style="background: var(--secondary-bg);">
+            <thead>
+                <tr>
+                    <th>Archive Path</th>
+                    <th>Install Target</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var mapping in _installPaths)
+                {
+                    <tr>
+                        <td>@mapping.Source</td>
+                        <td>@mapping.Target</td>
+                        <td style="width: 50px;">
+                            @if (!IsDefaultMapping(mapping))
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               OnClick="@(() => RemoveInstallPath(mapping))" />
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        <MudDivider Class="my-3" />
+
+        <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">
+            Add Custom Mapping
+        </MudText>
+
+        <div class="d-flex gap-2 align-center">
+            <MudTextField @bind-Value="_newSource"
+                          Label="Archive Path"
+                          Placeholder="e.g., CustomFolder"
+                          Variant="Variant.Outlined"
+                          Size="Size.Small"
+                          Style="flex: 1;" />
+            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="color: var(--text-secondary);" />
+            <MudTextField @bind-Value="_newTarget"
+                          Label="Install Target"
+                          Placeholder="e.g., CustomFolder"
+                          Variant="Variant.Outlined"
+                          Size="Size.Small"
+                          Style="flex: 1;" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       OnClick="AddInstallPath"
+                       Disabled="@(string.IsNullOrWhiteSpace(_newSource) || string.IsNullOrWhiteSpace(_newTarget))">
+                Add
+            </MudButton>
+        </div>
+    </MudPaper>
+</div>
+
+@code {
+    private string _forgeApiKey = string.Empty;
+    private bool _showApiKey = false;
+    private List<InstallPathMapping> _installPaths = new();
+    private string _newSource = string.Empty;
+    private string _newTarget = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _forgeApiKey = ConfigService.Config.ForgeApiKey ?? string.Empty;
+        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
+    }
+
+    private async Task SaveApiKey()
+    {
+        ConfigService.Config.ForgeApiKey = string.IsNullOrWhiteSpace(_forgeApiKey) ? null : _forgeApiKey;
+        await ConfigService.SaveConfigAsync();
+        Snackbar.Add("Forge API key saved", Severity.Success);
+    }
+
+    private bool IsDefaultMapping(InstallPathMapping mapping)
+    {
+        return DefaultInstallPaths.Mappings.Any(m =>
+            m.Source.Equals(mapping.Source, StringComparison.OrdinalIgnoreCase) &&
+            m.Target.Equals(mapping.Target, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task AddInstallPath()
+    {
+        if (string.IsNullOrWhiteSpace(_newSource) || string.IsNullOrWhiteSpace(_newTarget))
+            return;
+
+        var newMapping = new InstallPathMapping
+        {
+            Source = _newSource.Replace("\\", "/").Trim('/'),
+            Target = _newTarget.Replace("\\", "/").Trim('/')
+        };
+
+        // Initialize custom list if needed
+        ConfigService.Config.DefaultInstallPaths ??= DefaultInstallPaths.Mappings.ToList();
+        ConfigService.Config.DefaultInstallPaths.Add(newMapping);
+
+        await ConfigService.SaveConfigAsync();
+        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
+        _newSource = string.Empty;
+        _newTarget = string.Empty;
+        Snackbar.Add("Install path mapping added", Severity.Success);
+    }
+
+    private async Task RemoveInstallPath(InstallPathMapping mapping)
+    {
+        if (ConfigService.Config.DefaultInstallPaths != null)
+        {
+            ConfigService.Config.DefaultInstallPaths.RemoveAll(m =>
+                m.Source.Equals(mapping.Source, StringComparison.OrdinalIgnoreCase) &&
+                m.Target.Equals(mapping.Target, StringComparison.OrdinalIgnoreCase));
+
+            // If we removed all custom mappings, set to null to use defaults
+            if (ConfigService.Config.DefaultInstallPaths.Count == DefaultInstallPaths.Mappings.Count)
+            {
+                var allDefault = ConfigService.Config.DefaultInstallPaths.All(m =>
+                    DefaultInstallPaths.Mappings.Any(d =>
+                        d.Source.Equals(m.Source, StringComparison.OrdinalIgnoreCase) &&
+                        d.Target.Equals(m.Target, StringComparison.OrdinalIgnoreCase)));
+
+                if (allDefault)
+                {
+                    ConfigService.Config.DefaultInstallPaths = null;
+                }
+            }
+
+            await ConfigService.SaveConfigAsync();
+            _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
+            Snackbar.Add("Install path mapping removed", Severity.Info);
+        }
+    }
+}

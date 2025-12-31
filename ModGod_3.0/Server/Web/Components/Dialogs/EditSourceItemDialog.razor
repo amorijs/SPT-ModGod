@@ -1,0 +1,411 @@
+@using ModGod3.Models
+@using ModGod3.Services
+
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
+    <TitleContent>
+        <div class="d-flex justify-space-between align-center" style="width: 100%;">
+            <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Source Item</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                           Size="Size.Small"
+                           Style="color: var(--text-secondary);"
+                           OnClick="Close" />
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (Item != null)
+        {
+            <MudTextField @bind-Value="_displayName"
+                          Label="Display Name"
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          HelperText="Friendly name shown in the UI. Leave empty to use the folder/file name." />
+
+            <MudTextField Value="@Item.Path"
+                          Label="Path"
+                          Variant="Variant.Outlined"
+                          Class="mb-4 mono"
+                          ReadOnly="true"
+                          HelperText="Relative path from SPT root. Cannot be changed." />
+
+            <MudCheckBox @bind-Value="_isOptional"
+                         Label="Optional (clients can opt out of syncing this item)"
+                         Color="Color.Primary"
+                         Class="mb-4" />
+
+            <MudDivider Class="my-4" />
+
+            @* Linked Items Section *@
+            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Link" Class="mr-2" Style="vertical-align: middle;" />
+                Linked Items
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mb-3" Style="color: var(--text-secondary);">
+                Link related items together (e.g., server mod + client plugin). Linked items share optional status and are deleted together.
+            </MudText>
+
+            @if (_linkedItems.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Variant="Variant.Outlined">
+                    No linked items. Use "Add Link" to connect related items.
+                </MudAlert>
+            }
+            else
+            {
+                <MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                    @foreach (var linkedPath in _linkedItems)
+                    {
+                        var capturedPath = linkedPath;
+                        <div class="d-flex align-center justify-space-between mb-2" style="padding: 8px; border-radius: 4px; background: var(--primary-bg);">
+                            <div class="d-flex align-center">
+                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-2" Style="color: var(--accent-cyan);" />
+                                <span class="mono" style="font-size: 13px; color: var(--text-primary);">@linkedPath</span>
+                            </div>
+                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="@(() => RemoveLink(capturedPath))" />
+                        </div>
+                    }
+                </MudPaper>
+            }
+
+            <div style="position: relative;">
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.AddLink"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           OnClick="OpenLinkPicker">
+                    Add Link
+                </MudButton>
+
+                @if (_showLinkPicker)
+                {
+                    <div class="file-tree-backdrop" @onclick="@(() => _showLinkPicker = false)"></div>
+                    <MudPaper Class="pa-3"
+                              Style="position: absolute; bottom: 100%; left: 0; width: 400px; max-height: 350px; background: var(--card-bg); border: 1px solid var(--border-color); z-index: 1001; margin-bottom: 4px; border-radius: 8px;">
+                        <div class="d-flex justify-space-between align-center mb-2">
+                            <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: var(--text-primary);">
+                                Select Item to Link
+                            </MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           Style="color: var(--text-secondary);"
+                                           OnClick="@(() => _showLinkPicker = false)" />
+                        </div>
+
+                        <div style="max-height: 280px; overflow-y: auto;">
+                            @if (_availableForLinking.Count == 0)
+                            {
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    No other items available to link.
+                                </MudText>
+                            }
+                            else
+                            {
+                                @foreach (var availableItem in _availableForLinking)
+                                {
+                                    var capturedItem = availableItem;
+                                    <div class="d-flex align-center py-2 px-2 link-item"
+                                         style="border-radius: 4px; cursor: pointer;"
+                                         @onclick="@(() => AddLink(capturedItem.Path))">
+                                        <MudIcon Icon="@(capturedItem.IsDirectory ? Icons.Material.Filled.Folder : Icons.Material.Filled.InsertDriveFile)"
+                                                 Size="Size.Small" Class="mr-2"
+                                                 Style="color: var(--accent-cyan);" />
+                                        <div>
+                                            <div style="font-size: 13px; color: var(--text-primary);">@capturedItem.DisplayName</div>
+                                            <div class="mono" style="font-size: 11px; color: var(--text-secondary);">@capturedItem.Path</div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </MudPaper>
+                }
+            </div>
+
+            <MudDivider Class="my-4" />
+
+            @* Actions Section *@
+            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" Style="vertical-align: middle;" />
+                Actions
+            </MudText>
+
+            <div class="d-flex flex-wrap gap-2">
+                @if (Item.Health?.ForgeModId.HasValue == true)
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.OpenInNew"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               Href="@($"https://forge.sp-tarkov.com/mod/{Item.Health.ForgeModId}")"
+                               Target="_blank">
+                        View on Forge
+                    </MudButton>
+                }
+
+                @if (Item.Health?.UpdateAvailable == true)
+                {
+                    <MudButton Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt"
+                               Color="Color.Tertiary"
+                               Size="Size.Small"
+                               OnClick="@(() => OnUpdate.InvokeAsync(Item))">
+                        Update to v@(Item.Health.LatestVersion)
+                    </MudButton>
+                }
+
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           Color="Color.Default"
+                           Size="Size.Small"
+                           OnClick="@(() => OnReinstall.InvokeAsync(Item))">
+                    Reinstall
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Delete"
+                           Color="Color.Error"
+                           Size="Size.Small"
+                           OnClick="@(() => OnDelete.InvokeAsync(Item))">
+                    Delete
+                </MudButton>
+            </div>
+
+            @* Health Info *@
+            @if (Item.Health?.Scanned == true)
+            {
+                <MudDivider Class="my-4" />
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+                    <MudIcon Icon="@Icons.Material.Filled.HealthAndSafety" Class="mr-2" Style="vertical-align: middle;" />
+                    Health Info
+                </MudText>
+
+                <div class="d-flex flex-wrap gap-3">
+                    @if (!string.IsNullOrEmpty(Item.Health.Version))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Text" Style="background: var(--secondary-bg);">
+                            Installed: v@(Item.Health.Version)
+                        </MudChip>
+                    }
+
+                    @if (Item.Health.ForgeModId.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
+                            Found on Forge
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">
+                            Not on Forge
+                        </MudChip>
+                    }
+
+                    @if (Item.Health.UpdateAvailable)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Tertiary" Variant="Variant.Filled">
+                            Update: v@(Item.Health.LatestVersion)
+                        </MudChip>
+                    }
+                </div>
+
+                @if (Item.Health.Warnings.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                        @foreach (var warning in Item.Health.Warnings)
+                        {
+                            <div>@warning</div>
+                        }
+                    </MudAlert>
+                }
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <div class="d-flex justify-space-between align-center" style="width: 100%;">
+            <MudButton OnClick="Reset"
+                       Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       Style="color: var(--text-secondary);">
+                Reset
+            </MudButton>
+            <div class="d-flex gap-2">
+                <MudButton OnClick="Close"
+                           Variant="Variant.Text"
+                           Style="color: var(--text-secondary);">
+                    Cancel
+                </MudButton>
+                <MudButton Color="Color.Primary"
+                           Variant="Variant.Filled"
+                           OnClick="Save">
+                    Save Changes
+                </MudButton>
+            </div>
+        </div>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .file-tree-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+    }
+
+    .link-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+</style>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public SourceItem? Item { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnSave { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnUpdate { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnReinstall { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnDelete { get; set; }
+
+    private string _displayName = "";
+    private bool _isOptional;
+    private List<string> _linkedItems = new();
+    private bool _showLinkPicker;
+    private List<SourceItem> _availableForLinking = new();
+
+    private string? _initializedForPath;
+
+    protected override void OnParametersSet()
+    {
+        if (Visible && Item != null && _initializedForPath != Item.Path)
+        {
+            _initializedForPath = Item.Path;
+            _displayName = Item.DisplayName != Path.GetFileName(Item.Path.TrimEnd('/')) ? Item.DisplayName : "";
+            _isOptional = Item.Optional;
+            _linkedItems = Item.LinkedTo.ToList();
+            LoadAvailableForLinking();
+        }
+        else if (!Visible)
+        {
+            _showLinkPicker = false;
+        }
+    }
+
+    private void LoadAvailableForLinking()
+    {
+        _availableForLinking.Clear();
+
+        var groups = ConfigService.ScanSourceItems();
+        foreach (var group in groups)
+        {
+            foreach (var item in group.Items)
+            {
+                // Exclude self and already linked items
+                if (item.Path.Equals(Item?.Path, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (_linkedItems.Any(l => l.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                _availableForLinking.Add(item);
+            }
+        }
+    }
+
+    private void OpenLinkPicker()
+    {
+        LoadAvailableForLinking();
+        _showLinkPicker = true;
+    }
+
+    private void AddLink(string path)
+    {
+        if (!_linkedItems.Contains(path, StringComparer.OrdinalIgnoreCase))
+        {
+            _linkedItems.Add(path);
+        }
+        _showLinkPicker = false;
+        LoadAvailableForLinking();
+    }
+
+    private void RemoveLink(string path)
+    {
+        _linkedItems.RemoveAll(p => p.Equals(path, StringComparison.OrdinalIgnoreCase));
+        LoadAvailableForLinking();
+    }
+
+    private void Reset()
+    {
+        if (Item == null) return;
+
+        _displayName = Item.DisplayName != Path.GetFileName(Item.Path.TrimEnd('/')) ? Item.DisplayName : "";
+        _isOptional = Item.Optional;
+        _linkedItems = Item.LinkedTo.ToList();
+        LoadAvailableForLinking();
+    }
+
+    private async Task Save()
+    {
+        if (Item == null) return;
+
+        try
+        {
+            // Update the item with new values
+            var newDisplayName = string.IsNullOrWhiteSpace(_displayName)
+                ? Path.GetFileName(Item.Path.TrimEnd('/'))
+                : _displayName;
+
+            // Get or create metadata
+            var metadata = new SourceItemMetadata
+            {
+                DisplayName = string.IsNullOrWhiteSpace(_displayName) ? null : _displayName,
+                Optional = _isOptional,
+                LinkedTo = _linkedItems.ToList()
+            };
+
+            // Handle link changes
+            var originalLinks = Item.LinkedTo.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var newLinks = _linkedItems.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Remove old links
+            foreach (var removed in originalLinks.Except(newLinks, StringComparer.OrdinalIgnoreCase))
+            {
+                await ConfigService.UnlinkSourceItemsAsync(Item.Path, removed);
+            }
+
+            // Add new links
+            foreach (var added in newLinks.Except(originalLinks, StringComparer.OrdinalIgnoreCase))
+            {
+                await ConfigService.LinkSourceItemsAsync(Item.Path, added);
+            }
+
+            // Update metadata
+            await ConfigService.UpdateSourceMetadataAsync(Item.Path, metadata);
+
+            // Update the item for the callback
+            Item.DisplayName = newDisplayName;
+            Item.Optional = _isOptional;
+            Item.LinkedTo = _linkedItems.ToList();
+
+            await OnSave.InvokeAsync(Item);
+            Snackbar.Add($"'{newDisplayName}' saved", Severity.Success);
+            await Close();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+}

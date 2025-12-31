@@ -1,0 +1,164 @@
+@inject MigrationService MigrationService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="Visible" Options="@_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.SystemUpdate" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">ModGod 3.0 - Migration Required</MudText>
+        </div>
+    </TitleContent>
+
+    <DialogContent>
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            ModGod has detected an older v2.x configuration that needs to be migrated to the new 3.0 format.
+        </MudAlert>
+
+        <MudText Typo="Typo.body1" Class="mb-3" Style="color: var(--text-primary);">
+            Your existing <code>serverConfig.json</code> will be backed up and your settings will be transferred to the new <code>modgod.json</code> format.
+        </MudText>
+
+        <MudPaper Class="pa-4 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Color="Color.Success" />
+                <MudText Typo="Typo.subtitle1" Style="color: var(--accent-green); font-weight: 600;">
+                    Transfer Settings (Recommended)
+                </MudText>
+            </div>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Migrate your existing mod metadata and sync settings to the new format.
+                Source items will be identified from your current install paths.
+                A backup will be created at <code>serverConfig.json.v2backup</code>.
+            </MudText>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Info" />
+                <MudText Typo="Typo.subtitle1" Style="color: var(--accent-cyan); font-weight: 600;">
+                    Start Fresh
+                </MudText>
+            </div>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Start with a clean configuration. Your existing files on disk will remain,
+                but no metadata (optional flags, links) will be preserved.
+                A backup will be created at <code>serverConfig.json.v2backup</code>.
+            </MudText>
+        </MudPaper>
+
+        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+            This action is required to continue using ModGod.
+        </MudText>
+
+        @if (_migrationResult != null && !_migrationResult.Success)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">
+                Migration failed: @_migrationResult.Error
+            </MudAlert>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        @if (_isMigrating)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            <MudText>Processing...</MudText>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Default"
+                       OnClick="StartFresh"
+                       StartIcon="@Icons.Material.Filled.RestartAlt">
+                Start Fresh
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Success"
+                       OnClick="TransferSettings"
+                       StartIcon="@Icons.Material.Filled.SwapHoriz">
+                Transfer Settings
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback OnMigrationComplete { get; set; }
+
+    private bool _isMigrating;
+    private MigrationResult? _migrationResult;
+
+    // Dialog options that prevent closing
+    private static readonly DialogOptions _dialogOptions = new()
+    {
+        CloseOnEscapeKey = false,
+        CloseButton = false,
+        BackdropClick = false,
+        MaxWidth = MaxWidth.Small,
+        FullWidth = true
+    };
+
+    private async Task TransferSettings()
+    {
+        _isMigrating = true;
+        _migrationResult = null;
+        StateHasChanged();
+
+        try
+        {
+            _migrationResult = await MigrationService.MigrateWithTransferAsync();
+
+            if (_migrationResult.Success)
+            {
+                Snackbar.Add($"Migration complete! Transferred {_migrationResult.SourcesMigrated} source items.", Severity.Success);
+                await CloseDialog();
+            }
+        }
+        catch (Exception ex)
+        {
+            _migrationResult = new MigrationResult { Success = false, Error = ex.Message };
+        }
+        finally
+        {
+            _isMigrating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartFresh()
+    {
+        _isMigrating = true;
+        _migrationResult = null;
+        StateHasChanged();
+
+        try
+        {
+            _migrationResult = await MigrationService.StartFreshAsync();
+
+            if (_migrationResult.Success)
+            {
+                Snackbar.Add("Started fresh with default settings!", Severity.Success);
+                await CloseDialog();
+            }
+        }
+        catch (Exception ex)
+        {
+            _migrationResult = new MigrationResult { Success = false, Error = ex.Message };
+        }
+        finally
+        {
+            _isMigrating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CloseDialog()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+        await OnMigrationComplete.InvokeAsync();
+    }
+}

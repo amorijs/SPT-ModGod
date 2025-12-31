@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <RootNamespace>ModGod3.Updater</RootNamespace>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Version>3.0.0</Version>
+        <!-- Single-file publish settings -->
+        <PublishSingleFile>true</PublishSingleFile>
+        <SelfContained>true</SelfContained>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <PublishTrimmed>false</PublishTrimmed>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <!-- Output settings -->
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <OutputPath>..\dist\</OutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Pretty console UI -->
+        <PackageReference Include="Spectre.Console" Version="0.49.1" />
+        <!-- Archive extraction -->
+        <PackageReference Include="SharpCompress" Version="0.38.0" />
+    </ItemGroup>
+
+    <!-- Copy to dist folder after publish -->
+    <Target Name="CopyToDist" AfterTargets="Publish">
+        <Copy SourceFiles="$(PublishDir)ModGodUpdater.exe" DestinationFolder="..\dist\" />
+    </Target>
+</Project>

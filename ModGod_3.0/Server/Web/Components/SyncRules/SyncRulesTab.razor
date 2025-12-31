@@ -1,0 +1,218 @@
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+    <MudText Typo="Typo.h6" Class="mb-4" Style="color: var(--text-primary);">
+        <MudIcon Icon="@Icons.Material.Filled.Sync" Class="mr-2" Style="vertical-align: middle;" />
+        Sync Configuration
+    </MudText>
+
+    <!-- Sync Roots -->
+    <MudText Typo="Typo.subtitle1" Class="mb-2" Style="color: var(--text-primary); font-weight: 600;">
+        Sync Roots
+    </MudText>
+    <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+        Directories that are synced to clients. Default: BepInEx/plugins, SPT/user/mods
+    </MudText>
+
+    <div class="mb-4">
+        @foreach (var root in _syncRoots)
+        {
+            <MudChip T="string" 
+                     Size="Size.Medium" 
+                     Color="Color.Primary" 
+                     Variant="Variant.Outlined" 
+                     Class="mr-2 mb-2"
+                     OnClose="@(DefaultSyncRoots.Roots.Contains(root) ? null : () => RemoveSyncRoot(root))">
+                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" />
+                @root
+            </MudChip>
+        }
+    </div>
+
+    <div class="d-flex gap-2 mb-4">
+        <MudTextField @bind-Value="_newSyncRoot"
+                      Placeholder="Add additional sync root (e.g., custom/path)"
+                      Variant="Variant.Outlined"
+                      Size="Size.Small"
+                      Style="max-width: 400px;" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   Size="Size.Small"
+                   OnClick="AddSyncRoot"
+                   Disabled="@string.IsNullOrWhiteSpace(_newSyncRoot)">
+            Add
+        </MudButton>
+    </div>
+
+    <MudDivider Class="my-4" />
+
+    <!-- Exclusions -->
+    <div class="d-flex justify-space-between align-center mb-2">
+        <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary); font-weight: 600;">
+            Exclusion Patterns
+        </MudText>
+        <MudSwitch T="bool"
+                   Value="_useDefaultExclusions"
+                   ValueChanged="ToggleDefaultExclusions"
+                   Color="Color.Primary"
+                   Label="Use Default Exclusions" />
+    </div>
+
+    <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+        Files matching these patterns will not be synced to clients. Supports glob patterns (*, **, ?).
+    </MudText>
+
+    @if (_useDefaultExclusions)
+    {
+        <MudExpansionPanels Class="mb-3">
+            <MudExpansionPanel Text="@($"Default Exclusions ({DefaultExclusions.Patterns.Count} patterns)")">
+                <div style="max-height: 200px; overflow-y: auto;">
+                    @foreach (var pattern in DefaultExclusions.Patterns)
+                    {
+                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary); font-family: monospace;">
+                            @pattern
+                        </MudText>
+                    }
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
+
+    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">
+        Custom Exclusions
+    </MudText>
+
+    <div class="mb-3">
+        @if (_customExclusions.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                No custom exclusions configured.
+            </MudText>
+        }
+        else
+        {
+            @foreach (var exclusion in _customExclusions)
+            {
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Color="Color.Default"
+                         Variant="Variant.Outlined"
+                         Class="mr-2 mb-2"
+                         OnClose="@(() => RemoveExclusion(exclusion))">
+                    @exclusion
+                </MudChip>
+            }
+        }
+    </div>
+
+    <div class="d-flex gap-2">
+        <MudTextField @bind-Value="_newExclusion"
+                      Placeholder="Add exclusion pattern (e.g., **/*.log)"
+                      Variant="Variant.Outlined"
+                      Size="Size.Small"
+                      Style="max-width: 400px;" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   Size="Size.Small"
+                   OnClick="AddExclusion"
+                   Disabled="@string.IsNullOrWhiteSpace(_newExclusion)">
+            Add
+        </MudButton>
+    </div>
+</MudPaper>
+
+@code {
+    private List<string> _syncRoots = new();
+    private List<string> _customExclusions = new();
+    private bool _useDefaultExclusions = true;
+    private string _newSyncRoot = string.Empty;
+    private string _newExclusion = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        LoadFromConfig();
+    }
+
+    private void LoadFromConfig()
+    {
+        _syncRoots = ConfigService.GetEffectiveSyncRoots();
+        _customExclusions = ConfigService.Config.SyncRules?.Exclusions ?? new List<string>();
+        _useDefaultExclusions = ConfigService.Config.SyncRules?.UseDefaultExclusions ?? true;
+    }
+
+    private async Task AddSyncRoot()
+    {
+        if (string.IsNullOrWhiteSpace(_newSyncRoot)) return;
+
+        var normalized = _newSyncRoot.Replace("\\", "/").TrimStart('/');
+
+        if (_syncRoots.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            Snackbar.Add("Sync root already exists", Severity.Warning);
+            return;
+        }
+
+        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
+        ConfigService.Config.SyncRules.AdditionalRoots ??= new List<string>();
+        ConfigService.Config.SyncRules.AdditionalRoots.Add(normalized);
+
+        await ConfigService.SaveConfigAsync();
+        _syncRoots = ConfigService.GetEffectiveSyncRoots();
+        _newSyncRoot = string.Empty;
+        Snackbar.Add("Sync root added", Severity.Success);
+    }
+
+    private async Task RemoveSyncRoot(string root)
+    {
+        if (DefaultSyncRoots.Roots.Contains(root))
+        {
+            Snackbar.Add("Cannot remove default sync root", Severity.Warning);
+            return;
+        }
+
+        ConfigService.Config.SyncRules?.AdditionalRoots?.Remove(root);
+        await ConfigService.SaveConfigAsync();
+        _syncRoots = ConfigService.GetEffectiveSyncRoots();
+        Snackbar.Add("Sync root removed", Severity.Info);
+    }
+
+    private async Task ToggleDefaultExclusions(bool value)
+    {
+        _useDefaultExclusions = value;
+        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
+        ConfigService.Config.SyncRules.UseDefaultExclusions = value;
+        await ConfigService.SaveConfigAsync();
+        Snackbar.Add(value ? "Default exclusions enabled" : "Default exclusions disabled", Severity.Info);
+    }
+
+    private async Task AddExclusion()
+    {
+        if (string.IsNullOrWhiteSpace(_newExclusion)) return;
+
+        var normalized = _newExclusion.Replace("\\", "/").TrimStart('/');
+
+        if (_customExclusions.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            Snackbar.Add("Exclusion pattern already exists", Severity.Warning);
+            return;
+        }
+
+        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
+        ConfigService.Config.SyncRules.Exclusions ??= new List<string>();
+        ConfigService.Config.SyncRules.Exclusions.Add(normalized);
+        _customExclusions = ConfigService.Config.SyncRules.Exclusions;
+
+        await ConfigService.SaveConfigAsync();
+        _newExclusion = string.Empty;
+        Snackbar.Add("Exclusion pattern added", Severity.Success);
+    }
+
+    private async Task RemoveExclusion(string exclusion)
+    {
+        ConfigService.Config.SyncRules?.Exclusions?.Remove(exclusion);
+        _customExclusions = ConfigService.Config.SyncRules?.Exclusions ?? new List<string>();
+        await ConfigService.SaveConfigAsync();
+        Snackbar.Add("Exclusion pattern removed", Severity.Info);
+    }
+}

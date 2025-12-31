@@ -1,0 +1,152 @@
+@using System.Reflection
+@using Microsoft.JSInterop
+@inherits LayoutComponentBase
+
+@inject IJSRuntime JS
+
+<HeadContent>
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <meta name="robots" content="noindex, nofollow">
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <style>
+        /* Dark Mode (default) */
+        :root, .theme-dark {
+            --primary-bg: #0F0F0F;
+            --secondary-bg: #141414;
+            --card-bg: #1A1A1A;
+            --glass-bg: rgba(26, 26, 26, 0.8);
+            --appbar-bg: #141414;
+            
+            --accent-cyan: #38BDF8;
+            --accent-purple: #A855F7;
+            --accent-green: #4ADE80;
+            --accent-orange: #FBBF24;
+            --accent-red: #F87171;
+            
+            --text-primary: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            
+            --border-color: rgba(255, 255, 255, 0.1);
+            --border-hover: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* Light Mode */
+        .theme-light {
+            --primary-bg: #FFFFFF;
+            --secondary-bg: #F8FAFC;
+            --card-bg: #FFFFFF;
+            --glass-bg: rgba(248, 250, 252, 0.9);
+            --appbar-bg: #FFFFFF;
+            
+            --accent-cyan: #0284C7;
+            --accent-purple: #9333EA;
+            --accent-green: #16A34A;
+            --accent-orange: #D97706;
+            --accent-red: #DC2626;
+            
+            --text-primary: #1E293B;
+            --text-secondary: #64748B;
+            --text-muted: #94A3B8;
+            
+            --border-color: #E2E8F0;
+            --border-hover: #CBD5E1;
+        }
+
+        body {
+            background: var(--primary-bg);
+            transition: background 0.3s ease;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+        }
+    </style>
+    <script>
+        window.setTheme = (isDark) => {
+            document.body.classList.remove('theme-dark', 'theme-light');
+            document.body.classList.add(isDark ? 'theme-dark' : 'theme-light');
+        };
+    </script>
+</HeadContent>
+
+<MudThemeProvider Theme="@CustomTheme" @bind-IsDarkMode="_isDarkMode"/>
+<MudPopoverProvider/>
+<MudSnackbarProvider />
+<MudDialogProvider />
+
+<MudLayout>
+    <MudAppBar Dense Elevation="0" Style="background: var(--appbar-bg); border-bottom: 1px solid var(--border-color);">
+        <MudText Typo="Typo.h5" Style="color: var(--accent-cyan); font-weight: 800; letter-spacing: -0.5px;">
+            ModGod 3.0
+        </MudText>
+        <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--text-secondary); align-self: flex-end; margin-bottom: 4px; font-family: monospace;">@Version</MudText>
+        <MudSpacer/>
+        <MudTooltip Text="@(_isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode")">
+            <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
+                           Color="Color.Inherit" 
+                           OnClick="ToggleTheme"
+                           Style="color: var(--text-secondary);" />
+        </MudTooltip>
+    </MudAppBar>
+    <MudMainContent Class="pt-4 px-4" Style="min-height: calc(100vh - 48px); background: linear-gradient(180deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);">
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private string Version => $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "3.0.0"}";
+    private bool _isDarkMode = true;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("setTheme", _isDarkMode);
+        }
+    }
+    
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        await JS.InvokeVoidAsync("setTheme", _isDarkMode);
+    }
+    
+    MudTheme CustomTheme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#0284C7",
+            Secondary = "#9333EA",
+            Tertiary = "#D97706",
+            Background = "#FFFFFF",
+            Surface = "#F8FAFC",
+            DrawerBackground = "#F1F5F9",
+            AppbarBackground = "#FFFFFF",
+            TextPrimary = "#1E293B",
+            TextSecondary = "#64748B",
+            Success = "#16A34A",
+            Info = "#0284C7",
+            Warning = "#D97706",
+            Error = "#DC2626",
+        },
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#38BDF8",
+            Secondary = "#A855F7",
+            Tertiary = "#FBBF24",
+            Background = "#0F0F0F",
+            Surface = "#1A1A1A",
+            DrawerBackground = "#141414",
+            AppbarBackground = "#141414",
+            TextPrimary = "#FFFFFF",
+            TextSecondary = "#94A3B8",
+            Success = "#4ADE80",
+            Info = "#38BDF8",
+            Warning = "#FBBF24",
+            Error = "#F87171",
+        },
+    };
+}

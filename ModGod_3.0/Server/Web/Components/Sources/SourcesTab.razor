@@ -1,0 +1,122 @@
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_sourceGroups.Count == 0)
+{
+    <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
+        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
+        <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No source items found</MudText>
+        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+            Add mods to your sync directories (BepInEx/plugins or SPT/user/mods) and refresh.
+        </MudText>
+    </MudPaper>
+}
+else
+{
+    @foreach (var group in _sourceGroups)
+    {
+        <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+            <div class="d-flex justify-space-between align-center mb-3">
+                <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+                    <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
+                    @group.DisplayName
+                </MudText>
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">@group.Items.Count items</MudChip>
+            </div>
+
+            <MudGrid>
+                @foreach (var item in group.Items)
+                {
+                    <MudItem xs="12" sm="6" md="4">
+                        <SourceItemCard Item="@item"
+                                       OnToggleOptional="ToggleOptional"
+                                       OnDelete="DeleteSourceItem"
+                                       OnViewFiles="ViewFiles" />
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+    }
+}
+
+@code {
+    private List<SourceGroup> _sourceGroups = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    public async Task RefreshAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        await Task.Run(() =>
+        {
+            _sourceGroups = ConfigService.ScanSourceItems();
+        });
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleOptional(SourceItem item)
+    {
+        try
+        {
+            await ConfigService.ToggleOptionalAsync(item.Path);
+            item.Optional = !item.Optional;
+            Snackbar.Add($"'{item.DisplayName}' is now {(item.Optional ? "optional" : "required")}", Severity.Info);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DeleteSourceItem(SourceItem item)
+    {
+        // Check for linked items
+        if (item.LinkedTo.Count > 0)
+        {
+            var result = await DialogService.ShowMessageBox(
+                "Delete Linked Items?",
+                $"'{item.DisplayName}' is linked to {item.LinkedTo.Count} other item(s). Do you want to delete all linked items as well?",
+                yesText: "Delete All", noText: "Delete This Only", cancelText: "Cancel");
+
+            if (result == null)
+                return;
+
+            await ConfigService.DeleteSourceItemAsync(item.Path, deleteLinked: result == true);
+        }
+        else
+        {
+            var confirmed = await DialogService.ShowMessageBox(
+                "Delete Source Item",
+                $"Are you sure you want to delete '{item.DisplayName}'? This will remove the files from disk.",
+                yesText: "Delete", cancelText: "Cancel");
+
+            if (confirmed != true)
+                return;
+
+            await ConfigService.DeleteSourceItemAsync(item.Path);
+        }
+
+        Snackbar.Add($"'{item.DisplayName}' deleted", Severity.Warning);
+        await RefreshAsync();
+    }
+
+    private void ViewFiles(SourceItem item)
+    {
+        // TODO: Open a dialog showing the file tree for this source item
+        Snackbar.Add($"Viewing files for '{item.DisplayName}' - coming soon", Severity.Info);
+    }
+}

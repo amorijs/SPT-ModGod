@@ -1,0 +1,90 @@
+@page "/modgod"
+@layout MainLayout
+
+@inject ConfigService ConfigService
+@inject MigrationService MigrationService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge">
+    <!-- Header Section -->
+    <MudPaper Class="pa-6 mb-4 glass-panel" Style="border-radius: 16px; margin-top: 55px;">
+        <div class="d-flex justify-space-between align-center">
+            <div>
+                <MudText Typo="Typo.h4" Style="color: var(--text-primary); font-weight: 800; letter-spacing: -1px;">
+                    Source Manager
+                </MudText>
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary); max-width: 600px;">
+                    Manage source items from your sync directories. The filesystem is authoritative - what you see is what exists.
+                </MudText>
+            </div>
+            <div class="d-flex gap-2">
+                <MudTooltip Text="Rescan filesystem for changes">
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                   Color="Color.Default"
+                                   OnClick="RefreshSources"
+                                   Style="color: var(--text-secondary);" />
+                </MudTooltip>
+            </div>
+        </div>
+    </MudPaper>
+
+    <MudTabs ActivePanelIndex="@_activeTabIndex"
+             ActivePanelIndexChanged="OnTabChanged"
+             Class="mb-4">
+        
+        <!-- Sources Tab -->
+        <MudTabPanel Text="Sources" Class="mt-4">
+            <SourcesTab @ref="_sourcesTab" />
+        </MudTabPanel>
+
+        <!-- Sync Rules Tab -->
+        <MudTabPanel Text="Sync Rules" Class="mt-4">
+            <SyncRulesTab />
+        </MudTabPanel>
+
+        <!-- Settings Tab -->
+        <MudTabPanel Text="Settings" Class="mt-4">
+            <SettingsTab />
+        </MudTabPanel>
+    </MudTabs>
+</MudContainer>
+
+<!-- Migration Dialog (blocks UI until complete) -->
+<MigrationDialog @bind-Visible="_showMigrationDialog" OnMigrationComplete="OnMigrationComplete" />
+
+@code {
+    private int _activeTabIndex = 0;
+    private bool _showMigrationDialog;
+    private SourcesTab? _sourcesTab;
+
+    protected override void OnInitialized()
+    {
+        // Check if migration is needed
+        if (MigrationService.NeedsMigration)
+        {
+            _showMigrationDialog = true;
+        }
+    }
+
+    private void OnTabChanged(int index)
+    {
+        _activeTabIndex = index;
+    }
+
+    private async Task RefreshSources()
+    {
+        if (_sourcesTab != null)
+        {
+            await _sourcesTab.RefreshAsync();
+        }
+        Snackbar.Add("Sources refreshed from filesystem", Severity.Info);
+    }
+
+    private void OnMigrationComplete()
+    {
+        _showMigrationDialog = false;
+        Snackbar.Add("Configuration ready!", Severity.Success);
+        StateHasChanged();
+    }
+}

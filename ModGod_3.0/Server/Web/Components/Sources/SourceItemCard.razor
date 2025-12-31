@@ -1,0 +1,97 @@
+@using ModGod3.Models
+
+<MudCard Elevation="0" Style="@GetCardStyle()">
+    <MudCardContent>
+        <div class="d-flex justify-space-between align-start">
+            <div style="min-width: 0; flex: 1;">
+                <div class="d-flex align-center gap-2 mb-1">
+                    <MudIcon Icon="@(Item.IsDirectory ? Icons.Material.Filled.Folder : Icons.Material.Filled.InsertDriveFile)"
+                             Size="Size.Small"
+                             Style="color: var(--accent-cyan);" />
+                    <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        @Item.DisplayName
+                    </MudText>
+                </div>
+
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    @Item.Path
+                </MudText>
+
+                <div class="d-flex gap-2 mt-2">
+                    @if (Item.Optional)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Optional</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Required</MudChip>
+                    }
+
+                    @if (Item.LinkedTo.Count > 0)
+                    {
+                        <MudTooltip Text="@GetLinkedTooltip()">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">
+                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-1" />
+                                @Item.LinkedTo.Count linked
+                            </MudChip>
+                        </MudTooltip>
+                    }
+                </div>
+
+                <div class="d-flex gap-3 mt-2">
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        @Item.FileCount files
+                    </MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        @FormatSize(Item.TotalSize)
+                    </MudText>
+                </div>
+            </div>
+
+            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" AnchorOrigin="Origin.BottomRight">
+                <MudMenuItem OnClick="@(() => OnToggleOptional.InvokeAsync(Item))">
+                    @(Item.Optional ? "Mark Required" : "Mark Optional")
+                </MudMenuItem>
+                <MudMenuItem OnClick="@(() => OnViewFiles.InvokeAsync(Item))">
+                    View Files
+                </MudMenuItem>
+                <MudDivider />
+                <MudMenuItem OnClick="@(() => OnDelete.InvokeAsync(Item))" Style="color: var(--accent-red);">
+                    Delete
+                </MudMenuItem>
+            </MudMenu>
+        </div>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter] public SourceItem Item { get; set; } = default!;
+    [Parameter] public EventCallback<SourceItem> OnToggleOptional { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnDelete { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnViewFiles { get; set; }
+
+    private string GetCardStyle()
+    {
+        var baseStyle = "background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;";
+
+        if (Item.Optional)
+        {
+            return baseStyle + " border-left: 3px solid var(--accent-orange);";
+        }
+
+        return baseStyle;
+    }
+
+    private string GetLinkedTooltip()
+    {
+        return $"Linked to: {string.Join(", ", Item.LinkedTo)}";
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+}
