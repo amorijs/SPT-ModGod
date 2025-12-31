@@ -322,7 +322,7 @@
                 <MudButton Variant="Variant.Outlined"
                            StartIcon="@Icons.Material.Filled.Undo"
                            Color="Color.Default"
-                           Size="Size.Small"
+                           Size="Size.Large"
                            Style="font-weight: 600; border-color: var(--border-color); color: var(--text-secondary);"
                            OnClick="DiscardChanges"
                            Disabled="@_isApplying">
@@ -332,7 +332,7 @@
                     <MudButton Variant="Variant.Filled"
                                StartIcon="@Icons.Material.Filled.PlayArrow"
                                Color="Color.Success"
-                               Size="Size.Small"
+                               Size="Size.Medium"
                                Style="font-weight: 600; box-shadow: 0 0 8px rgba(74, 222, 128, 0.3);"
                                OnClick="ApplyChanges"
                                Disabled="@(_isApplying || AnyModsNeedConfiguration())">
