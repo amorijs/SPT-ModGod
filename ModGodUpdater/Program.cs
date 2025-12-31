@@ -323,7 +323,10 @@ class Program
 
     static async Task<ServerConfig?> FetchServerConfigAsync()
     {
-        var url = $"{_clientConfig.ServerUrl}/modgod/api/config";
+        // Pass headless parameter so server can filter mods appropriately
+        var url = _clientConfig.Headless 
+            ? $"{_clientConfig.ServerUrl}/modgod/api/config?headless=true"
+            : $"{_clientConfig.ServerUrl}/modgod/api/config";
 
         return await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)

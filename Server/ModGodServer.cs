@@ -59,12 +59,15 @@ public class ModGodServer(
 }
 
 /// <summary>
-/// HTTP listener to serve the mod config to clients
+/// HTTP listener to serve the mod config to clients.
+/// Filters the mod list to only include mods that have files in the manifest.
+/// Supports ?headless=true query parameter for headless clients.
 /// </summary>
 [Injectable(TypePriority = 0)]
 public class ModConfigHttpListener : IHttpListener
 {
     private readonly ConfigService _configService;
+    private readonly ManifestService _manifestService;
     private readonly ISptLogger<ModConfigHttpListener> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -76,9 +79,11 @@ public class ModConfigHttpListener : IHttpListener
 
     public ModConfigHttpListener(
         ConfigService configService,
+        ManifestService manifestService,
         ISptLogger<ModConfigHttpListener> logger)
     {
         _configService = configService;
+        _manifestService = manifestService;
         _logger = logger;
     }
 
@@ -91,9 +96,44 @@ public class ModConfigHttpListener : IHttpListener
 
     public async Task Handle(MongoId sessionId, HttpContext context)
     {
-        _logger.Info("Client requested mod config");
+        // Check if this is a headless client request
+        var isHeadless = context.Request.Query.ContainsKey("headless") &&
+                         context.Request.Query["headless"].ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
 
-        var json = JsonSerializer.Serialize(_configService.Config, JsonOptions);
+        _logger.Info($"Client requested mod config (headless: {isHeadless})");
+
+        // Generate the appropriate manifest to determine which mods have syncable files
+        var manifest = isHeadless 
+            ? _manifestService.GenerateHeadlessManifest() 
+            : _manifestService.GenerateManifest();
+
+        // Get the set of mod names that have files in the manifest
+        var modsWithFiles = manifest.Files.Values
+            .Select(f => f.ModName)
+            .Where(name => !string.IsNullOrEmpty(name) && name != "Untracked")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Filter the mod list to only include mods with syncable files
+        var filteredModList = _configService.Config.ModList
+            .Where(mod => modsWithFiles.Contains(mod.ModName) || mod.IsProtected)
+            .ToList();
+
+        var skippedCount = _configService.Config.ModList.Count - filteredModList.Count;
+        if (skippedCount > 0)
+        {
+            _logger.Info($"Filtered out {skippedCount} mod(s) with no syncable files for this client type");
+        }
+
+        // Create a filtered config response (don't modify the actual config)
+        var filteredConfig = new
+        {
+            modList = filteredModList,
+            // Include sync config info so clients know the rules
+            playerSyncConfig = isHeadless ? null : _configService.Config.PlayerSyncConfig,
+            headlessSyncConfig = isHeadless ? _configService.Config.HeadlessSyncConfig : null
+        };
+
+        var json = JsonSerializer.Serialize(filteredConfig, JsonOptions);
 
         context.Response.StatusCode = 200;
         context.Response.ContentType = "application/json";
