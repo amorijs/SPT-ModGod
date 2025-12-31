@@ -33,6 +33,7 @@ class Program
     private static string _sptRoot = string.Empty;
     private static string _internalDataPath = string.Empty;
     private static StreamWriter? _logWriter;
+    private static FileManifest? _cachedManifest;
 
     static async Task Main(string[] args)
     {
@@ -205,6 +206,14 @@ class Program
         AnsiConsole.MarkupLine($"[green]✓[/] Found [cyan]{serverConfig.ModList.Count}[/] mod(s) on server");
         AnsiConsole.WriteLine();
 
+        Log("Fetching manifest for exclusions...");
+        _cachedManifest = await FetchManifestAsync(_clientConfig.Headless);
+        var exclusions = BuildExclusionSet(_cachedManifest?.SyncExclusions);
+        if (exclusions.Count > 0)
+        {
+            Log($"Loaded {exclusions.Count} exclusion pattern(s)");
+        }
+
         // Process mods (skip for headless clients)
         if (_clientConfig.Headless)
         {
@@ -214,7 +223,7 @@ class Program
         else
         {
             Log("Processing mods...");
-            await ProcessModsAsync(serverConfig);
+            await ProcessModsAsync(serverConfig, exclusions);
         }
 
         AnsiConsole.WriteLine();
@@ -349,12 +358,11 @@ class Program
             });
     }
 
-    static async Task ProcessModsAsync(ServerConfig serverConfig)
+    static async Task ProcessModsAsync(ServerConfig serverConfig, HashSet<string> exclusions)
     {
         var requiredMods = serverConfig.ModList.Where(m => !m.Optional).ToList();
         var optionalMods = serverConfig.ModList.Where(m => m.Optional).ToList();
 
-        // Process required mods first
         if (requiredMods.Any())
         {
             AnsiConsole.MarkupLine("[bold]Required Mods[/]");
@@ -362,18 +370,16 @@ class Program
 
             foreach (var mod in requiredMods)
             {
-                await ProcessModAsync(mod, isOptional: false);
+                await ProcessModAsync(mod, isOptional: false, exclusions);
             }
         }
 
-        // Handle optional mods
         if (optionalMods.Any())
         {
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[bold]Optional Mods[/]");
             AnsiConsole.WriteLine();
 
-            // Show selection for optional mods
             var optionalChoices = optionalMods.Select(m =>
             {
                 var downloaded = _modsDownloaded.Find(d => d.DownloadUrl == m.DownloadUrl);
@@ -381,7 +387,6 @@ class Program
                 return $"{m.ModName}{status}";
             }).ToList();
 
-            // Pre-select mods that are already installed
             var preSelected = optionalChoices.Where(c => c.Contains("[green]")).ToList();
 
             var prompt = new MultiSelectionPrompt<string>()
@@ -406,14 +411,14 @@ class Program
                 var choiceName = optionalChoices[index];
                 var isSelected = selectedNames.Any(s => s == choiceName);
 
-                await ProcessModAsync(mod, isOptional: true, optIn: isSelected);
+                await ProcessModAsync(mod, isOptional: true, exclusions, optIn: isSelected);
             }
         }
 
         await SaveModsDownloadedAsync();
     }
 
-    static async Task ProcessModAsync(ModEntry mod, bool isOptional, bool optIn = true)
+    static async Task ProcessModAsync(ModEntry mod, bool isOptional, HashSet<string> exclusions, bool optIn = true)
     {
         // Skip protected/baked-in mods (e.g., ModGod itself) - they don't need downloading
         if (mod.IsProtected || string.IsNullOrWhiteSpace(mod.DownloadUrl))
@@ -559,8 +564,9 @@ class Program
 
                     File.Delete(archivePath);
 
-                    // Count total files to install for progress
                     var filesToInstall = new List<(string Source, string Target)>();
+                    var skippedCount = 0;
+                    
                     foreach (var installPath in mod.InstallPaths)
                     {
                         var sourcePath = Path.Combine(tempExtractPath, installPath[0]);
@@ -573,19 +579,40 @@ class Program
                             {
                                 var relativePath = Path.GetRelativePath(sourcePath, file);
                                 var destFile = Path.Combine(targetPath, relativePath);
+                                var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
+                                
+                                if (IsExcluded(destRelative, exclusions))
+                                {
+                                    Log($"Skipping excluded: {destRelative}");
+                                    skippedCount++;
+                                    continue;
+                                }
+                                
                                 filesToInstall.Add((file, destFile));
                             }
                         }
                         else if (File.Exists(sourcePath))
                         {
-                            // When source is a single file, append filename to target directory
                             var fileName = Path.GetFileName(sourcePath);
                             var destFile = Path.Combine(targetPath, fileName);
+                            var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
+                            
+                            if (IsExcluded(destRelative, exclusions))
+                            {
+                                Log($"Skipping excluded: {destRelative}");
+                                skippedCount++;
+                                continue;
+                            }
+                            
                             filesToInstall.Add((sourcePath, destFile));
                         }
                     }
+                    
+                    if (skippedCount > 0)
+                    {
+                        Log($"Skipped {skippedCount} excluded file(s) for {mod.ModName}");
+                    }
 
-                    // Install files with progress
                     if (filesToInstall.Count > 0)
                     {
                         var installTask = ctx.AddTask($"[green]Installing {EscapeMarkup(mod.ModName)}[/]", maxValue: filesToInstall.Count);
@@ -672,17 +699,23 @@ class Program
 
         AnsiConsole.WriteLine();
 
-        // Fetch manifest (use headless endpoint if in headless mode)
-        Log($"Fetching manifest (headless={_clientConfig.Headless})...");
-        var manifest = await FetchManifestAsync(_clientConfig.Headless);
+        var manifest = _cachedManifest;
         if (manifest == null)
         {
-            Log("WARNING: Could not fetch manifest");
-            AnsiConsole.MarkupLine("[yellow]Could not fetch file manifest. Skipping file sync.[/]");
-            return;
+            Log($"Fetching manifest (headless={_clientConfig.Headless})...");
+            manifest = await FetchManifestAsync(_clientConfig.Headless);
+            if (manifest == null)
+            {
+                Log("WARNING: Could not fetch manifest");
+                AnsiConsole.MarkupLine("[yellow]Could not fetch file manifest. Skipping file sync.[/]");
+                return;
+            }
+            Log($"Manifest received: {manifest.Files.Count} files");
         }
-
-        Log($"Manifest received: {manifest.Files.Count} files");
+        else
+        {
+            Log($"Using cached manifest: {manifest.Files.Count} files");
+        }
 
         if (!string.IsNullOrEmpty(manifest.ModGodVersion) && manifest.ModGodVersion != UpdaterVersion)
         {
@@ -716,10 +749,7 @@ class Program
             AnsiConsole.MarkupLine($"[green]✓[/] Manifest: [cyan]{manifest.Files.Count}[/] files from server");
         }
 
-        // Build exclusion set
-        var exclusions = new HashSet<string>(
-            manifest.SyncExclusions.Select(p => p.Replace('\\', '/').TrimStart('/')),
-            StringComparer.OrdinalIgnoreCase);
+        var exclusions = BuildExclusionSet(manifest.SyncExclusions);
 
         // Find issues
         var issues = new List<FileSyncIssue>();
@@ -1043,6 +1073,13 @@ class Program
         using var stream = File.OpenRead(filePath);
         var hashBytes = sha256.ComputeHash(stream);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    static HashSet<string> BuildExclusionSet(IEnumerable<string>? exclusions)
+    {
+        return new HashSet<string>(
+            (exclusions ?? []).Select(p => p.Replace('\\', '/').TrimStart('/')),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     static bool IsExcluded(string relativePath, HashSet<string> exclusions)
