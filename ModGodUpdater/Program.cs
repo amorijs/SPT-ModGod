@@ -1360,6 +1360,13 @@ class Program
 
         foreach (var root in roots)
         {
+            // Skip paths that look like files (have an extension) - only create directories
+            if (Path.HasExtension(root))
+            {
+                Log($"Skipping sync root that looks like a file: {root}");
+                continue;
+            }
+
             var fullPath = Path.Combine(_sptRoot, root.Replace('/', Path.DirectorySeparatorChar));
             if (!Directory.Exists(fullPath))
             {

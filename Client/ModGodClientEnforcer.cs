@@ -200,8 +200,11 @@ namespace ModGod.ClientEnforcer
 
                 var exclusions = BuildExclusionSet(manifest.SyncExclusions);
 
+                // Load mods downloaded to check opt-in status for optional mods
+                var modsDownloaded = LoadModsDownloaded();
+
                 // Verify files from manifest
-                issues.AddRange(VerifyManifestFiles(manifest, exclusions));
+                issues.AddRange(VerifyManifestFiles(manifest, exclusions, modsDownloaded));
 
                 // Scan for extra files
                 issues.AddRange(ScanForExtraFiles(manifest, exclusions));
@@ -227,7 +230,24 @@ namespace ModGod.ClientEnforcer
             }
         }
 
-        private List<FileIssue> VerifyManifestFiles(FileManifest manifest, HashSet<string> exclusions)
+        private List<DownloadedMod> LoadModsDownloaded()
+        {
+            try
+            {
+                if (File.Exists(ModsDownloadedPath))
+                {
+                    var json = File.ReadAllText(ModsDownloadedPath);
+                    return JsonConvert.DeserializeObject<List<DownloadedMod>>(json) ?? new List<DownloadedMod>();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogSource.LogWarning($"ModGod: Could not load modsDownloaded.json: {ex.Message}");
+            }
+            return new List<DownloadedMod>();
+        }
+
+        private List<FileIssue> VerifyManifestFiles(FileManifest manifest, HashSet<string> exclusions, List<DownloadedMod> modsDownloaded)
         {
             var issues = new List<FileIssue>();
 
@@ -239,6 +259,16 @@ namespace ModGod.ClientEnforcer
                 if (IsExcludedPath(relativePath, exclusions))
                 {
                     continue;
+                }
+
+                // Skip files from optional mods the user hasn't opted into
+                if (!entry.Required)
+                {
+                    var modDownloaded = modsDownloaded.Find(d => d.ModName == entry.ModName);
+                    if (modDownloaded == null || !modDownloaded.OptIn)
+                    {
+                        continue; // User hasn't opted into this optional mod
+                    }
                 }
 
                 // Build full path
