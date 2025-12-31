@@ -1078,7 +1078,7 @@
         }
     }
 
-    /* Floating Apply/Discard Footer */
+    /* 1. Base Container */
     .floating-action-footer {
         position: fixed;
         bottom: 0;
@@ -1086,16 +1086,14 @@
         right: 0;
         z-index: 1000;
         padding: 12px 24px;
-        background: rgba(20, 20, 20, 0.9); /* Slightly more transparent for glass feel */
+        background: rgba(20, 20, 20, 0.95);
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); /* Softer, larger shadow */
-        backdrop-filter: blur(16px); /* Heavier blur for premium feel */
-
-        /* Entry Animation */
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(12px);
+        overflow: hidden;
         transform: translateY(100%);
         opacity: 0;
-        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
-        overflow: hidden; /* Essential to crop the gleam */
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
     }
 
     .floating-action-footer.visible {
@@ -1103,45 +1101,56 @@
         opacity: 1;
     }
 
-    /* The Gleam */
-    .floating-action-footer::after {
+    /* 2. The Border Light */
+    .floating-action-footer::before {
         content: '';
         position: absolute;
         top: 0;
         left: 0;
+        height: 1px; /* Match your border thickness */
         width: 100%;
-        height: 100%;
-        transform: skewX(-20deg) translateX(-150%); /* Start off-screen left */
 
-        /* Prismatic Gradient:
-          Transparent -> Faint Violet -> White Core -> Faint Cyan -> Transparent
-        */
+        /* The Gradient: Short and bright */
         background: linear-gradient(
             90deg,
-            transparent,
-            rgba(168, 85, 247, 0.1) 40%,   /* Soft Purple edge */
-            rgba(255, 255, 255, 0.5) 50%,  /* Sharp White core */
-            rgba(56, 189, 248, 0.1) 60%,   /* Soft Cyan edge */
-            transparent
+            transparent 0%,
+            rgba(56, 189, 248, 0) 40%,
+            rgba(56, 189, 248, 1) 50%,    /* Pure Cyan Center */
+            rgba(168, 85, 247, 0) 60%,
+            transparent 100%
         );
 
-        pointer-events: none;
-        /* Run once on entry, then repeat slowly */
-        animation: prismatic-gleam 6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
-        animation-delay: 1.5s;
+        /* Glow Effect: Adds a small blue bloom around the line */
+        box-shadow: 0 0 10px 1px rgba(56, 189, 248, 0.4);
+
+        z-index: 1001; /* Ensure it sits on TOP of the existing border */
+        transform: translateX(-100%);
+
+        /* Duration: 8s total loop
+          Timing: Linear is often better for border scanners,
+          but ease-in-out feels more "organic"
+        */
+        animation: border-scan 8s ease-in-out infinite;
+        animation-delay: 0.5s;
     }
 
-    @@keyframes prismatic-gleam {
+    @@keyframes border-scan {
         0% {
-            transform: skewX(-20deg) translateX(-150%);
+            transform: translateX(-100%);
+            opacity: 0;
         }
-        20% {
-            /* Fast pass across the screen */
-            transform: skewX(-20deg) translateX(150%);
+        10% {
+            opacity: 1; /* Fade in quickly */
         }
-        100% {
-            /* Stay off-screen for the rest of the duration */
-            transform: skewX(-20deg) translateX(150%);
+        30% {
+            /* Finish crossing by 30% of timeline */
+            transform: translateX(100%);
+            opacity: 1;
+        }
+        31%, 100% {
+            /* Instantly hide and wait for next loop */
+            opacity: 0;
+            transform: translateX(100%);
         }
     }
 
