@@ -22,26 +22,26 @@ namespace ModGod.ClientEnforcer
     public class ModGodClientEnforcerPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
-        
-        private static readonly string ClientVersion = 
+
+        private static readonly string ClientVersion =
             System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
-        
+
         // Config files are stored in ModGodData folder
         private static readonly string InternalDataFolder = Path.Combine(SptRoot, "ModGodData");
         private static readonly string ConfigPath = Path.Combine(InternalDataFolder, "ModGodClient.json");
         private static readonly string ModsDownloadedPath = Path.Combine(InternalDataFolder, "modsDownloaded.json");
-        
+
         // Mod updater exe is at SPT root
         private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
 
         // Directories to scan for extra files
         private static readonly string BepInExPluginsPath = Path.Combine(SptRoot, "BepInEx", "plugins");
         private static readonly string SptUserModsPath = Path.Combine(SptRoot, "SPT", "user", "mods");
-        
+
         // Cache for compiled glob pattern regexes
-        private static readonly Dictionary<string, System.Text.RegularExpressions.Regex> _globCache = 
+        private static readonly Dictionary<string, System.Text.RegularExpressions.Regex> _globCache =
             new Dictionary<string, System.Text.RegularExpressions.Regex>(StringComparer.OrdinalIgnoreCase);
 
         private void Awake()
@@ -296,7 +296,7 @@ namespace ModGod.ClientEnforcer
             var syncRoots = manifest.SyncRoots != null && manifest.SyncRoots.Count > 0
                 ? manifest.SyncRoots
                 : new List<string> { "BepInEx/plugins", "SPT/user/mods" };
-            
+
             LogSource.LogInfo($"ModGod: Scanning {syncRoots.Count} sync root(s) for extra files: {string.Join(", ", syncRoots)}");
 
             foreach (var syncRoot in syncRoots)
@@ -464,7 +464,7 @@ namespace ModGod.ClientEnforcer
         private static bool IsExcludedPath(string relativePath, HashSet<string> exclusions)
         {
             var norm = NormalizeRelativePath(relativePath);
-            
+
             foreach (var pattern in exclusions)
             {
                 // Check if it's a glob pattern (contains *, ?, or **)
@@ -481,10 +481,10 @@ namespace ModGod.ClientEnforcer
                         return true;
                 }
             }
-            
+
             return false;
         }
-        
+
         /// <summary>
         /// Simple glob pattern matching for exclusions.
         /// Supports: * (any chars except /), ** (any chars including /), ? (single char)
@@ -500,7 +500,7 @@ namespace ModGod.ClientEnforcer
                     if (regex != null)
                         _globCache[pattern] = regex;
                 }
-                
+
                 return regex?.IsMatch(path) ?? false;
             }
             catch
@@ -508,18 +508,18 @@ namespace ModGod.ClientEnforcer
                 return false;
             }
         }
-        
+
         private static System.Text.RegularExpressions.Regex CompileGlobPattern(string pattern)
         {
             try
             {
                 var regexPattern = "^";
                 pattern = pattern.Replace('\\', '/').TrimStart('/');
-                
+
                 for (int i = 0; i < pattern.Length; i++)
                 {
                     var c = pattern[i];
-                    
+
                     if (c == '*')
                     {
                         if (i + 1 < pattern.Length && pattern[i + 1] == '*')
@@ -561,11 +561,11 @@ namespace ModGod.ClientEnforcer
                         regexPattern += c;
                     }
                 }
-                
+
                 regexPattern += "$";
-                
+
                 return new System.Text.RegularExpressions.Regex(
-                    regexPattern, 
+                    regexPattern,
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             }
             catch
@@ -607,7 +607,7 @@ namespace ModGod.ClientEnforcer
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
         private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
-        
+
         public List<FileIssue> Issues = new List<FileIssue>();
         private bool _showWarning = true;
         private bool _updaterExists;
@@ -690,20 +690,20 @@ namespace ModGod.ClientEnforcer
             var missingFiles = Issues.Where(i => i.Type == FileIssueType.Missing).ToList();
             var hashMismatches = Issues.Where(i => i.Type == FileIssueType.HashMismatch).ToList();
             var extraFiles = Issues.Where(i => i.Type == FileIssueType.ExtraFile).ToList();
-            
+
             bool hasOnlyExtras = extraFiles.Count > 0 && missingFiles.Count == 0 && hashMismatches.Count == 0;
 
             GUILayout.Space(15);
-            
+
             if (versionMismatch != null)
             {
                 var versionTitleStyle = new GUIStyle(titleStyle) { normal = { textColor = new Color(1f, 0.3f, 0.3f) } };
                 GUILayout.Label("⚠ ModGod - Update Required", versionTitleStyle);
                 GUILayout.Space(10);
-                
+
                 GUILayout.Label("Version Mismatch Detected", headerStyle);
                 GUILayout.Space(5);
-                GUILayout.Label($"Your ModGod client is out of date.\n\n{versionMismatch.Details}\n\nPlease download the latest ModGodUpdater.exe from your server administrator and run it to update.", bodyStyle);
+                GUILayout.Label($"Your ModGod client does not match the server's version.\n\n{versionMismatch.Details}\n\nPlease download and install the correct version of ModGod.", bodyStyle);
                 GUILayout.Space(10);
             }
             else if (hasOnlyExtras)
@@ -828,27 +828,27 @@ namespace ModGod.ClientEnforcer
         private static string GetModFolderFromPath(string filePath)
         {
             if (string.IsNullOrEmpty(filePath)) return "Unknown";
-            
+
             var normalized = filePath.Replace('\\', '/');
             var parts = normalized.Split('/');
-            
+
             // For "BepInEx/plugins/{mod-folder}/..." pattern
-            if (parts.Length >= 3 && 
+            if (parts.Length >= 3 &&
                 parts[0].Equals("BepInEx", StringComparison.OrdinalIgnoreCase) &&
                 parts[1].Equals("plugins", StringComparison.OrdinalIgnoreCase))
             {
                 return parts[2];
             }
-            
+
             // For "SPT/user/mods/{mod-folder}/..." pattern
-            if (parts.Length >= 4 && 
+            if (parts.Length >= 4 &&
                 parts[0].Equals("SPT", StringComparison.OrdinalIgnoreCase) &&
                 parts[1].Equals("user", StringComparison.OrdinalIgnoreCase) &&
                 parts[2].Equals("mods", StringComparison.OrdinalIgnoreCase))
             {
                 return parts[3];
             }
-            
+
             // Fallback: return the first directory after a known root, or "Unknown"
             return parts.Length > 1 ? parts[1] : "Unknown";
         }
@@ -858,7 +858,7 @@ namespace ModGod.ClientEnforcer
             try
             {
                 ModGodClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
-                
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = UpdaterExePath,
@@ -899,7 +899,7 @@ namespace ModGod.ClientEnforcer
     {
         private static readonly string SptRoot = Path.GetDirectoryName(Application.dataPath);
         private static readonly string UpdaterExePath = Path.Combine(SptRoot, "ModGodUpdater.exe");
-        
+
         private Rect _windowRect;
         private bool _updaterExists;
 
@@ -1008,7 +1008,7 @@ namespace ModGod.ClientEnforcer
             try
             {
                 ModGodClientEnforcerPlugin.LogSource.LogInfo($"Launching updater: {UpdaterExePath}");
-                
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = UpdaterExePath,
@@ -1045,4 +1045,3 @@ namespace ModGod.ClientEnforcer
         }
     }
 }
-

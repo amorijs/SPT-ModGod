@@ -375,7 +375,6 @@ public class FileDownloadHttpListener : IHttpListener
             
             context.Response.StatusCode = 200;
             context.Response.ContentType = "application/octet-stream";
-            context.Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{Path.GetFileName(fullPath)}\"");
             context.Response.Headers.Append("Content-Length", fileBytes.Length.ToString());
             
             await context.Response.Body.WriteAsync(fileBytes);

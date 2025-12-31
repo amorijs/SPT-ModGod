@@ -15,8 +15,8 @@ class Program
     private static readonly string InternalDataFolderName = "ModGodData";
     private static readonly string TempDownloadPath = Path.Combine(Path.GetTempPath(), "ModGod");
     private static readonly string LogFileName = "ModGodUpdater.log";
-    
-    private static readonly string UpdaterVersion = 
+
+    private static readonly string UpdaterVersion =
         typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -140,6 +140,12 @@ class Program
         await LoadOrCreateConfigAsync();
         await LoadModsDownloadedAsync();
 
+        // Early version check - verify updater version matches server before proceeding
+        if (!await CheckVersionCompatibilityAsync())
+        {
+            return; // Version mismatch - user needs to update
+        }
+
         // Check for headless mode and show appropriate banner
         if (_clientConfig.Headless)
         {
@@ -206,8 +212,7 @@ class Program
         AnsiConsole.MarkupLine($"[green]✓[/] Found [cyan]{serverConfig.ModList.Count}[/] mod(s) on server");
         AnsiConsole.WriteLine();
 
-        Log("Fetching manifest for exclusions and sync roots...");
-        _cachedManifest = await FetchManifestAsync(_clientConfig.Headless);
+        // Manifest already cached during version check, use it for exclusions and sync roots
         var exclusions = BuildExclusionSet(_cachedManifest?.SyncExclusions);
         var syncRoots = BuildSyncRootsSet(_cachedManifest?.SyncRoots);
         if (exclusions.Count > 0)
@@ -301,6 +306,65 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Check version compatibility with server before proceeding with any downloads.
+    /// Returns true if compatible, false if version mismatch detected.
+    /// </summary>
+    static async Task<bool> CheckVersionCompatibilityAsync()
+    {
+        return await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .SpinnerStyle(Style.Parse("cyan"))
+            .StartAsync("Checking server compatibility...", async ctx =>
+            {
+                try
+                {
+                    Log("Checking version compatibility with server...");
+
+                    // Fetch manifest to get server version
+                    var manifest = await FetchManifestAsync(_clientConfig.Headless);
+                    if (manifest == null)
+                    {
+                        Log("WARNING: Could not fetch manifest for version check, proceeding anyway");
+                        return true; // Allow to continue if we can't check
+                    }
+
+                    // Cache the manifest for later use
+                    _cachedManifest = manifest;
+
+                    if (!string.IsNullOrEmpty(manifest.ModGodVersion) && manifest.ModGodVersion != UpdaterVersion)
+                    {
+                        Log($"VERSION MISMATCH: Server={manifest.ModGodVersion}, Updater={UpdaterVersion}");
+
+                        AnsiConsole.WriteLine();
+                        AnsiConsole.Write(
+                            new Panel(
+                                new Markup($"[red bold]VERSION MISMATCH[/]\n\n" +
+                                           $"Server version: [cyan]{EscapeMarkup(manifest.ModGodVersion)}[/]\n" +
+                                           $"Updater version: [cyan]{EscapeMarkup(UpdaterVersion)}[/]\n\n" +
+                                           "[yellow]Please download and install the correct version of ModGod.[/]"))
+                                .Header("[red]Update Required[/]")
+                                .BorderColor(Color.Red)
+                                .Padding(1, 1, 1, 1));
+                        AnsiConsole.WriteLine();
+
+                        return false;
+                    }
+
+                    Log($"Version check passed: Server={manifest.ModGodVersion ?? "unknown"}, Updater={UpdaterVersion}");
+                    AnsiConsole.MarkupLine($"[green]✓[/] Server compatible (v{EscapeMarkup(manifest.ModGodVersion ?? UpdaterVersion)})");
+
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Log($"Version check failed: {ex.Message}");
+                    AnsiConsole.MarkupLine($"[yellow]⚠[/] Could not verify server version: {EscapeMarkup(ex.Message)}");
+                    return true; // Allow to continue on error
+                }
+            });
+    }
+
     static async Task SaveModsDownloadedAsync()
     {
         var json = JsonSerializer.Serialize(_modsDownloaded, JsonOptions);
@@ -324,7 +388,7 @@ class Program
     static async Task<ServerConfig?> FetchServerConfigAsync()
     {
         // Pass headless parameter so server can filter mods appropriately
-        var url = _clientConfig.Headless 
+        var url = _clientConfig.Headless
             ? $"{_clientConfig.ServerUrl}/modgod/api/config?headless=true"
             : $"{_clientConfig.ServerUrl}/modgod/api/config";
 
@@ -391,7 +455,10 @@ class Program
             var optionalChoices = optionalMods.Select(m =>
             {
                 var downloaded = _modsDownloaded.Find(d => d.DownloadUrl == m.DownloadUrl);
-                var status = downloaded?.OptIn == true ? " [green](installed)[/]" : " [grey](not installed)[/]";
+                var isTrackedAsInstalled = downloaded?.OptIn == true;
+                var allFilesExist = CheckModFilesExist(m.ModName);
+                var isInstalled = isTrackedAsInstalled || allFilesExist;
+                var status = isInstalled ? " [green](installed)[/]" : " [grey](not installed)[/]";
                 return $"{EscapeMarkup(m.ModName)}{status}";
             }).ToList();
 
@@ -438,15 +505,31 @@ class Program
         var downloaded = _modsDownloaded.Find(d => d.DownloadUrl == mod.DownloadUrl);
         var needsUpdate = downloaded == null || downloaded.LastUpdated != mod.LastUpdated;
 
-        // For optional mods that aren't opted in, skip
+        // For optional mods that aren't opted in, remove if installed (tracked or detected on disk)
         if (isOptional && !optIn)
         {
-            if (downloaded != null)
+            var isTrackedAsInstalled = downloaded?.OptIn == true;
+            var filesExistOnDisk = CheckModFilesExist(mod.ModName);
+            
+            if (isTrackedAsInstalled || filesExistOnDisk)
             {
-                downloaded.OptIn = false;
+                // User is opting out - remove files (whether tracked or just present on disk)
+                await RemoveModFilesAsync(mod.ModName);
+                if (downloaded != null)
+                {
+                    _modsDownloaded.Remove(downloaded);
+                }
+                AnsiConsole.MarkupLine($"  [red]✗[/] {EscapeMarkup(mod.ModName)} [grey](removed)[/]");
             }
-
-            AnsiConsole.MarkupLine($"  [grey]○[/] {EscapeMarkup(mod.ModName)} [grey](skipped)[/]");
+            else
+            {
+                // Not installed at all, just skip
+                if (downloaded != null)
+                {
+                    _modsDownloaded.Remove(downloaded);
+                }
+                AnsiConsole.MarkupLine($"  [grey]○[/] {EscapeMarkup(mod.ModName)} [grey](skipped)[/]");
+            }
             return;
         }
 
@@ -457,7 +540,7 @@ class Program
         }
 
         var downloadSuccess = false;
-        
+
         try
         {
             // Download mod with progress
@@ -489,19 +572,19 @@ class Program
                 .StartAsync(async ctx =>
                 {
                     var downloadTask = ctx.AddTask($"[cyan]{EscapeMarkup(mod.ModName)}[/]", maxValue: totalBytes > 0 ? totalBytes : 100);
-                    
+
                     await using var contentStream = await response.Content.ReadAsStreamAsync();
                     await using var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                    
+
                     var buffer = new byte[81920];
                     long totalRead = 0;
                     int bytesRead;
-                    
+
                     while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                     {
                         await fileStream.WriteAsync(buffer, 0, bytesRead);
                         totalRead += bytesRead;
-                        
+
                         if (totalBytes > 0)
                         {
                             downloadTask.Value = totalRead;
@@ -512,7 +595,7 @@ class Program
                             downloadTask.IsIndeterminate = true;
                         }
                     }
-                    
+
                     downloadTask.Value = downloadTask.MaxValue;
                 });
 
@@ -530,11 +613,11 @@ class Program
                 .StartAsync(async ctx =>
                 {
                     var extractTask = ctx.AddTask($"[yellow]Extracting {EscapeMarkup(mod.ModName)}[/]", maxValue: 100);
-                    
+
                     // Check if this is a 7z archive and if we have native 7z available
                     var is7z = Is7zArchive(archivePath);
                     var sevenZipPath = is7z ? Find7ZipExecutable() : null;
-                    
+
                     if (is7z && sevenZipPath != null)
                     {
                         // Use native 7z for fast extraction
@@ -552,12 +635,12 @@ class Program
                         {
                             Log($"WARNING: Using SharpCompress for 7z archive (slow) - install 7-Zip for faster extraction");
                         }
-                        
+
                         using (var archive = ArchiveFactory.Open(archivePath))
                         {
                             var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
                             extractTask.MaxValue = entries.Count;
-                            
+
                             foreach (var entry in entries)
                             {
                                 entry.WriteToDirectory(tempExtractPath, new ExtractionOptions
@@ -575,7 +658,7 @@ class Program
                     var filesToInstall = new List<(string Source, string Target)>();
                     var skippedExcluded = 0;
                     var skippedNotInSyncPath = 0;
-                    
+
                     foreach (var installPath in mod.InstallPaths)
                     {
                         var sourcePath = Path.Combine(tempExtractPath, installPath[0]);
@@ -589,7 +672,7 @@ class Program
                                 var relativePath = Path.GetRelativePath(sourcePath, file);
                                 var destFile = Path.Combine(targetPath, relativePath);
                                 var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
-                                
+
                                 // Check if path is within a registered sync path
                                 if (!IsInSyncPath(destRelative, syncRoots))
                                 {
@@ -597,7 +680,7 @@ class Program
                                     skippedNotInSyncPath++;
                                     continue;
                                 }
-                                
+
                                 // Check if path is excluded
                                 if (IsExcluded(destRelative, exclusions))
                                 {
@@ -605,7 +688,7 @@ class Program
                                     skippedExcluded++;
                                     continue;
                                 }
-                                
+
                                 filesToInstall.Add((file, destFile));
                             }
                         }
@@ -614,7 +697,7 @@ class Program
                             var fileName = Path.GetFileName(sourcePath);
                             var destFile = Path.Combine(targetPath, fileName);
                             var destRelative = Path.GetRelativePath(_sptRoot, destFile).Replace('\\', '/');
-                            
+
                             // Check if path is within a registered sync path
                             if (!IsInSyncPath(destRelative, syncRoots))
                             {
@@ -622,7 +705,7 @@ class Program
                                 skippedNotInSyncPath++;
                                 continue;
                             }
-                            
+
                             // Check if path is excluded
                             if (IsExcluded(destRelative, exclusions))
                             {
@@ -630,11 +713,11 @@ class Program
                                 skippedExcluded++;
                                 continue;
                             }
-                            
+
                             filesToInstall.Add((sourcePath, destFile));
                         }
                     }
-                    
+
                     if (skippedExcluded > 0 || skippedNotInSyncPath > 0)
                     {
                         Log($"Skipped {skippedExcluded} excluded + {skippedNotInSyncPath} outside sync paths for {mod.ModName}");
@@ -643,7 +726,7 @@ class Program
                     if (filesToInstall.Count > 0)
                     {
                         var installTask = ctx.AddTask($"[green]Installing {EscapeMarkup(mod.ModName)}[/]", maxValue: filesToInstall.Count);
-                        
+
                         foreach (var (source, target) in filesToInstall)
                         {
                             var dir = Path.GetDirectoryName(target);
@@ -658,7 +741,7 @@ class Program
 
                     // Clean up temp directory
                     Directory.Delete(tempExtractPath, true);
-                    
+
                     await Task.CompletedTask;
                 });
 
@@ -678,7 +761,7 @@ class Program
                     OptIn = optIn
                 });
             }
-            
+
             downloadSuccess = true;
         }
         catch (Exception ex)
@@ -744,23 +827,6 @@ class Program
             Log($"Using cached manifest: {manifest.Files.Count} files");
         }
 
-        if (!string.IsNullOrEmpty(manifest.ModGodVersion) && manifest.ModGodVersion != UpdaterVersion)
-        {
-            Log($"VERSION MISMATCH: Server={manifest.ModGodVersion}, Updater={UpdaterVersion}");
-            AnsiConsole.WriteLine();
-            AnsiConsole.Write(
-                new Panel(
-                    new Markup($"[red bold]VERSION MISMATCH[/]\n\n" +
-                               $"Server version: [cyan]{EscapeMarkup(manifest.ModGodVersion)}[/]\n" +
-                               $"Updater version: [cyan]{EscapeMarkup(UpdaterVersion)}[/]\n\n" +
-                               "[yellow]Please download the latest ModGodUpdater.exe from the server administrator.[/]"))
-                    .Header("[red]Update Required[/]")
-                    .BorderColor(Color.Red)
-                    .Padding(1, 1, 1, 1));
-            AnsiConsole.WriteLine();
-            return;
-        }
-
         if (_clientConfig.Headless)
         {
             AnsiConsole.MarkupLine(
@@ -775,6 +841,9 @@ class Program
         {
             AnsiConsole.MarkupLine($"[green]✓[/] Manifest: [cyan]{manifest.Files.Count}[/] files from server");
         }
+
+        // Ensure all sync root directories exist (even if empty on server)
+        EnsureSyncDirectoriesExist(manifest.SyncRoots);
 
         var exclusions = BuildExclusionSet(manifest.SyncExclusions);
 
@@ -791,6 +860,16 @@ class Program
                 {
                     var relativePath = kvp.Key;
                     var entry = kvp.Value;
+
+                    // Skip files from optional mods the user hasn't opted into
+                    if (!entry.Required)
+                    {
+                        var modDownloaded = _modsDownloaded.Find(d => d.ModName == entry.ModName);
+                        if (modDownloaded == null || !modDownloaded.OptIn)
+                        {
+                            continue; // User hasn't opted into this optional mod
+                        }
+                    }
 
                     var fullPath = Path.Combine(_sptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
@@ -842,12 +921,12 @@ class Program
                 if (!_clientConfig.Headless)
                 {
                     // Use syncRoots from manifest if available, otherwise fall back to defaults
-                    var syncDirs = manifest.SyncRoots?.Count > 0 
-                        ? manifest.SyncRoots.ToArray() 
+                    var syncDirs = manifest.SyncRoots?.Count > 0
+                        ? manifest.SyncRoots.ToArray()
                         : new[] { "BepInEx/plugins", "SPT/user/mods" };
-                    
+
                     Log($"Scanning {syncDirs.Length} sync root(s) for extra files: {string.Join(", ", syncDirs)}");
-                    
+
                     foreach (var syncDir in syncDirs)
                     {
                         var fullDir = Path.Combine(_sptRoot, syncDir.Replace('/', Path.DirectorySeparatorChar));
@@ -1094,6 +1173,151 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Check if all files for a mod exist on disk.
+    /// Used to detect manually installed mods that aren't tracked in modsDownloaded.json.
+    /// </summary>
+    static bool CheckModFilesExist(string modName)
+    {
+        if (_cachedManifest == null)
+        {
+            return false;
+        }
+
+        var modFiles = _cachedManifest.Files
+            .Where(kvp => kvp.Value.ModName.Equals(modName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // If no files found for this mod in manifest, can't determine installation status
+        if (modFiles.Count == 0)
+        {
+            return false;
+        }
+
+        // Check if ALL files exist on disk
+        foreach (var kvp in modFiles)
+        {
+            var relativePath = kvp.Key;
+            var fullPath = Path.Combine(_sptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            
+            if (!File.Exists(fullPath))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Remove all files belonging to a mod when user opts out.
+    /// Uses the cached manifest to find files belonging to the mod.
+    /// </summary>
+    static async Task RemoveModFilesAsync(string modName)
+    {
+        if (_cachedManifest == null)
+        {
+            Log($"Cannot remove mod files for {modName} - no manifest cached");
+            return;
+        }
+
+        var filesToRemove = _cachedManifest.Files
+            .Where(kvp => kvp.Value.ModName.Equals(modName, StringComparison.OrdinalIgnoreCase))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        if (filesToRemove.Count == 0)
+        {
+            Log($"No files found for mod {modName} in manifest");
+            return;
+        }
+
+        Log($"Removing {filesToRemove.Count} file(s) for opted-out mod: {modName}");
+        var removedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var relativePath in filesToRemove)
+        {
+            var fullPath = Path.Combine(_sptRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            
+            try
+            {
+                if (File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                    Log($"  Deleted: {relativePath}");
+                    
+                    // Track parent directory for cleanup
+                    var dir = Path.GetDirectoryName(fullPath);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        removedDirs.Add(dir);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"  Failed to delete {relativePath}: {ex.Message}");
+            }
+        }
+
+        // Clean up empty directories (from deepest to shallowest)
+        await Task.Run(() => CleanupEmptyDirectories(removedDirs));
+    }
+
+    /// <summary>
+    /// Remove empty directories after file deletion, working from deepest to shallowest.
+    /// Stops at sync root boundaries.
+    /// </summary>
+    static void CleanupEmptyDirectories(HashSet<string> directories)
+    {
+        // Sort by depth (deepest first) to ensure we clean up from bottom to top
+        var sortedDirs = directories
+            .SelectMany(d => GetDirectoryChain(d))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(d => d.Count(c => c == Path.DirectorySeparatorChar))
+            .ToList();
+
+        foreach (var dir in sortedDirs)
+        {
+            try
+            {
+                if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                {
+                    // Don't delete sync root directories themselves
+                    var relativePath = Path.GetRelativePath(_sptRoot, dir).Replace('\\', '/');
+                    var syncRoots = _cachedManifest?.SyncRoots ?? new List<string> { "BepInEx/plugins", "SPT/user/mods" };
+                    
+                    if (syncRoots.Any(r => r.Equals(relativePath, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue; // Don't delete sync root itself
+                    }
+
+                    Directory.Delete(dir);
+                    Log($"  Removed empty directory: {relativePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"  Failed to remove directory {dir}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get all directories in the chain from the given directory up to (but not including) SPT root.
+    /// </summary>
+    static IEnumerable<string> GetDirectoryChain(string directory)
+    {
+        var current = directory;
+        while (!string.IsNullOrEmpty(current) && 
+               !current.Equals(_sptRoot, StringComparison.OrdinalIgnoreCase) &&
+               current.StartsWith(_sptRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return current;
+            current = Path.GetDirectoryName(current);
+        }
+    }
+
     static string ComputeFileHash(string filePath)
     {
         using var sha256 = SHA256.Create();
@@ -1123,15 +1347,45 @@ class Program
     }
 
     /// <summary>
+    /// Ensure all sync root directories exist on the client, even if they're empty on the server.
+    /// This ensures the client has the same directory structure as the server.
+    /// </summary>
+    static void EnsureSyncDirectoriesExist(IEnumerable<string>? syncRoots)
+    {
+        var roots = syncRoots?.ToList() ?? new List<string>();
+        if (roots.Count == 0)
+        {
+            roots = new List<string> { "BepInEx/plugins", "SPT/user/mods" };
+        }
+
+        foreach (var root in roots)
+        {
+            var fullPath = Path.Combine(_sptRoot, root.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(fullPath))
+            {
+                try
+                {
+                    Directory.CreateDirectory(fullPath);
+                    Log($"Created sync directory: {root}");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Failed to create sync directory {root}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Check if a path is within one of the registered sync roots.
     /// Only files within sync roots should be installed/synced.
     /// </summary>
     static bool IsInSyncPath(string relativePath, HashSet<string> syncRoots)
     {
         if (syncRoots.Count == 0) return true; // No restrictions if no sync roots defined
-        
+
         var norm = relativePath.Replace('\\', '/').TrimStart('/');
-        
+
         foreach (var root in syncRoots)
         {
             // Check if path equals the sync root or is under it
@@ -1141,7 +1395,7 @@ class Program
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -1316,7 +1570,7 @@ class Program
             // URL encode the path
             var encodedPath = Uri.EscapeDataString(relativePath.Replace('\\', '/'));
             var url = $"{_clientConfig.ServerUrl}/modgod/api/file/{encodedPath}";
-            
+
             // Add headless query parameter if in headless mode
             if (headless)
             {
@@ -1369,10 +1623,10 @@ class Program
     static string? Find7ZipExecutable()
     {
         var isWindows = OperatingSystem.IsWindows();
-        
+
         // First, check for bundled 7z in ModGodData/tools (shared location for server and updater)
         var modGodDataTools = Path.Combine(_sptRoot, "ModGodData", "tools");
-        
+
         if (isWindows)
         {
             var bundledPath = Path.Combine(modGodDataTools, "7z.exe");
@@ -1408,7 +1662,7 @@ class Program
                 Log($"[7z] Using bundled 7zz: {bundledPath}");
                 return bundledPath;
             }
-            
+
             // Check for 7z in PATH
             var linuxCommands = new[] { "7zz", "7z", "7za" };
             foreach (var cmd in linuxCommands)
@@ -1451,7 +1705,7 @@ class Program
     static async Task<bool> ExtractWith7ZipAsync(string archivePath, string extractPath, string sevenZipPath, ProgressTask? progressTask = null)
     {
         Log($"[7z] Extracting with native 7-Zip: {Path.GetFileName(archivePath)}");
-        
+
         var startInfo = new ProcessStartInfo
         {
             FileName = sevenZipPath,
@@ -1464,13 +1718,13 @@ class Program
 
         var startTime = DateTime.UtcNow;
         int lastPercent = 0;
-        
+
         using var process = new Process { StartInfo = startInfo };
-        
+
         process.OutputDataReceived += (sender, e) =>
         {
             if (string.IsNullOrEmpty(e.Data)) return;
-            
+
             var line = e.Data.Trim();
             var percentIndex = line.IndexOf('%');
             if (percentIndex > 0)
@@ -1479,7 +1733,7 @@ class Program
                 while (numStart >= 0 && (char.IsDigit(line[numStart]) || line[numStart] == ' '))
                     numStart--;
                 numStart++;
-                
+
                 var numStr = line[numStart..percentIndex].Trim();
                 if (int.TryParse(numStr, out var percent) && percent >= 0 && percent <= 100)
                 {
@@ -1501,12 +1755,12 @@ class Program
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        
+
         // Wait for process to complete
         while (!process.HasExited)
         {
             await Task.Delay(100);
-            
+
             var elapsed = DateTime.UtcNow - startTime;
             if (elapsed.TotalMinutes >= 30)
             {
@@ -1515,11 +1769,11 @@ class Program
                 return false;
             }
         }
-        
+
         await Task.Run(() => process.WaitForExit());
 
         var totalElapsed = DateTime.UtcNow - startTime;
-        
+
         if (process.ExitCode == 0)
         {
             Log($"[7z] Extraction complete in {totalElapsed.TotalSeconds:F1}s");
@@ -1549,4 +1803,3 @@ class Program
         }
     }
 }
-
