@@ -18,7 +18,7 @@ using UnityEngine;
 
 namespace ModGod.ClientEnforcer
 {
-    [BepInPlugin("com.modgod.clientenforcer", "ModGod Client Enforcer", "2.0.3")]
+    [BepInPlugin("com.modgod.clientenforcer", "ModGod Client Enforcer", "2.1.0")]
     public class ModGodClientEnforcerPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
