@@ -53,6 +53,7 @@ public class ModInstallService
         _logger.Info($"[Apply]   - Mods to install: {stagedChanges.ModsToInstall.Count}");
         _logger.Info($"[Apply]   - Mods to remove: {stagedChanges.ModsToRemove.Count}");
         _logger.Info($"[Apply]   - Mods to update: {stagedChanges.ModsToUpdate.Count}");
+        _logger.Info($"[Apply]   - Mods to reinstall: {stagedChanges.ModsToReinstall.Count}");
         if (hasStagedFile && !stagedChanges.HasChanges)
         {
             _logger.Info($"[Apply]   - Config-only changes detected");
@@ -125,7 +126,7 @@ public class ModInstallService
                 
                 // Clear staging after successful install
                 _logger.Info($"[Apply] Clearing staging for: {mod.ModName}");
-                _configService.ClearStagingForUrl(mod.DownloadUrl);
+                await _configService.ClearStagingForUrlAsync(mod.DownloadUrl);
             }
             else if (installResult.NeedsRestart)
             {
@@ -168,6 +169,42 @@ public class ModInstallService
             {
                 _logger.Error($"[Apply] Update failed: {mod.ModName}: {installResult.Error}");
                 result.Errors.Add($"Failed to update {mod.ModName}: {installResult.Error}");
+            }
+        }
+
+        // Handle reinstalls (re-downloaded mods that need to be re-installed)
+        if (stagedChanges.ModsToReinstall.Count > 0)
+        {
+            _logger.Info($"[Apply] -------- Processing {stagedChanges.ModsToReinstall.Count} reinstall(s) --------");
+        }
+        var reinstallIndex = 0;
+        foreach (var mod in stagedChanges.ModsToReinstall)
+        {
+            reinstallIndex++;
+            _logger.Info($"[Apply] Reinstall {reinstallIndex}/{stagedChanges.ModsToReinstall.Count}: {mod.ModName}");
+            
+            var installResult = await InstallModAsync(mod);
+            
+            if (installResult.Success)
+            {
+                result.InstalledMods.Add($"{mod.ModName} (reinstalled)");
+                mod.LastUpdated = DateTime.UtcNow.ToString("o");
+                
+                // Clear staging after successful reinstall
+                _logger.Info($"[Apply] Clearing staging for reinstalled mod: {mod.ModName}");
+                await _configService.ClearStagingForUrlAsync(mod.DownloadUrl);
+                
+                _logger.Info($"[Apply] Reinstall complete: {mod.ModName}");
+            }
+            else if (installResult.NeedsRestart)
+            {
+                result.QueuedForInstall.Add($"{mod.ModName} (reinstall)");
+                _logger.Info($"[Apply] Reinstall queued for restart: {mod.ModName}");
+            }
+            else
+            {
+                _logger.Error($"[Apply] Reinstall failed: {mod.ModName}: {installResult.Error}");
+                result.Errors.Add($"Failed to reinstall {mod.ModName}: {installResult.Error}");
             }
         }
 

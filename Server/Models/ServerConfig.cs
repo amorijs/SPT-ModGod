@@ -325,9 +325,14 @@ public class StagedChanges
     public List<ModEntry> ModsToUpdate { get; set; } = new();
 
     /// <summary>
+    /// Mods that need to be reinstalled (re-downloaded and re-installed from staging)
+    /// </summary>
+    public List<ModEntry> ModsToReinstall { get; set; } = new();
+
+    /// <summary>
     /// Total count of changes
     /// </summary>
-    public int TotalChanges => ModsToInstall.Count + ModsToRemove.Count + ModsToUpdate.Count;
+    public int TotalChanges => ModsToInstall.Count + ModsToRemove.Count + ModsToUpdate.Count + ModsToReinstall.Count;
 
     /// <summary>
     /// Whether there are any changes

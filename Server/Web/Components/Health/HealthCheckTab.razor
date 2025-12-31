@@ -1173,12 +1173,12 @@
                 var existingMod = ConfigService.StagedConfig.ModList
                     .FirstOrDefault(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl);
                 
-                if (existingMod != null)
-                {
-                    ConfigService.StagedConfig.ModList.Remove(existingMod);
-                    // Also clear any staging data for the old URL
-                    ConfigService.ClearStagingForUrl(existingMod.DownloadUrl);
-                }
+                        if (existingMod != null)
+                        {
+                            ConfigService.StagedConfig.ModList.Remove(existingMod);
+                            // Also clear any staging data for the old URL
+                            await ConfigService.ClearStagingForUrlAsync(existingMod.DownloadUrl);
+                        }
             }
 
             // Download and stage the new version
@@ -1339,7 +1339,7 @@
                         if (existingMod != null)
                         {
                             ConfigService.StagedConfig.ModList.Remove(existingMod);
-                            ConfigService.ClearStagingForUrl(existingMod.DownloadUrl);
+                            await ConfigService.ClearStagingForUrlAsync(existingMod.DownloadUrl);
                         }
                     }
 

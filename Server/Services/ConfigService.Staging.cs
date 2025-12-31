@@ -224,7 +224,7 @@ public partial class ConfigService
     }
     
     /// <summary>
-    /// Calculate what changes need to be applied (mods to add/remove/update).
+    /// Calculate what changes need to be applied (mods to add/remove/update/reinstall).
     /// </summary>
     public StagedChanges CalculateStagedChanges()
     {
@@ -232,11 +232,17 @@ public partial class ConfigService
         
         var liveModsByUrl = Config.ModList.ToDictionary(m => m.DownloadUrl);
         var stagedModsByUrl = StagedConfig.ModList.ToDictionary(m => m.DownloadUrl);
+        var pendingReinstallUrls = StagedConfig.PendingReinstallUrls;
         
         // Find mods to add (in staged but not in live)
         foreach (var stagedMod in StagedConfig.ModList)
         {
-            if (!liveModsByUrl.ContainsKey(stagedMod.DownloadUrl))
+            // Check if this is a pending reinstall
+            if (pendingReinstallUrls.Contains(stagedMod.DownloadUrl))
+            {
+                changes.ModsToReinstall.Add(stagedMod);
+            }
+            else if (!liveModsByUrl.ContainsKey(stagedMod.DownloadUrl))
             {
                 changes.ModsToInstall.Add(stagedMod);
             }
@@ -294,7 +300,8 @@ public partial class ConfigService
         await ClearAllStagingAsync();
         
         _logger.Info($"Applied staged config: {changes.ModsToInstall.Count} to install, " +
-                    $"{changes.ModsToRemove.Count} to remove, {changes.ModsToUpdate.Count} to update");
+                    $"{changes.ModsToRemove.Count} to remove, {changes.ModsToUpdate.Count} to update, " +
+                    $"{changes.ModsToReinstall.Count} to reinstall");
         
         return changes;
     }
@@ -342,8 +349,31 @@ public partial class ConfigService
     }
 
     /// <summary>
-    /// Clear staging folder for a specific URL
+    /// Clear staging folder for a specific URL and persist the change.
     /// </summary>
+    public async Task ClearStagingForUrlAsync(string url)
+    {
+        if (Staging.UrlToPath.TryGetValue(url, out var path) && Directory.Exists(path))
+        {
+            try
+            {
+                Directory.Delete(path, true);
+                _logger.Info($"Cleared staging for: {url}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to clear staging: {ex.Message}");
+            }
+        }
+        Staging.UrlToPath.Remove(url);
+        await SaveStagingIndexAsync();
+    }
+
+    /// <summary>
+    /// Clear staging folder for a specific URL (synchronous version, does not save).
+    /// Use ClearStagingForUrlAsync when possible for consistency.
+    /// </summary>
+    [Obsolete("Use ClearStagingForUrlAsync instead for consistency")]
     public void ClearStagingForUrl(string url)
     {
         if (Staging.UrlToPath.TryGetValue(url, out var path) && Directory.Exists(path))

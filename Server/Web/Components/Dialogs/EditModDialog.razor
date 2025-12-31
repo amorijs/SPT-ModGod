@@ -491,6 +491,27 @@
             {
                 <MudAlert Severity="Severity.Warning" Class="mb-3">
                     @_fileTreeError
+                    @if (_fileTreeError.Contains("Staging not found") && !string.IsNullOrEmpty(Mod?.DownloadUrl))
+                    {
+                        <div class="mt-2">
+                            <MudButton Variant="Variant.Outlined"
+                                       Size="Size.Small"
+                                       Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       OnClick="RedownloadStaging"
+                                       Disabled="_isRedownloading">
+                                @if (_isRedownloading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                    <span>Re-downloading...</span>
+                                }
+                                else
+                                {
+                                    <span>Re-download Now</span>
+                                }
+                            </MudButton>
+                        </div>
+                    }
                 </MudAlert>
             }
             else if (_noFilesToOverwrite)
@@ -613,6 +634,7 @@
     private bool _fileTreeLoading;
     private string? _fileTreeError;
     private bool _noFilesToOverwrite;
+    private bool _isRedownloading;
 
     // Archive tree state for source selection
     private FileNode? _archiveTreeRoot;
@@ -702,6 +724,53 @@
         }
     }
 
+    private async Task RedownloadStaging()
+    {
+        if (Mod == null || string.IsNullOrEmpty(Mod.DownloadUrl)) return;
+
+        _isRedownloading = true;
+        _fileTreeError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            // Clear any existing staging (if any)
+            await ConfigService.ClearStagingForUrlAsync(Mod.DownloadUrl);
+
+            // Re-download the mod
+            var result = await ModDownloadService.DownloadAndAnalyzeModAsync(Mod.DownloadUrl);
+
+            if (result.Success)
+            {
+                // Reload archive contents
+                if (ConfigService.Staging?.UrlToPath != null &&
+                    ConfigService.Staging.UrlToPath.TryGetValue(Mod.DownloadUrl, out var stagingPath))
+                {
+                    _archiveContents = ModDownloadService.GetExtractedContents(stagingPath);
+                    BuildArchiveTree();
+                }
+
+                // Reload file tree
+                _fileTreeLoading = true;
+                await InvokeAsync(StateHasChanged);
+                await LoadFileTreeAsync();
+            }
+            else
+            {
+                _fileTreeError = $"Download failed: {result.Error}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _fileTreeError = $"Re-download failed: {ex.Message}";
+        }
+        finally
+        {
+            _isRedownloading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task LoadFileTreeAsync()
     {
         if (Mod == null) return;
@@ -718,6 +787,14 @@
             var staging = ConfigService.Staging;
             if (staging?.UrlToPath == null || !staging.UrlToPath.TryGetValue(downloadUrl, out var stagingPath))
             {
+                // Add diagnostic info to help debug staging issues
+                var urlCount = staging?.UrlToPath?.Count ?? 0;
+                var urlsInStaging = staging?.UrlToPath?.Keys.Take(5).ToList() ?? new List<string>();
+                var urlPreview = urlsInStaging.Count > 0 
+                    ? string.Join(", ", urlsInStaging.Select(u => u.Length > 50 ? u.Substring(0, 50) + "..." : u))
+                    : "(empty)";
+                Console.WriteLine($"[EditModDialog] Staging lookup failed for URL: {downloadUrl}");
+                Console.WriteLine($"[EditModDialog] Staging has {urlCount} entries. Sample: {urlPreview}");
                 _fileTreeError = "Staging not found. Delete and reinstall this mod to view files.";
                 return;
             }

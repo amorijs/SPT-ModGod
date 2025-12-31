@@ -138,7 +138,7 @@ public partial class ConfigService
                     // Clear staging for this mod
                 if (IsUrlStaged(url))
                     {
-                    ClearStagingForUrl(url);
+                    await ClearStagingForUrlAsync(url);
                 }
             }
             
@@ -165,7 +165,7 @@ public partial class ConfigService
                     // Clear staging if any
                     if (IsUrlStaged(url))
                     {
-                        ClearStagingForUrl(url);
+                        await ClearStagingForUrlAsync(url);
                 }
             }
             

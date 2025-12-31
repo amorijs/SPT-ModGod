@@ -525,8 +525,7 @@ public partial class ConfigService : IOnLoad
             var isInLive = Config.ModList.Any(m => m.DownloadUrl == downloadUrl);
             if (!isInLive)
             {
-                ClearStagingForUrl(downloadUrl);
-                await SaveStagingIndexAsync();
+                await ClearStagingForUrlAsync(downloadUrl);
             }
             
             await SaveStagedConfigAsync();
