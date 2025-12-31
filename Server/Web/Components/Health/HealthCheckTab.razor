@@ -1073,19 +1073,23 @@
 
         try
         {
-            var (success, error) = await ModDownloadService.DownloadAndStageAsync(addon.DownloadUrl, addon.Name);
+            // Format addon name as "BaseModName - ADDON - AddonName"
+            var baseModName = _selectedModForAddons?.DisplayName ?? "Unknown";
+            var formattedName = $"{baseModName} - ADDON - {addon.Name}";
+            
+            var (success, error) = await ModDownloadService.DownloadAndStageAsync(addon.DownloadUrl, formattedName);
 
             if (success)
             {
                 // Mark as installed in the UI (note: this is a heuristic until next health check)
                 addon.IsInstalled = true;
                 
-                Snackbar.Add($"✓ {addon.Name} downloaded and staged! Review in 'Staged Mods' and click 'Apply Changes'.", Severity.Success);
+                Snackbar.Add($"✓ {formattedName} downloaded and staged! Review in 'Staged Mods' and click 'Apply Changes'.", Severity.Success);
                 await OnModsStaged.InvokeAsync();
             }
             else
             {
-                Snackbar.Add($"Failed to install {addon.Name}: {error}", Severity.Error);
+                Snackbar.Add($"Failed to install {formattedName}: {error}", Severity.Error);
             }
         }
         catch (Exception ex)

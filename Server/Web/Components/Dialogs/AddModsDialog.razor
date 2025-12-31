@@ -1406,13 +1406,13 @@
             (selectedVersion.DownloadUrl, _forgeMod.Name, false)
         };
         
-        // Add selected addons with formatted name: "<ModName> (Addon) <AddonName>"
+        // Add selected addons with formatted name: "BaseModName - ADDON - AddonName"
         foreach (var addon in GetSelectedAddons())
         {
             var addonVersion = addon.Versions.FirstOrDefault(v => v.Version == addon.SelectedVersion);
             if (addonVersion != null && !string.IsNullOrEmpty(addonVersion.DownloadUrl))
             {
-                var addonDisplayName = $"{_forgeMod.Name} [Addon] - {addon.Name}";
+                var addonDisplayName = $"{_forgeMod.Name} - ADDON - {addon.Name}";
                 downloadsToProcess.Add((addonVersion.DownloadUrl, addonDisplayName, true));
             }
         }

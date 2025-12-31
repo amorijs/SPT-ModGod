@@ -35,40 +35,6 @@
                                    Disabled="@_isApplying"
                                    Style="color: var(--text-secondary);" />
                 </MudTooltip>
-                @if (ConfigService.HasPendingChanges())
-                {
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.Undo"
-                               Color="Color.Default"
-                               Style="font-weight: 600; border-color: var(--border-color); color: var(--text-secondary);"
-                               OnClick="DiscardChanges"
-                               Disabled="@_isApplying">
-                        Discard Changes
-                    </MudButton>
-                    <MudTooltip Text="@(AnyModsNeedConfiguration() ? "Configure all mods before applying" : "")" Disabled="@(!AnyModsNeedConfiguration())">
-                        <MudButton Variant="Variant.Filled"
-                                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                                   Color="Color.Success"
-                                   Style="font-weight: 600; box-shadow: 0 0 4px rgba(74, 222, 128, 0.15);"
-                                   Class="@(!_isApplying ? "shake-button" : "")"
-                                   OnClick="ApplyChanges"
-                                   Disabled="@(_isApplying || AnyModsNeedConfiguration())">
-                            @if (_isApplying)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                                <span>Applying...</span>
-                            }
-                            else if (AnyModsNeedConfiguration())
-                            {
-                                <span>Mods Need Config</span>
-                            }
-                            else
-                            {
-                                <span>Apply Changes</span>
-                            }
-                        </MudButton>
-                    </MudTooltip>
-                }
             </div>
         </div>
 
@@ -90,6 +56,10 @@
                 @if (changes.ModsToUpdate.Count > 0)
                 {
                     <span class="ml-2">🔄 @changes.ModsToUpdate.Count to update</span>
+                }
+                @if (changes.ModsToReinstall.Count > 0)
+                {
+                    <span class="ml-2">🔁 @changes.ModsToReinstall.Count to reinstall</span>
                 }
             </MudAlert>
         }
@@ -330,6 +300,61 @@
         </MudTabPanel>
     </MudTabs>
 </MudContainer>
+
+<!-- Floating Apply/Discard Footer -->
+@if (ConfigService.HasPendingChanges())
+{
+    <div class="floating-action-footer visible">
+        <div class="floating-action-content">
+            <div class="floating-action-info">
+                @{
+                    var footerChanges = ConfigService.CalculateStagedChanges();
+                    var changeItems = new List<string>();
+                    if (footerChanges.ModsToInstall.Count > 0) changeItems.Add($"{footerChanges.ModsToInstall.Count} to install");
+                    if (footerChanges.ModsToRemove.Count > 0) changeItems.Add($"{footerChanges.ModsToRemove.Count} to remove");
+                    if (footerChanges.ModsToUpdate.Count > 0) changeItems.Add($"{footerChanges.ModsToUpdate.Count} to update");
+                    if (footerChanges.ModsToReinstall.Count > 0) changeItems.Add($"{footerChanges.ModsToReinstall.Count} to reinstall");
+                }
+                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="color: var(--accent-orange);" />
+                <span>Pending changes: @string.Join(", ", changeItems)</span>
+            </div>
+            <div class="floating-action-buttons">
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Undo"
+                           Color="Color.Default"
+                           Size="Size.Small"
+                           Style="font-weight: 600; border-color: var(--border-color); color: var(--text-secondary);"
+                           OnClick="DiscardChanges"
+                           Disabled="@_isApplying">
+                    Discard
+                </MudButton>
+                <MudTooltip Text="@(AnyModsNeedConfiguration() ? "Configure all mods before applying" : "")" Disabled="@(!AnyModsNeedConfiguration())">
+                    <MudButton Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                               Color="Color.Success"
+                               Size="Size.Small"
+                               Style="font-weight: 600; box-shadow: 0 0 8px rgba(74, 222, 128, 0.3);"
+                               OnClick="ApplyChanges"
+                               Disabled="@(_isApplying || AnyModsNeedConfiguration())">
+                        @if (_isApplying)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Applying...</span>
+                        }
+                        else if (AnyModsNeedConfiguration())
+                        {
+                            <span>Mods Need Config</span>
+                        }
+                        else
+                        {
+                            <span>Apply Changes</span>
+                        }
+                    </MudButton>
+                </MudTooltip>
+            </div>
+        </div>
+    </div>
+}
 
 <!-- Add Mods Dialog -->
 <AddModsDialog @bind-Visible="_addDialogVisible" OnModsAdded="StateHasChanged" />
@@ -1050,6 +1075,62 @@
         }
         95% {
           transform: translateY(0) rotate(0deg);
+        }
+    }
+
+    /* Floating Apply/Discard Footer */
+    .floating-action-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        padding: 12px 24px;
+        background: linear-gradient(to top, rgba(20, 20, 20, 0.98), rgba(20, 20, 20, 0.95));
+        border-top: 1px solid var(--border-color);
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(12px);
+        transform: translateY(100%);
+        opacity: 0;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    }
+
+    .floating-action-footer.visible {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    .floating-action-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .floating-action-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .floating-action-buttons {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    @@media (max-width: 600px) {
+        .floating-action-content {
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .floating-action-info {
+            font-size: 0.75rem;
         }
     }
 </style>

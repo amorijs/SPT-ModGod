@@ -384,7 +384,7 @@ class Program
             {
                 var downloaded = _modsDownloaded.Find(d => d.DownloadUrl == m.DownloadUrl);
                 var status = downloaded?.OptIn == true ? " [green](installed)[/]" : " [grey](not installed)[/]";
-                return $"{m.ModName}{status}";
+                return $"{EscapeMarkup(m.ModName)}{status}";
             }).ToList();
 
             var preSelected = optionalChoices.Where(c => c.Contains("[green]")).ToList();
