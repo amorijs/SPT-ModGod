@@ -56,17 +56,28 @@
             <div @onclick:stopPropagation="true">
                 <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" AnchorOrigin="Origin.BottomRight">
                     <MudMenuItem OnClick="@(() => OnEdit.InvokeAsync(Item))">
-                        Edit
+                        <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
                     </MudMenuItem>
                     <MudMenuItem OnClick="@(() => OnToggleOptional.InvokeAsync(Item))">
+                        <MudIcon Icon="@(Item.Optional ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)" Size="Size.Small" Class="mr-2" />
                         @(Item.Optional ? "Mark Required" : "Mark Optional")
                     </MudMenuItem>
                     <MudMenuItem OnClick="@(() => OnViewFiles.InvokeAsync(Item))">
-                        View Files
+                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Small" Class="mr-2" /> View Files
+                    </MudMenuItem>
+                    <MudDivider />
+                    @if (Item.Health?.UpdateAvailable == true)
+                    {
+                        <MudMenuItem OnClick="@(() => OnUpdate.InvokeAsync(Item))" Style="color: var(--accent-cyan);">
+                            <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Size="Size.Small" Class="mr-2" /> Update Available
+                        </MudMenuItem>
+                    }
+                    <MudMenuItem OnClick="@(() => OnReinstall.InvokeAsync(Item))" Style="color: var(--accent-cyan);">
+                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
                     </MudMenuItem>
                     <MudDivider />
                     <MudMenuItem OnClick="@(() => OnDelete.InvokeAsync(Item))" Style="color: var(--accent-red);">
-                        Delete
+                        <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> Delete
                     </MudMenuItem>
                 </MudMenu>
             </div>
@@ -80,6 +91,8 @@
     [Parameter] public EventCallback<SourceItem> OnToggleOptional { get; set; }
     [Parameter] public EventCallback<SourceItem> OnDelete { get; set; }
     [Parameter] public EventCallback<SourceItem> OnViewFiles { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnUpdate { get; set; }
+    [Parameter] public EventCallback<SourceItem> OnReinstall { get; set; }
 
     private async Task HandleCardClick()
     {

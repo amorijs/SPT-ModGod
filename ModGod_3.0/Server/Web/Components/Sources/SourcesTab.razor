@@ -1,25 +1,100 @@
+@using ModGod3.Services
+@using ModGod3.Models
+
 @inject ConfigService ConfigService
+@inject ForgeService ForgeService
+@inject ModDownloadService ModDownloadService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+
+@* Stats Bar *@
+<MudPaper Class="pa-3 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+    <div class="d-flex flex-wrap gap-3 align-center justify-space-between">
+        <div class="d-flex flex-wrap gap-2">
+            @* Stats Chips *@
+            <MudChip T="string" Size="Size.Medium" Class="stat-chip"
+                     OnClick="@(() => SetFilter(null))"
+                     Style="@GetStatChipStyle(null)">
+                <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Small" Class="mr-1" />
+                @_allItems.Count Total
+            </MudChip>
+            <MudChip T="string" Size="Size.Medium" Class="stat-chip"
+                     OnClick="@(() => SetFilter("Required"))"
+                     Style="@GetStatChipStyle("Required")">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                @_allItems.Count(i => !i.Optional) Required
+            </MudChip>
+            <MudChip T="string" Size="Size.Medium" Class="stat-chip"
+                     OnClick="@(() => SetFilter("Optional"))"
+                     Style="@GetStatChipStyle("Optional")">
+                <MudIcon Icon="@Icons.Material.Filled.LockOpen" Size="Size.Small" Class="mr-1" />
+                @_allItems.Count(i => i.Optional) Optional
+            </MudChip>
+        </div>
+
+        <div class="d-flex gap-2 align-center">
+            @* Search *@
+            <MudTextField @bind-Value="_searchQuery"
+                          @bind-Value:after="ApplyFilters"
+                          Placeholder="Search mods..."
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          Style="width: 200px;" />
+
+            @* Actions *@
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenAddModDialog">
+                Add Mod
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="RefreshAsync"
+                       Disabled="@_loading">
+                @(_loading ? "Scanning..." : "Refresh")
+            </MudButton>
+        </div>
+    </div>
+</MudPaper>
 
 @if (_loading)
 {
     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
-else if (_sourceGroups.Count == 0)
+else if (_filteredGroups.Count == 0)
 {
-    <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
-        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
-        <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No source items found</MudText>
-        <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
-            Add mods to your sync directories (BepInEx/plugins or SPT/user/mods) and refresh.
-        </MudText>
-    </MudPaper>
+    @if (_allItems.Count > 0)
+    {
+        <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
+            <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
+            <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No matching items</MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Try adjusting your search or filter.
+            </MudText>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Class="mt-3" OnClick="ClearFilters">
+                Clear Filters
+            </MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        <MudPaper Class="pa-8 text-center" Style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px;">
+            <MudIcon Icon="@Icons.Material.Filled.FolderOff" Size="Size.Large" Style="color: var(--text-secondary); font-size: 4rem;" />
+            <MudText Typo="Typo.h6" Class="mt-4" Style="color: var(--text-secondary);">No source items found</MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                Add mods to your sync directories or use the "Add Mod" button above.
+            </MudText>
+        </MudPaper>
+    }
 }
 else
 {
     <MudExpansionPanels MultiExpansion="true">
-        @foreach (var group in _sourceGroups)
+        @foreach (var group in _filteredGroups)
         {
             var optionalCount = group.Items.Count(i => i.Optional);
             var requiredCount = group.Items.Count - optionalCount;
@@ -67,7 +142,9 @@ else
                                                OnEdit="EditSourceItem"
                                                OnToggleOptional="ToggleOptional"
                                                OnDelete="DeleteSourceItem"
-                                               OnViewFiles="ViewFiles" />
+                                               OnViewFiles="ViewFiles"
+                                               OnUpdate="HandleUpdate"
+                                               OnReinstall="HandleReinstall" />
                             </MudItem>
                         }
                     </MudGrid>
@@ -82,18 +159,43 @@ else
                       VisibleChanged="HandleDialogVisibilityChanged"
                       Item="_editingItem"
                       OnSave="HandleEditSave"
-                      OnDelete="HandleEditDelete" />
+                      OnDelete="HandleEditDelete"
+                      OnUpdate="HandleUpdate"
+                      OnReinstall="HandleReinstall" />
+
+<!-- Add Mod Dialog -->
+<AddModDialog Visible="@_addModDialogVisible"
+              VisibleChanged="@(v => _addModDialogVisible = v)"
+              OnModsAdded="HandleModsAdded" />
+
+<!-- View Files Dialog -->
+<ViewFilesDialog Visible="@_viewFilesDialogVisible"
+                 VisibleChanged="@(v => _viewFilesDialogVisible = v)"
+                 Item="_viewFilesItem" />
 
 @code {
     [Parameter] public EventCallback OnConfigChanged { get; set; }
 
     private List<SourceGroup> _sourceGroups = new();
+    private List<SourceGroup> _filteredGroups = new();
+    private List<SourceItem> _allItems = new();
     private bool _loading = true;
+
+    // Filter state
+    private string _searchQuery = "";
+    private string? _filterStatus;
 
     // Edit dialog state
     private bool _editDialogVisible;
     private SourceItem? _editingItem;
     private DateTime _dialogClosedAt = DateTime.MinValue;
+
+    // Add mod dialog
+    private bool _addModDialogVisible;
+
+    // View files dialog
+    private bool _viewFilesDialogVisible;
+    private SourceItem? _viewFilesItem;
 
     protected override async Task OnInitializedAsync()
     {
@@ -113,11 +215,93 @@ else
         await Task.Run(() =>
         {
             _sourceGroups = ConfigService.ScanSourceItems();
+            _allItems = _sourceGroups.SelectMany(g => g.Items).ToList();
         });
 
+        ApplyFilters();
         _loading = false;
         StateHasChanged();
     }
+
+    /// <summary>
+    /// Reload state from staged config (called when discarding changes)
+    /// </summary>
+    public void ReloadFromConfig()
+    {
+        _ = RefreshAsync();
+    }
+
+    #region Filtering
+
+    private void SetFilter(string? status)
+    {
+        _filterStatus = status;
+        ApplyFilters();
+    }
+
+    private void ClearFilters()
+    {
+        _searchQuery = "";
+        _filterStatus = null;
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var filteredItems = _allItems.AsEnumerable();
+
+        // Apply status filter
+        if (_filterStatus == "Required")
+            filteredItems = filteredItems.Where(i => !i.Optional);
+        else if (_filterStatus == "Optional")
+            filteredItems = filteredItems.Where(i => i.Optional);
+
+        // Apply search filter
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            var query = _searchQuery.Trim();
+            filteredItems = filteredItems.Where(i =>
+                i.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                i.Path.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Rebuild groups with filtered items
+        var filteredItemsList = filteredItems.ToList();
+        _filteredGroups = _sourceGroups
+            .Select(g => new SourceGroup
+            {
+                SyncRoot = g.SyncRoot,
+                DisplayName = g.DisplayName,
+                Items = g.Items.Where(i => filteredItemsList.Contains(i)).ToList()
+            })
+            .Where(g => g.Items.Count > 0)
+            .ToList();
+
+        StateHasChanged();
+    }
+
+    private string GetStatChipStyle(string? status)
+    {
+        var isActive = _filterStatus == status;
+        var baseStyle = "cursor: pointer; transition: all 0.2s;";
+
+        if (isActive)
+        {
+            var color = status switch
+            {
+                "Required" => "var(--accent-orange)",
+                "Optional" => "var(--accent-green)",
+                _ => "var(--accent-cyan)"
+            };
+            return $"{baseStyle} background: {color}; color: #000; box-shadow: 0 0 12px {color};";
+        }
+
+        return $"{baseStyle} background: var(--secondary-bg); color: var(--text-primary);";
+    }
+
+    #endregion
+
+    #region Edit Dialog
 
     private void EditSourceItem(SourceItem item)
     {
@@ -153,15 +337,147 @@ else
         await DeleteSourceItem(item);
     }
 
+    #endregion
+
+    #region Add Mod Dialog
+
+    private void OpenAddModDialog()
+    {
+        _addModDialogVisible = true;
+    }
+
+    private async Task HandleModsAdded()
+    {
+        await RefreshAsync();
+        await NotifyConfigChanged();
+        Snackbar.Add("Mod(s) added successfully! Click 'Apply Changes' to save.", Severity.Success);
+    }
+
+    #endregion
+
+    #region View Files Dialog
+
+    private void ViewFiles(SourceItem item)
+    {
+        _viewFilesItem = item;
+        _viewFilesDialogVisible = true;
+    }
+
+    #endregion
+
+    #region Update / Reinstall
+
+    private async Task HandleUpdate(SourceItem item)
+    {
+        if (item.Health?.UpdateAvailable != true || string.IsNullOrEmpty(item.Health.UpdateUrl))
+        {
+            Snackbar.Add("No update available or update URL missing", Severity.Warning);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBox(
+            "Update Mod",
+            $"Download and install update for '{item.DisplayName}'?",
+            yesText: "Update",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        await DownloadAndInstallAsync(item.Health.UpdateUrl, item.DisplayName, item.Optional);
+    }
+
+    private async Task HandleReinstall(SourceItem item)
+    {
+        // Try to find on Forge by GUID
+        if (item.Health?.ForgeGuid != null)
+        {
+            Snackbar.Add($"Searching Forge for '{item.DisplayName}'...", Severity.Info);
+
+            var modResult = await ForgeService.GetModByGuidAsync(item.Health.ForgeGuid);
+            if (modResult?.Success == true && modResult.Mod != null)
+            {
+                var latestVersion = modResult.Mod.Versions?.FirstOrDefault();
+                if (latestVersion?.Link != null)
+                {
+                    var confirmed = await DialogService.ShowMessageBox(
+                        "Reinstall Mod",
+                        $"Download and reinstall '{modResult.Mod.Name}' v{latestVersion.Version}?",
+                        yesText: "Reinstall",
+                        cancelText: "Cancel");
+
+                    if (confirmed != true)
+                        return;
+
+                    var downloadUrl = latestVersion.Link.StartsWith("http")
+                        ? latestVersion.Link
+                        : ForgeService.BuildDownloadUrl(modResult.Mod.Id, modResult.Mod.Slug, latestVersion.Version);
+
+                    await DownloadAndInstallAsync(downloadUrl, modResult.Mod.Name, item.Optional);
+                    return;
+                }
+            }
+
+            Snackbar.Add("Could not find mod on Forge. Try using 'Add Mod' to reinstall manually.", Severity.Warning);
+        }
+        else
+        {
+            Snackbar.Add("No Forge GUID detected. Use 'Add Mod' to reinstall manually.", Severity.Warning);
+        }
+    }
+
+    private async Task DownloadAndInstallAsync(string url, string modName, bool optional)
+    {
+        Snackbar.Add($"Downloading {modName}...", Severity.Info);
+
+        try
+        {
+            var downloadResult = await ModDownloadService.DownloadAndExtractAsync(url);
+
+            if (!downloadResult.Success)
+            {
+                Snackbar.Add($"Download failed: {downloadResult.Error}", Severity.Error);
+                return;
+            }
+
+            var installResult = await ModDownloadService.InstallExtractedAsync(
+                downloadResult.ExtractPath!,
+                downloadResult.SuggestedInstallPaths);
+
+            if (downloadResult.TempDir != null)
+            {
+                ModDownloadService.CleanupTempDir(downloadResult.TempDir);
+            }
+
+            if (installResult.Success)
+            {
+                Snackbar.Add($"Successfully installed {installResult.CopiedFiles} files!", Severity.Success);
+                await RefreshAsync();
+                await NotifyConfigChanged();
+            }
+            else
+            {
+                Snackbar.Add($"Install failed: {installResult.Error}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+    }
+
+    #endregion
+
+    #region Actions
+
     private async Task ToggleOptional(SourceItem item)
     {
         try
         {
-            // Use staged operation - changes won't apply until user clicks "Apply Changes"
             await ConfigService.ToggleOptionalStagedAsync(item.Path);
             item.Optional = !item.Optional;
             Snackbar.Add($"'{item.DisplayName}' marked as {(item.Optional ? "optional" : "required")}. Click 'Apply Changes' to save.", Severity.Info);
-            StateHasChanged();
+            ApplyFilters();
             await NotifyConfigChanged();
         }
         catch (Exception ex)
@@ -172,7 +488,6 @@ else
 
     private async Task DeleteSourceItem(SourceItem item)
     {
-        // Check for linked items
         if (item.LinkedTo.Count > 0)
         {
             var result = await DialogService.ShowMessageBox(
@@ -202,11 +517,7 @@ else
         await RefreshAsync();
     }
 
-    private void ViewFiles(SourceItem item)
-    {
-        // TODO: Open a dialog showing the file tree for this source item
-        Snackbar.Add($"Viewing files for '{item.DisplayName}' - coming soon", Severity.Info);
-    }
+    #endregion
 
     private static string FormatSize(long bytes)
     {
@@ -228,5 +539,13 @@ else
 
     .source-group-panel .mud-expand-panel-content {
         padding: 0 !important;
+    }
+
+    .stat-chip {
+        cursor: pointer;
+    }
+
+    .stat-chip:hover {
+        filter: brightness(1.1);
     }
 </style>

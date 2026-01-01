@@ -89,6 +89,11 @@ public class HealthStatus
     public int? ForgeModId { get; set; }
 
     /// <summary>
+    /// Forge GUID detected from DLL metadata
+    /// </summary>
+    public string? ForgeGuid { get; set; }
+
+    /// <summary>
     /// Whether an update is available on Forge
     /// </summary>
     public bool UpdateAvailable { get; set; }
@@ -97,6 +102,11 @@ public class HealthStatus
     /// Latest version available on Forge
     /// </summary>
     public string? LatestVersion { get; set; }
+
+    /// <summary>
+    /// Download URL for the update
+    /// </summary>
+    public string? UpdateUrl { get; set; }
 
     /// <summary>
     /// Any warnings or issues found

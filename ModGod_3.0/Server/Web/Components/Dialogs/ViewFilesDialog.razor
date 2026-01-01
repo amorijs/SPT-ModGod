@@ -1,0 +1,304 @@
+@using ModGod3.Services
+@using ModGod3.Models
+
+@inject ConfigService ConfigService
+
+<MudDialog Visible="Visible" VisibleChanged="OnVisibilityChanged" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
+            Files: @(Item?.DisplayName ?? "Source Item")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_loading)
+        {
+            <div class="d-flex justify-center pa-4">
+                <MudProgressCircular Indeterminate="true" />
+            </div>
+        }
+        else if (Item != null)
+        {
+            <div class="mb-3">
+                <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                    <code class="mono">@Item.Path</code>
+                </MudText>
+                <div class="d-flex gap-3 mt-2">
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" Class="mr-1" />
+                        @_totalFiles files
+                    </MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" />
+                        @_totalDirs directories
+                    </MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" Class="mr-1" />
+                        @FormatSize(_totalSize)
+                    </MudText>
+                </div>
+            </div>
+
+            <MudDivider Class="mb-3" />
+
+            @if (_fileTree != null && _fileTree.Children.Count > 0)
+            {
+                <MudPaper Style="background: var(--secondary-bg); border: 1px solid var(--border-color); max-height: 400px; overflow-y: auto;">
+                    <div class="pa-2">
+                        @foreach (var (node, depth) in GetFlattenedTree())
+                        {
+                            var indent = depth * 20;
+                            var isExpanded = _expandedDirs.Contains(node.RelativePath);
+                            var hasChildren = node.IsDirectory && node.Children.Count > 0;
+                            var capturedNode = node;
+
+                            <div class="d-flex align-center file-row" style="padding-left: @(indent)px; padding: 4px 8px 4px @(indent + 8)px; border-radius: 4px;">
+                                @if (hasChildren)
+                                {
+                                    <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                   Size="Size.Small"
+                                                   Style="padding: 2px; min-width: 24px; color: var(--text-secondary);"
+                                                   OnClick="@(() => ToggleExpand(capturedNode))" />
+                                }
+                                else
+                                {
+                                    <span style="width: 28px;"></span>
+                                }
+
+                                @if (node.IsDirectory)
+                                {
+                                    <MudIcon Icon="@(isExpanded ? Icons.Material.Filled.FolderOpen : Icons.Material.Filled.Folder)"
+                                             Size="Size.Small"
+                                             Class="mr-2"
+                                             Style="color: var(--accent-cyan);" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@GetFileIcon(node.Name)"
+                                             Size="Size.Small"
+                                             Class="mr-2"
+                                             Style="color: var(--text-secondary);" />
+                                }
+
+                                <span class="mono" style="font-size: 13px; color: var(--text-primary); flex: 1;">
+                                    @node.Name
+                                </span>
+
+                                @if (!node.IsDirectory && node.Size > 0)
+                                {
+                                    <span style="font-size: 11px; color: var(--text-secondary);">
+                                        @FormatSize(node.Size)
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </MudPaper>
+            }
+            else if (!Item.IsDirectory)
+            {
+                <MudAlert Severity="Severity.Info">
+                    This is a single file, not a directory.
+                </MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Warning">
+                    Directory is empty or could not be read.
+                </MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .file-row:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+</style>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public SourceItem? Item { get; set; }
+
+    private bool _loading;
+    private FileNode? _fileTree;
+    private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private int _totalFiles;
+    private int _totalDirs;
+    private long _totalSize;
+
+    private class FileNode
+    {
+        public string Name { get; set; } = "";
+        public string RelativePath { get; set; } = "";
+        public bool IsDirectory { get; set; }
+        public long Size { get; set; }
+        public List<FileNode> Children { get; set; } = new();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && Item != null)
+        {
+            await LoadFileTree();
+        }
+    }
+
+    private async Task OnVisibilityChanged(bool visible)
+    {
+        if (!visible)
+        {
+            _fileTree = null;
+            _expandedDirs.Clear();
+        }
+        await VisibleChanged.InvokeAsync(visible);
+    }
+
+    private async Task Close()
+    {
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task LoadFileTree()
+    {
+        if (Item == null) return;
+
+        _loading = true;
+        _totalFiles = 0;
+        _totalDirs = 0;
+        _totalSize = 0;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                var fullPath = Path.Combine(ConfigService.SptRoot, Item.Path.Replace('/', Path.DirectorySeparatorChar));
+                if (Directory.Exists(fullPath))
+                {
+                    _fileTree = BuildTree(fullPath, "");
+                    // Auto-expand first level
+                    if (_fileTree != null)
+                    {
+                        foreach (var child in _fileTree.Children.Where(c => c.IsDirectory))
+                        {
+                            _expandedDirs.Add(child.RelativePath);
+                        }
+                    }
+                }
+            });
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private FileNode BuildTree(string fullPath, string relativePath)
+    {
+        var name = Path.GetFileName(fullPath);
+        var node = new FileNode
+        {
+            Name = name,
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        try
+        {
+            // Directories first
+            foreach (var dir in Directory.GetDirectories(fullPath).OrderBy(Path.GetFileName))
+            {
+                var dirName = Path.GetFileName(dir);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? dirName : $"{relativePath}/{dirName}";
+                var child = BuildTree(dir, childRelPath);
+                node.Children.Add(child);
+                _totalDirs++;
+            }
+
+            // Then files
+            foreach (var file in Directory.GetFiles(fullPath).OrderBy(Path.GetFileName))
+            {
+                var fileName = Path.GetFileName(file);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? fileName : $"{relativePath}/{fileName}";
+                var fileInfo = new FileInfo(file);
+                node.Children.Add(new FileNode
+                {
+                    Name = fileName,
+                    RelativePath = childRelPath,
+                    IsDirectory = false,
+                    Size = fileInfo.Length
+                });
+                _totalFiles++;
+                _totalSize += fileInfo.Length;
+            }
+        }
+        catch { /* Ignore permission errors */ }
+
+        return node;
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_fileTree?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            result.Add((node, depth));
+            if (!node.IsDirectory || !_expandedDirs.Contains(node.RelativePath)) return;
+
+            foreach (var child in node.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+            {
+                Flatten(child, depth + 1);
+            }
+        }
+
+        foreach (var child in _fileTree.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private void ToggleExpand(FileNode node)
+    {
+        if (_expandedDirs.Contains(node.RelativePath))
+            _expandedDirs.Remove(node.RelativePath);
+        else
+            _expandedDirs.Add(node.RelativePath);
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        return bytes switch
+        {
+            >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:F1} GB",
+            >= 1_048_576 => $"{bytes / 1_048_576.0:F1} MB",
+            >= 1_024 => $"{bytes / 1_024.0:F1} KB",
+            _ => $"{bytes} B"
+        };
+    }
+
+    private static string GetFileIcon(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".dll" or ".exe" => Icons.Material.Filled.Memory,
+            ".json" or ".yaml" or ".yml" or ".xml" => Icons.Material.Filled.DataObject,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" => Icons.Material.Filled.Image,
+            ".txt" or ".md" or ".log" => Icons.Material.Filled.Description,
+            ".cs" or ".js" or ".ts" => Icons.Material.Filled.Code,
+            ".zip" or ".7z" or ".rar" => Icons.Material.Filled.FolderZip,
+            _ => Icons.Material.Filled.InsertDriveFile
+        };
+    }
+}
