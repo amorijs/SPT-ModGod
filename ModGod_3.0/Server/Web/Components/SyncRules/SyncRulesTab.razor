@@ -18,12 +18,13 @@
     <div class="mb-4">
         @foreach (var root in _syncRoots)
         {
+            var isDefault = DefaultSyncRoots.Roots.Contains(root);
             <MudChip T="string" 
                      Size="Size.Medium" 
                      Color="Color.Primary" 
                      Variant="Variant.Outlined" 
                      Class="mr-2 mb-2"
-                     OnClose="@(DefaultSyncRoots.Roots.Contains(root) ? null : () => RemoveSyncRoot(root))">
+                     OnClose="@(isDefault ? null : async () => await RemoveSyncRoot(root))">
                 <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" />
                 @root
             </MudChip>
@@ -34,7 +35,7 @@
         <MudTextField @bind-Value="_newSyncRoot"
                       Placeholder="Add additional sync root (e.g., custom/path)"
                       Variant="Variant.Outlined"
-                      Size="Size.Small"
+                      Margin="Margin.Dense"
                       Style="max-width: 400px;" />
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
@@ -99,7 +100,7 @@
                          Color="Color.Default"
                          Variant="Variant.Outlined"
                          Class="mr-2 mb-2"
-                         OnClose="@(() => RemoveExclusion(exclusion))">
+                         OnClose="@(async () => await RemoveExclusion(exclusion))">
                     @exclusion
                 </MudChip>
             }
@@ -110,7 +111,7 @@
         <MudTextField @bind-Value="_newExclusion"
                       Placeholder="Add exclusion pattern (e.g., **/*.log)"
                       Variant="Variant.Outlined"
-                      Size="Size.Small"
+                      Margin="Margin.Dense"
                       Style="max-width: 400px;" />
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
@@ -123,6 +124,8 @@
 </MudPaper>
 
 @code {
+    [Parameter] public EventCallback OnConfigChanged { get; set; }
+
     private List<string> _syncRoots = new();
     private List<string> _customExclusions = new();
     private bool _useDefaultExclusions = true;
@@ -134,11 +137,25 @@
         LoadFromConfig();
     }
 
+    private async Task NotifyConfigChanged()
+    {
+        await OnConfigChanged.InvokeAsync();
+    }
+
     private void LoadFromConfig()
     {
-        _syncRoots = ConfigService.GetEffectiveSyncRoots();
-        _customExclusions = ConfigService.Config.SyncRules?.Exclusions ?? new List<string>();
-        _useDefaultExclusions = ConfigService.Config.SyncRules?.UseDefaultExclusions ?? true;
+        _syncRoots = ConfigService.GetEffectiveSyncRootsStaged();
+        _customExclusions = ConfigService.StagedConfig.SyncRules?.Exclusions?.ToList() ?? new List<string>();
+        _useDefaultExclusions = ConfigService.StagedConfig.SyncRules?.UseDefaultExclusions ?? true;
+    }
+
+    /// <summary>
+    /// Reload settings from staged config (called when discarding changes)
+    /// </summary>
+    public void ReloadFromConfig()
+    {
+        LoadFromConfig();
+        StateHasChanged();
     }
 
     private async Task AddSyncRoot()
@@ -153,14 +170,11 @@
             return;
         }
 
-        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
-        ConfigService.Config.SyncRules.AdditionalRoots ??= new List<string>();
-        ConfigService.Config.SyncRules.AdditionalRoots.Add(normalized);
-
-        await ConfigService.SaveConfigAsync();
-        _syncRoots = ConfigService.GetEffectiveSyncRoots();
+        await ConfigService.AddSyncRootStagedAsync(normalized);
+        _syncRoots = ConfigService.GetEffectiveSyncRootsStaged();
         _newSyncRoot = string.Empty;
-        Snackbar.Add("Sync root added", Severity.Success);
+        Snackbar.Add("Sync root added. Click 'Apply Changes' to save.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
     private async Task RemoveSyncRoot(string root)
@@ -171,19 +185,18 @@
             return;
         }
 
-        ConfigService.Config.SyncRules?.AdditionalRoots?.Remove(root);
-        await ConfigService.SaveConfigAsync();
-        _syncRoots = ConfigService.GetEffectiveSyncRoots();
-        Snackbar.Add("Sync root removed", Severity.Info);
+        await ConfigService.RemoveSyncRootStagedAsync(root);
+        _syncRoots = ConfigService.GetEffectiveSyncRootsStaged();
+        Snackbar.Add("Sync root removed. Click 'Apply Changes' to save.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
     private async Task ToggleDefaultExclusions(bool value)
     {
         _useDefaultExclusions = value;
-        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
-        ConfigService.Config.SyncRules.UseDefaultExclusions = value;
-        await ConfigService.SaveConfigAsync();
-        Snackbar.Add(value ? "Default exclusions enabled" : "Default exclusions disabled", Severity.Info);
+        await ConfigService.SetDefaultExclusionsStagedAsync(value);
+        Snackbar.Add((value ? "Default exclusions enabled" : "Default exclusions disabled") + ". Click 'Apply Changes' to save.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
     private async Task AddExclusion()
@@ -198,21 +211,18 @@
             return;
         }
 
-        ConfigService.Config.SyncRules ??= new SyncRulesConfig();
-        ConfigService.Config.SyncRules.Exclusions ??= new List<string>();
-        ConfigService.Config.SyncRules.Exclusions.Add(normalized);
-        _customExclusions = ConfigService.Config.SyncRules.Exclusions;
-
-        await ConfigService.SaveConfigAsync();
+        await ConfigService.AddExclusionStagedAsync(normalized);
+        _customExclusions = ConfigService.StagedConfig.SyncRules?.Exclusions?.ToList() ?? new List<string>();
         _newExclusion = string.Empty;
-        Snackbar.Add("Exclusion pattern added", Severity.Success);
+        Snackbar.Add("Exclusion pattern added. Click 'Apply Changes' to save.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
     private async Task RemoveExclusion(string exclusion)
     {
-        ConfigService.Config.SyncRules?.Exclusions?.Remove(exclusion);
-        _customExclusions = ConfigService.Config.SyncRules?.Exclusions ?? new List<string>();
-        await ConfigService.SaveConfigAsync();
-        Snackbar.Add("Exclusion pattern removed", Severity.Info);
+        await ConfigService.RemoveExclusionStagedAsync(exclusion);
+        _customExclusions = ConfigService.StagedConfig.SyncRules?.Exclusions?.ToList() ?? new List<string>();
+        Snackbar.Add("Exclusion pattern removed. Click 'Apply Changes' to save.", Severity.Info);
+        await NotifyConfigChanged();
     }
 }

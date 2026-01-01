@@ -18,39 +18,91 @@ else if (_sourceGroups.Count == 0)
 }
 else
 {
-    @foreach (var group in _sourceGroups)
-    {
-        <MudPaper Class="pa-4 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
-            <div class="d-flex justify-space-between align-center mb-3">
-                <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
-                    <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="vertical-align: middle;" />
-                    @group.DisplayName
-                </MudText>
-                <MudChip T="string" Size="Size.Small" Color="Color.Primary">@group.Items.Count items</MudChip>
-            </div>
+    <MudExpansionPanels MultiExpansion="true">
+        @foreach (var group in _sourceGroups)
+        {
+            var optionalCount = group.Items.Count(i => i.Optional);
+            var requiredCount = group.Items.Count - optionalCount;
+            var totalSize = group.Items.Sum(i => i.TotalSize);
 
-            <MudGrid>
-                @foreach (var item in group.Items)
-                {
-                    <MudItem xs="12" sm="6" md="4">
-                        <SourceItemCard Item="@item"
-                                       OnToggleOptional="ToggleOptional"
-                                       OnDelete="DeleteSourceItem"
-                                       OnViewFiles="ViewFiles" />
-                    </MudItem>
-                }
-            </MudGrid>
-        </MudPaper>
-    }
+            <MudExpansionPanel Class="mb-4 source-group-panel" IsInitiallyExpanded="true"
+                               Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px !important;">
+                <TitleContent>
+                    <div class="d-flex justify-space-between align-center" style="width: 100%;">
+                        <div class="d-flex align-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Style="color: var(--accent-cyan);" />
+                            <MudText Typo="Typo.h6" Style="color: var(--text-primary); font-weight: 600;">
+                                @group.DisplayName
+                            </MudText>
+                        </div>
+                        <div class="d-flex gap-2 align-center mr-2">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
+                                @group.Items.Count items
+                            </MudChip>
+                            @if (requiredCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">
+                                    @requiredCount required
+                                </MudChip>
+                            }
+                            @if (optionalCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
+                                    @optionalCount optional
+                                </MudChip>
+                            }
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Text"
+                                     Style="background: var(--secondary-bg);">
+                                @FormatSize(totalSize)
+                            </MudChip>
+                        </div>
+                    </div>
+                </TitleContent>
+                <ChildContent>
+                    <MudGrid Class="pa-2">
+                        @foreach (var item in group.Items)
+                        {
+                            <MudItem xs="12" sm="6" md="4">
+                                <SourceItemCard Item="@item"
+                                               OnEdit="EditSourceItem"
+                                               OnToggleOptional="ToggleOptional"
+                                               OnDelete="DeleteSourceItem"
+                                               OnViewFiles="ViewFiles" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
 }
 
+<!-- Edit Source Item Dialog -->
+<EditSourceItemDialog Visible="@_editDialogVisible"
+                      VisibleChanged="HandleDialogVisibilityChanged"
+                      Item="_editingItem"
+                      OnSave="HandleEditSave"
+                      OnDelete="HandleEditDelete" />
+
 @code {
+    [Parameter] public EventCallback OnConfigChanged { get; set; }
+
     private List<SourceGroup> _sourceGroups = new();
     private bool _loading = true;
+
+    // Edit dialog state
+    private bool _editDialogVisible;
+    private SourceItem? _editingItem;
+    private DateTime _dialogClosedAt = DateTime.MinValue;
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+    }
+
+    private async Task NotifyConfigChanged()
+    {
+        await OnConfigChanged.InvokeAsync();
     }
 
     public async Task RefreshAsync()
@@ -67,14 +119,50 @@ else
         StateHasChanged();
     }
 
+    private void EditSourceItem(SourceItem item)
+    {
+        // Guard against reopening immediately after backdrop close
+        if ((DateTime.Now - _dialogClosedAt).TotalMilliseconds < 200)
+            return;
+
+        _editingItem = item;
+        _editDialogVisible = true;
+    }
+
+    private void HandleDialogVisibilityChanged(bool visible)
+    {
+        _editDialogVisible = visible;
+        if (!visible)
+        {
+            _dialogClosedAt = DateTime.Now;
+        }
+    }
+
+    private async Task HandleEditSave(SourceItem item)
+    {
+        _editDialogVisible = false;
+        _editingItem = null;
+        await RefreshAsync();
+        await NotifyConfigChanged();
+    }
+
+    private async Task HandleEditDelete(SourceItem item)
+    {
+        _editDialogVisible = false;
+        _editingItem = null;
+        await DeleteSourceItem(item);
+    }
+
     private async Task ToggleOptional(SourceItem item)
     {
         try
         {
-            await ConfigService.ToggleOptionalAsync(item.Path);
+            // Use staged operation - changes won't apply until user clicks "Apply Changes"
+            await ConfigService.ToggleOptionalStagedAsync(item.Path);
             item.Optional = !item.Optional;
-            Snackbar.Add($"'{item.DisplayName}' is now {(item.Optional ? "optional" : "required")}", Severity.Info);
+            Snackbar.Add($"'{item.DisplayName}' marked as {(item.Optional ? "optional" : "required")}. Click 'Apply Changes' to save.", Severity.Info);
             StateHasChanged();
+            await NotifyConfigChanged();
         }
         catch (Exception ex)
         {
@@ -119,4 +207,26 @@ else
         // TODO: Open a dialog showing the file tree for this source item
         Snackbar.Add($"Viewing files for '{item.DisplayName}' - coming soon", Severity.Info);
     }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
 }
+
+<style>
+    .source-group-panel {
+        overflow: hidden;
+    }
+
+    .source-group-panel .mud-expand-panel-header {
+        background: transparent !important;
+    }
+
+    .source-group-panel .mud-expand-panel-content {
+        padding: 0 !important;
+    }
+</style>

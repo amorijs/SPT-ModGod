@@ -59,6 +59,13 @@ public class SourceItemMetadata
     /// </summary>
     [JsonPropertyName("linkedTo")]
     public List<string> LinkedTo { get; set; } = new();
+
+    /// <summary>
+    /// Files/directories within this source item to exclude from syncing.
+    /// Paths are relative to the source item root (e.g., "config/local.json", "cache/**").
+    /// </summary>
+    [JsonPropertyName("exclusions")]
+    public List<string> Exclusions { get; set; } = new();
 }
 
 /// <summary>

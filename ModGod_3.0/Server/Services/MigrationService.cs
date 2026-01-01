@@ -71,9 +71,18 @@ public class MigrationService
 
             // Migrate mod entries to source metadata
             var migratedSources = 0;
+            var syncRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "BepInEx/plugins",
+                "SPT/user/mods"
+            };
+
             foreach (var mod in legacyConfig.ModList.Where(m => m.Status == LegacyModStatus.Installed))
             {
-                // Extract install paths and create source metadata
+                // Collect all source paths for this mod (from both InstallPaths and InstalledFiles)
+                var modSourcePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Extract from install paths
                 foreach (var installPath in mod.InstallPaths)
                 {
                     if (installPath.Length < 2) continue;
@@ -94,6 +103,8 @@ public class MigrationService
                         continue;
                     }
 
+                    modSourcePaths.Add(targetPath);
+
                     // Create metadata entry
                     if (!newConfig.Sources.ContainsKey(targetPath))
                     {
@@ -108,23 +119,72 @@ public class MigrationService
                     }
                 }
 
-                // If mod has multiple install paths, create links between them
-                if (mod.InstallPaths.Count > 1)
+                // Auto-link from installedFiles array
+                // Extract parent directories that are direct children of sync roots
+                if (mod.InstalledFiles?.Count > 0)
                 {
-                    var paths = mod.InstallPaths
-                        .Where(p => p.Length >= 2)
-                        .Select(p => p[1].Replace("<SPT_ROOT>", "").Replace("\\", "/").TrimStart('/'))
-                        .Where(p => newConfig.Sources.ContainsKey(p))
-                        .ToList();
-
-                    foreach (var path in paths)
+                    foreach (var filePath in mod.InstalledFiles)
                     {
-                        var otherPaths = paths.Where(p => p != path).ToList();
-                        if (newConfig.Sources.TryGetValue(path, out var meta))
+                        var normalizedPath = filePath.Replace("\\", "/").TrimStart('/');
+
+                        // Find which sync root this file belongs to
+                        foreach (var root in syncRoots)
                         {
-                            meta.LinkedTo = otherPaths;
+                            if (!normalizedPath.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            // Get the path relative to the sync root
+                            var relativePath = normalizedPath.Substring(root.Length + 1);
+                            
+                            // Get the first directory component (the source item)
+                            var firstSlash = relativePath.IndexOf('/');
+                            var sourceItemName = firstSlash > 0 ? relativePath.Substring(0, firstSlash) : relativePath;
+                            var sourceItemPath = $"{root}/{sourceItemName}";
+
+                            // Check if this source item exists on disk
+                            var fullPath = Path.Combine(_configService.SptRoot, sourceItemPath.Replace('/', Path.DirectorySeparatorChar));
+                            if (!Directory.Exists(fullPath) && !File.Exists(fullPath))
+                                continue;
+
+                            modSourcePaths.Add(sourceItemPath);
+
+                            // Create metadata entry if not exists
+                            if (!newConfig.Sources.ContainsKey(sourceItemPath))
+                            {
+                                newConfig.Sources[sourceItemPath] = new SourceItemMetadata
+                                {
+                                    DisplayName = mod.ModName,
+                                    Optional = mod.Optional,
+                                    LinkedTo = new List<string>()
+                                };
+                                migratedSources++;
+                                _logger.Info($"Migrated source from installedFiles: {sourceItemPath} ({mod.ModName})");
+                            }
+                            break;
                         }
                     }
+                }
+
+                // Create bidirectional links between all source paths from this mod
+                if (modSourcePaths.Count > 1)
+                {
+                    var pathList = modSourcePaths.ToList();
+                    foreach (var path in pathList)
+                    {
+                        var otherPaths = pathList.Where(p => !p.Equals(path, StringComparison.OrdinalIgnoreCase)).ToList();
+                        if (newConfig.Sources.TryGetValue(path, out var meta))
+                        {
+                            // Merge with existing links (don't overwrite)
+                            foreach (var other in otherPaths)
+                            {
+                                if (!meta.LinkedTo.Contains(other, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    meta.LinkedTo.Add(other);
+                                }
+                            }
+                        }
+                    }
+                    _logger.Info($"Auto-linked {pathList.Count} source items for mod: {mod.ModName}");
                 }
             }
 

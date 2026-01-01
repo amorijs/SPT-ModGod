@@ -11,57 +11,112 @@
     <style>
         /* Dark Mode (default) */
         :root, .theme-dark {
-            --primary-bg: #0F0F0F;
-            --secondary-bg: #141414;
-            --card-bg: #1A1A1A;
-            --glass-bg: rgba(26, 26, 26, 0.8);
-            --appbar-bg: #141414;
+            --primary-bg: #050505;
+            --secondary-bg: #0a0a0a;
+            --card-bg: rgba(22, 27, 34, 0.6);
+            --glass-bg: rgba(22, 27, 34, 0.4);
+            --appbar-bg: rgba(10, 10, 10, 0.8);
             
-            --accent-cyan: #38BDF8;
-            --accent-purple: #A855F7;
-            --accent-green: #4ADE80;
-            --accent-orange: #FBBF24;
-            --accent-red: #F87171;
+            --accent-cyan: #38bdf8;
+            --accent-purple: #a855f7;
+            --accent-green: #4ade80;
+            --accent-orange: #fbbf24;
+            --accent-red: #f87171;
             
-            --text-primary: #FFFFFF;
-            --text-secondary: rgba(255, 255, 255, 0.7);
-            --text-muted: rgba(255, 255, 255, 0.5);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
             
-            --border-color: rgba(255, 255, 255, 0.1);
-            --border-hover: rgba(255, 255, 255, 0.2);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --shadow-subtle: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+            --shadow-glow: 0 0 15px rgba(56, 189, 248, 0.15);
+            --glass-blur: blur(12px);
+            
+            --bg-gradient: radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.03) 0%, transparent 25%),
+                           radial-gradient(circle at 85% 30%, rgba(74, 222, 128, 0.03) 0%, transparent 25%);
         }
         
         /* Light Mode */
         .theme-light {
-            --primary-bg: #FFFFFF;
-            --secondary-bg: #F8FAFC;
-            --card-bg: #FFFFFF;
-            --glass-bg: rgba(248, 250, 252, 0.9);
-            --appbar-bg: #FFFFFF;
+            /* Warm, stone-based palette */
+            --primary-bg: #fafaf9;
+            --secondary-bg: #f5f5f4;
+            --card-bg: #ffffff;
+            --glass-bg: rgba(255, 255, 255, 0.9);
+            --appbar-bg: rgba(255, 255, 255, 0.8);
             
-            --accent-cyan: #0284C7;
-            --accent-purple: #9333EA;
-            --accent-green: #16A34A;
-            --accent-orange: #D97706;
-            --accent-red: #DC2626;
+            --accent-cyan: #0e7490;
+            --accent-purple: #9333ea;
+            --accent-green: #15803d;
+            --accent-orange: #c2410c;
+            --accent-red: #be123c;
             
-            --text-primary: #1E293B;
-            --text-secondary: #64748B;
-            --text-muted: #94A3B8;
+            --text-primary: #1c1917;
+            --text-secondary: #57534e;
+            --text-muted: #a8a29e;
             
-            --border-color: #E2E8F0;
-            --border-hover: #CBD5E1;
+            --border-color: #e7e5e4;
+            --border-hover: #d6d3d1;
+            --shadow-subtle: 0 2px 8px -2px rgba(0, 0, 0, 0.05), 0 1px 4px -2px rgba(0, 0, 0, 0.02);
+            --shadow-glow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+            --glass-blur: blur(12px);
+            
+            --bg-gradient: radial-gradient(circle at 50% 0%, rgba(120, 113, 108, 0.03) 0%, transparent 50%);
         }
 
         body {
             background: var(--primary-bg);
+            background-image: var(--bg-gradient);
+            background-attachment: fixed;
             transition: background 0.3s ease;
         }
 
+        .mono {
+            font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+        }
+        
         .glass-panel {
             background: var(--glass-bg);
-            backdrop-filter: blur(12px);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
             border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-subtle);
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+
+        .gradient-border {
+            border: 1px solid transparent;
+            background: linear-gradient(var(--secondary-bg), var(--secondary-bg)) padding-box,
+                        linear-gradient(135deg, rgba(56, 189, 248, 0.5), rgba(74, 222, 128, 0.5)) border-box;
+        }
+
+        .glow-cyan {
+            box-shadow: var(--shadow-glow);
+        }
+        
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--primary-bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+        
+        /* Theme toggle button */
+        .theme-toggle {
+            transition: transform 0.3s ease;
+        }
+        .theme-toggle:hover {
+            transform: rotate(15deg);
         }
     </style>
     <script>
@@ -78,20 +133,21 @@
 <MudDialogProvider />
 
 <MudLayout>
-    <MudAppBar Dense Elevation="0" Style="background: var(--appbar-bg); border-bottom: 1px solid var(--border-color);">
-        <MudText Typo="Typo.h5" Style="color: var(--accent-cyan); font-weight: 800; letter-spacing: -0.5px;">
-            ModGod 3.0
-        </MudText>
+    <MudAppBar Dense Elevation="0" Style="background: var(--appbar-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color);">
+        <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Large" Style="color: var(--accent-cyan); filter: drop-shadow(0 0 5px rgba(56,189,248,0.5));" Class="mr-2" />
+        <MudText Typo="Typo.h5" Style="color: var(--text-primary); font-weight: 700; letter-spacing: -0.5px;">ModGod</MudText>
+        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="ml-2" Style="font-size: 10px;">3.0</MudChip>
         <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--text-secondary); align-self: flex-end; margin-bottom: 4px; font-family: monospace;">@Version</MudText>
         <MudSpacer/>
         <MudTooltip Text="@(_isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode")">
             <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
                            Color="Color.Inherit" 
                            OnClick="ToggleTheme"
+                           Class="theme-toggle"
                            Style="color: var(--text-secondary);" />
         </MudTooltip>
     </MudAppBar>
-    <MudMainContent Class="pt-4 px-4" Style="min-height: calc(100vh - 48px); background: linear-gradient(180deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);">
+    <MudMainContent Class="pt-4 px-4" Style="min-height: calc(100vh - 48px);">
         @Body
     </MudMainContent>
 </MudLayout>
@@ -118,35 +174,69 @@
     {
         PaletteLight = new PaletteLight()
         {
-            Primary = "#0284C7",
-            Secondary = "#9333EA",
-            Tertiary = "#D97706",
-            Background = "#FFFFFF",
-            Surface = "#F8FAFC",
-            DrawerBackground = "#F1F5F9",
-            AppbarBackground = "#FFFFFF",
-            TextPrimary = "#1E293B",
-            TextSecondary = "#64748B",
-            Success = "#16A34A",
-            Info = "#0284C7",
-            Warning = "#D97706",
-            Error = "#DC2626",
+            Primary = "#0e7490",
+            Secondary = "#15803d",
+            Tertiary = "#c2410c",
+            Background = "#fafaf9",
+            Surface = "#ffffff",
+            DrawerBackground = "#f5f5f4",
+            DrawerText = "#1c1917",
+            DrawerIcon = "#57534e",
+            AppbarBackground = "#ffffff",
+            AppbarText = "#1c1917",
+            TextPrimary = "#1c1917",
+            TextSecondary = "#57534e",
+            TextDisabled = "#a8a29e",
+            ActionDefault = "#57534e",
+            ActionDisabled = "#d6d3d1",
+            ActionDisabledBackground = "#e7e5e4",
+            LinesDefault = "rgba(0, 0, 0, 0.06)",
+            TableLines = "rgba(0, 0, 0, 0.06)",
+            Divider = "rgba(0, 0, 0, 0.06)",
+            Success = "#15803d",
+            Info = "#0e7490",
+            Warning = "#c2410c",
+            Error = "#be123c",
+            PrimaryContrastText = "#ffffff",
+            SecondaryContrastText = "#ffffff",
+            TertiaryContrastText = "#ffffff",
+            SuccessContrastText = "#ffffff",
+            InfoContrastText = "#ffffff",
+            WarningContrastText = "#ffffff",
+            ErrorContrastText = "#ffffff",
         },
         PaletteDark = new PaletteDark()
         {
-            Primary = "#38BDF8",
-            Secondary = "#A855F7",
-            Tertiary = "#FBBF24",
-            Background = "#0F0F0F",
-            Surface = "#1A1A1A",
-            DrawerBackground = "#141414",
-            AppbarBackground = "#141414",
-            TextPrimary = "#FFFFFF",
-            TextSecondary = "#94A3B8",
-            Success = "#4ADE80",
-            Info = "#38BDF8",
-            Warning = "#FBBF24",
-            Error = "#F87171",
+            Primary = "#38bdf8",
+            Secondary = "#4ade80",
+            Tertiary = "#fbbf24",
+            Background = "#050505",
+            Surface = "#0a0a0a",
+            DrawerBackground = "#0a0a0a",
+            DrawerText = "#f8fafc",
+            DrawerIcon = "#94a3b8",
+            AppbarBackground = "#0a0a0a",
+            AppbarText = "#f8fafc",
+            TextPrimary = "#f8fafc",
+            TextSecondary = "#94a3b8",
+            TextDisabled = "#64748b",
+            ActionDefault = "#94a3b8",
+            ActionDisabled = "#475569",
+            ActionDisabledBackground = "#1e293b",
+            LinesDefault = "rgba(255, 255, 255, 0.08)",
+            TableLines = "rgba(255, 255, 255, 0.08)",
+            Divider = "rgba(255, 255, 255, 0.08)",
+            Success = "#4ade80",
+            Info = "#38bdf8",
+            Warning = "#fbbf24",
+            Error = "#f87171",
+            PrimaryContrastText = "#000000",
+            SecondaryContrastText = "#000000",
+            TertiaryContrastText = "#000000",
+            SuccessContrastText = "#000000",
+            InfoContrastText = "#000000",
+            WarningContrastText = "#000000",
+            ErrorContrastText = "#000000",
         },
     };
 }

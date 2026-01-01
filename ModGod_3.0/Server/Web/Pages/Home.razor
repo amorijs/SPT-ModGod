@@ -23,10 +23,18 @@
                     <MudIconButton Icon="@Icons.Material.Filled.Refresh"
                                    Color="Color.Default"
                                    OnClick="RefreshSources"
+                                   Disabled="@_isApplying"
                                    Style="color: var(--text-secondary);" />
                 </MudTooltip>
             </div>
         </div>
+
+        @if (ConfigService.HasPendingChanges())
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-4" Dense="true">
+                You have unsaved changes. Click "Apply Changes" to save.
+            </MudAlert>
+        }
     </MudPaper>
 
     <MudTabs ActivePanelIndex="@_activeTabIndex"
@@ -35,17 +43,17 @@
         
         <!-- Sources Tab -->
         <MudTabPanel Text="Sources" Class="mt-4">
-            <SourcesTab @ref="_sourcesTab" />
+            <SourcesTab @ref="_sourcesTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <!-- Sync Rules Tab -->
         <MudTabPanel Text="Sync Rules" Class="mt-4">
-            <SyncRulesTab />
+            <SyncRulesTab @ref="_syncRulesTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
 
         <!-- Settings Tab -->
         <MudTabPanel Text="Settings" Class="mt-4">
-            <SettingsTab />
+            <SettingsTab @ref="_settingsTab" OnConfigChanged="StateHasChanged" />
         </MudTabPanel>
     </MudTabs>
 </MudContainer>
@@ -53,10 +61,54 @@
 <!-- Migration Dialog (blocks UI until complete) -->
 <MigrationDialog @bind-Visible="_showMigrationDialog" OnMigrationComplete="OnMigrationComplete" />
 
+<!-- Floating Apply/Discard Footer -->
+@if (ConfigService.HasPendingChanges())
+{
+    <div class="floating-action-footer visible">
+        <div class="floating-action-content">
+            <div class="floating-action-info">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="color: var(--accent-orange);" />
+                <span>You have unsaved changes</span>
+            </div>
+            <div class="floating-action-buttons">
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Undo"
+                           Color="Color.Default"
+                           Size="Size.Large"
+                           Style="font-weight: 600; border-color: var(--border-color); color: var(--text-secondary);"
+                           OnClick="DiscardChanges"
+                           Disabled="@_isApplying">
+                    Discard
+                </MudButton>
+                <MudButton Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Save"
+                           Color="Color.Success"
+                           Size="Size.Medium"
+                           Style="font-weight: 600; box-shadow: 0 0 8px rgba(74, 222, 128, 0.3);"
+                           OnClick="ApplyChanges"
+                           Disabled="@_isApplying">
+                    @if (_isApplying)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <span>Applying...</span>
+                    }
+                    else
+                    {
+                        <span>Apply Changes</span>
+                    }
+                </MudButton>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private int _activeTabIndex = 0;
     private bool _showMigrationDialog;
+    private bool _isApplying;
     private SourcesTab? _sourcesTab;
+    private SyncRulesTab? _syncRulesTab;
+    private SettingsTab? _settingsTab;
 
     protected override void OnInitialized()
     {
@@ -87,4 +139,149 @@
         Snackbar.Add("Configuration ready!", Severity.Success);
         StateHasChanged();
     }
+
+    private async Task ApplyChanges()
+    {
+        _isApplying = true;
+        StateHasChanged();
+
+        try
+        {
+            await ConfigService.ApplyChangesAsync();
+            Snackbar.Add("Changes applied successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error applying changes: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isApplying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DiscardChanges()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Discard Changes",
+            "This will discard all unsaved changes and reset to the last saved state. Continue?",
+            yesText: "Discard", cancelText: "Cancel");
+
+        if (result == true)
+        {
+            await ConfigService.ResetStagedConfigAsync();
+
+            // Refresh all tabs to show reset state
+            if (_sourcesTab != null)
+            {
+                await _sourcesTab.RefreshAsync();
+            }
+            _syncRulesTab?.ReloadFromConfig();
+            _settingsTab?.ReloadFromConfig();
+
+            Snackbar.Add("Changes discarded.", Severity.Info);
+            StateHasChanged();
+        }
+    }
 }
+
+<style>
+    /* Floating Action Footer */
+    .floating-action-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        padding: 12px 24px;
+        background: rgba(20, 20, 20, 0.95);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(12px);
+        overflow: hidden;
+        transform: translateY(100%);
+        opacity: 0;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    }
+
+    .floating-action-footer.visible {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    /* Border Light Animation */
+    .floating-action-footer::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 1px;
+        width: 100%;
+        background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(56, 189, 248, 0) 40%,
+            rgba(56, 189, 248, 1) 50%,
+            rgba(168, 85, 247, 0) 60%,
+            transparent 100%
+        );
+        box-shadow: 0 0 10px 1px rgba(56, 189, 248, 0.4);
+        z-index: 1001;
+        transform: translateX(-100%);
+        animation: border-scan 8s ease-in-out infinite;
+        animation-delay: 0.5s;
+    }
+
+    @@keyframes border-scan {
+        0% {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+        10% {
+            opacity: 1;
+        }
+        30% {
+            transform: translateX(100%);
+            opacity: 1;
+        }
+        31%, 100% {
+            opacity: 0;
+            transform: translateX(100%);
+        }
+    }
+
+    .floating-action-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .floating-action-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .floating-action-buttons {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    @@media (max-width: 600px) {
+        .floating-action-content {
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .floating-action-info {
+            font-size: 0.75rem;
+        }
+    }
+</style>

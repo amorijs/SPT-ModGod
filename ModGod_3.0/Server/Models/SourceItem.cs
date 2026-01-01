@@ -37,6 +37,12 @@ public class SourceItem
     public List<string> LinkedTo { get; set; } = new();
 
     /// <summary>
+    /// Files/directories within this source item to exclude from syncing.
+    /// Paths are relative to the source item root.
+    /// </summary>
+    public List<string> Exclusions { get; set; } = new();
+
+    /// <summary>
     /// Health check status (loaded async)
     /// </summary>
     public HealthStatus? Health { get; set; }

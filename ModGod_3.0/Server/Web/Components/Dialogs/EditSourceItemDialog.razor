@@ -4,7 +4,7 @@
 @inject ConfigService ConfigService
 @inject ISnackbar Snackbar
 
-<MudDialog @bind-Visible="Visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
+<MudDialog Visible="Visible" VisibleChanged="OnMudDialogVisibilityChanged" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true })">
     <TitleContent>
         <div class="d-flex justify-space-between align-center" style="width: 100%;">
             <MudText Typo="Typo.h6" Style="color: var(--text-primary);">Edit Source Item</MudText>
@@ -125,6 +125,131 @@
                     </MudPaper>
                 }
             </div>
+
+            <MudDivider Class="my-4" />
+
+            @* Per-Item Sync Exclusions Section *@
+            <MudExpansionPanels>
+                <MudExpansionPanel IsInitiallyExpanded="true" Style="background: var(--secondary-bg); border: 1px solid var(--border-color);">
+                    <TitleContent>
+                        <div class="d-flex align-center">
+                            <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Style="color: var(--accent-orange);" />
+                            <MudText Typo="Typo.subtitle1" Style="font-weight: 600; color: var(--text-primary);">
+                                Sync Exclusions
+                            </MudText>
+                            @if (_exclusions.Count > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Class="ml-2" Color="Color.Warning">
+                                    @_exclusions.Count excluded
+                                </MudChip>
+                            }
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                            Exclude specific files or folders from syncing to clients. Click to toggle.
+                        </MudText>
+
+                        <div class="d-flex gap-2 mb-3">
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Size="Size.Small"
+                                       Disabled="_fileTreeLoading"
+                                       OnClick="LoadFileTreeAsync">
+                                @(_fileTreeLoading ? "Scanning..." : "Refresh")
+                            </MudButton>
+                        </div>
+
+                        @if (_fileTreeLoading)
+                        {
+                            <div class="d-flex align-center">
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <MudText Typo="Typo.body2">Scanning files...</MudText>
+                            </div>
+                        }
+                        else if (_fileTreeRoot != null && _fileTreeRoot.Children.Count > 0)
+                        {
+                            <MudPaper Class="pa-3" Style="background: var(--primary-bg); border: 1px solid var(--border-color); max-height: 300px; overflow-y: auto;">
+                                <div class="mb-2" style="font-size: 12px; color: var(--text-secondary);">
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Style="color: var(--accent-green); vertical-align: middle;" /> Synced
+                                    &nbsp;|&nbsp;
+                                    <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" Style="color: var(--accent-red); vertical-align: middle;" /> Excluded
+                                </div>
+
+                                @foreach (var (node, depth) in GetFlattenedFileTree())
+                                {
+                                    var state = GetFileNodeState(node);
+                                    var indent = depth * 16;
+                                    var capturedNode = node;
+                                    var isExpanded = node.IsDirectory && _expandedDirs.Contains(node.RelativePath);
+                                    var hasChildren = node.IsDirectory && node.Children.Count > 0;
+                                    var isExcluded = state == ExclusionState.Excluded;
+
+                                    <div class="d-flex align-center file-tree-row" style="padding-left:@(indent)px; margin: 1px 0; border-radius: 4px;">
+                                        @if (hasChildren)
+                                        {
+                                            <MudIconButton Icon="@(isExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                           Size="Size.Small"
+                                                           Style="padding: 2px; min-width: 20px; color: var(--text-secondary);"
+                                                           OnClick="@(() => ToggleFileExpand(capturedNode))" />
+                                        }
+                                        else
+                                        {
+                                            <span style="width: 24px;"></span>
+                                        }
+
+                                        @{
+                                            var excludeIcon = state switch
+                                            {
+                                                ExclusionState.Excluded => Icons.Material.Filled.Block,
+                                                ExclusionState.Mixed => Icons.Material.Filled.RemoveCircleOutline,
+                                                _ => Icons.Material.Filled.CheckCircle
+                                            };
+                                            var iconColor = state switch
+                                            {
+                                                ExclusionState.Excluded => "var(--accent-red)",
+                                                ExclusionState.Mixed => "var(--accent-orange)",
+                                                _ => "var(--accent-green)"
+                                            };
+                                        }
+
+                                        <MudIconButton Icon="@excludeIcon"
+                                                       Size="Size.Small"
+                                                       Style="@($"padding: 2px; min-width: 20px; color: {iconColor};")"
+                                                       OnClick="@(() => ToggleFileExclusion(capturedNode))" />
+
+                                        @if (node.IsDirectory)
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" Style="color: var(--accent-cyan);" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" Class="mr-1" Style="color: var(--text-secondary);" />
+                                        }
+
+                                        <span class="mono @(isExcluded ? "excluded-text" : "")"
+                                              style="font-size: 12px; color: @(isExcluded ? "var(--text-secondary)" : "var(--text-primary)");">
+                                            @node.Name
+                                        </span>
+                                    </div>
+                                }
+                            </MudPaper>
+                        }
+                        else if (Item?.IsDirectory == true)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true">
+                                No files found in this source item.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true">
+                                Single-file source items cannot have per-file exclusions.
+                            </MudAlert>
+                        }
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
 
             <MudDivider Class="my-4" />
 
@@ -263,6 +388,15 @@
     .link-item:hover {
         background: rgba(255, 255, 255, 0.08);
     }
+
+    .file-tree-row:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .excluded-text {
+        text-decoration: line-through;
+        opacity: 0.7;
+    }
 </style>
 
 @code {
@@ -280,22 +414,58 @@
     private bool _showLinkPicker;
     private List<SourceItem> _availableForLinking = new();
 
+    // File tree state for per-item exclusions
+    private FileNode? _fileTreeRoot;
+    private HashSet<string> _exclusions = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _expandedDirs = new(StringComparer.OrdinalIgnoreCase);
+    private bool _fileTreeLoading;
+
     private string? _initializedForPath;
 
-    protected override void OnParametersSet()
+    // Local file node class for tree structure
+    private class FileNode
+    {
+        public string Name { get; set; } = "";
+        public string RelativePath { get; set; } = "";
+        public bool IsDirectory { get; set; }
+        public List<FileNode> Children { get; set; } = new();
+    }
+
+    private enum ExclusionState { Included, Excluded, Mixed }
+
+    protected override async Task OnParametersSetAsync()
     {
         if (Visible && Item != null && _initializedForPath != Item.Path)
         {
             _initializedForPath = Item.Path;
-            _displayName = Item.DisplayName != Path.GetFileName(Item.Path.TrimEnd('/')) ? Item.DisplayName : "";
-            _isOptional = Item.Optional;
-            _linkedItems = Item.LinkedTo.ToList();
-            LoadAvailableForLinking();
+            InitializeFromItem();
+
+            // Auto-load file tree for directory items
+            if (Item.IsDirectory)
+            {
+                await LoadFileTreeAsync();
+            }
         }
         else if (!Visible)
         {
             _showLinkPicker = false;
+            _initializedForPath = null; // Reset so dialog reinitializes on next open
         }
+    }
+
+    private void InitializeFromItem()
+    {
+        if (Item == null) return;
+
+        // Show custom display name if different from folder name, otherwise empty
+        var folderName = Path.GetFileName(Item.Path.TrimEnd('/'));
+        _displayName = Item.DisplayName != folderName ? Item.DisplayName : "";
+        _isOptional = Item.Optional;
+        _linkedItems = Item.LinkedTo.ToList();
+        _exclusions = new HashSet<string>(Item.Exclusions, StringComparer.OrdinalIgnoreCase);
+        _fileTreeRoot = null;
+        _expandedDirs.Clear();
+        LoadAvailableForLinking();
     }
 
     private void LoadAvailableForLinking()
@@ -342,12 +512,7 @@
 
     private void Reset()
     {
-        if (Item == null) return;
-
-        _displayName = Item.DisplayName != Path.GetFileName(Item.Path.TrimEnd('/')) ? Item.DisplayName : "";
-        _isOptional = Item.Optional;
-        _linkedItems = Item.LinkedTo.ToList();
-        LoadAvailableForLinking();
+        InitializeFromItem();
     }
 
     private async Task Save()
@@ -366,35 +531,37 @@
             {
                 DisplayName = string.IsNullOrWhiteSpace(_displayName) ? null : _displayName,
                 Optional = _isOptional,
-                LinkedTo = _linkedItems.ToList()
+                LinkedTo = _linkedItems.ToList(),
+                Exclusions = _exclusions.ToList()
             };
 
             // Handle link changes
             var originalLinks = Item.LinkedTo.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var newLinks = _linkedItems.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            // Remove old links
+            // Remove old links (staged)
             foreach (var removed in originalLinks.Except(newLinks, StringComparer.OrdinalIgnoreCase))
             {
-                await ConfigService.UnlinkSourceItemsAsync(Item.Path, removed);
+                await ConfigService.UnlinkSourceItemsStagedAsync(Item.Path, removed);
             }
 
-            // Add new links
+            // Add new links (staged)
             foreach (var added in newLinks.Except(originalLinks, StringComparer.OrdinalIgnoreCase))
             {
-                await ConfigService.LinkSourceItemsAsync(Item.Path, added);
+                await ConfigService.LinkSourceItemsStagedAsync(Item.Path, added);
             }
 
-            // Update metadata
-            await ConfigService.UpdateSourceMetadataAsync(Item.Path, metadata);
+            // Update metadata (staged)
+            await ConfigService.UpdateSourceMetadataStagedAsync(Item.Path, metadata);
 
             // Update the item for the callback
             Item.DisplayName = newDisplayName;
             Item.Optional = _isOptional;
             Item.LinkedTo = _linkedItems.ToList();
+            Item.Exclusions = _exclusions.ToList();
 
             await OnSave.InvokeAsync(Item);
-            Snackbar.Add($"'{newDisplayName}' saved", Severity.Success);
+            Snackbar.Add($"'{newDisplayName}' changes staged. Click 'Apply Changes' to save.", Severity.Info);
             await Close();
         }
         catch (Exception ex)
@@ -405,7 +572,227 @@
 
     private async Task Close()
     {
-        Visible = false;
         await VisibleChanged.InvokeAsync(false);
     }
+
+    private async Task OnMudDialogVisibilityChanged(bool visible)
+    {
+        // Properly propagate visibility changes to parent (fixes backdrop click not notifying parent)
+        if (!visible)
+        {
+            await VisibleChanged.InvokeAsync(false);
+        }
+    }
+
+    #region File Tree Methods
+
+    private async Task LoadFileTreeAsync()
+    {
+        if (Item == null || !Item.IsDirectory) return;
+
+        _fileTreeLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                var fullPath = Path.Combine(ConfigService.SptRoot, Item.Path.Replace('/', Path.DirectorySeparatorChar));
+                if (Directory.Exists(fullPath))
+                {
+                    _fileTreeRoot = BuildFileTree(fullPath, "");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error scanning files: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _fileTreeLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private FileNode BuildFileTree(string fullPath, string relativePath)
+    {
+        var node = new FileNode
+        {
+            Name = Path.GetFileName(fullPath),
+            RelativePath = relativePath,
+            IsDirectory = true
+        };
+
+        try
+        {
+            // Add directories first
+            foreach (var dir in Directory.GetDirectories(fullPath).OrderBy(d => Path.GetFileName(d)))
+            {
+                var dirName = Path.GetFileName(dir);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? dirName : $"{relativePath}/{dirName}";
+                node.Children.Add(BuildFileTree(dir, childRelPath));
+            }
+
+            // Then add files
+            foreach (var file in Directory.GetFiles(fullPath).OrderBy(f => Path.GetFileName(f)))
+            {
+                var fileName = Path.GetFileName(file);
+                var childRelPath = string.IsNullOrEmpty(relativePath) ? fileName : $"{relativePath}/{fileName}";
+                node.Children.Add(new FileNode
+                {
+                    Name = fileName,
+                    RelativePath = childRelPath,
+                    IsDirectory = false
+                });
+            }
+        }
+        catch { /* Ignore permission errors */ }
+
+        return node;
+    }
+
+    private List<(FileNode Node, int Depth)> GetFlattenedFileTree()
+    {
+        var result = new List<(FileNode, int)>();
+        if (_fileTreeRoot?.Children == null) return result;
+
+        void Flatten(FileNode node, int depth)
+        {
+            result.Add((node, depth));
+
+            if (node.IsDirectory && !_expandedDirs.Contains(node.RelativePath)) return;
+
+            foreach (var child in node.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+            {
+                Flatten(child, depth + 1);
+            }
+        }
+
+        // Start from children of root (don't show root itself)
+        foreach (var child in _fileTreeRoot.Children.OrderByDescending(c => c.IsDirectory).ThenBy(c => c.Name))
+        {
+            Flatten(child, 0);
+        }
+
+        return result;
+    }
+
+    private ExclusionState GetFileNodeState(FileNode? node)
+    {
+        if (node == null) return ExclusionState.Included;
+
+        var rel = NormalizePath(node.RelativePath);
+
+        if (!node.IsDirectory)
+        {
+            return IsPathExcluded(rel) ? ExclusionState.Excluded : ExclusionState.Included;
+        }
+
+        // For directories, check all descendants
+        var leaves = GetLeafNodes(node).ToList();
+        if (leaves.Count == 0) return ExclusionState.Included;
+
+        var leafStates = leaves
+            .Select(leaf => IsPathExcluded(NormalizePath(leaf.RelativePath)) ? ExclusionState.Excluded : ExclusionState.Included)
+            .Distinct()
+            .ToList();
+
+        if (leafStates.Count == 1) return leafStates[0];
+        return ExclusionState.Mixed;
+    }
+
+    private IEnumerable<FileNode> GetLeafNodes(FileNode? node)
+    {
+        if (node == null) yield break;
+        if (!node.IsDirectory) { yield return node; yield break; }
+        foreach (var child in node.Children)
+            foreach (var leaf in GetLeafNodes(child))
+                yield return leaf;
+    }
+
+    private bool IsPathExcluded(string relativePath)
+    {
+        var norm = NormalizePath(relativePath);
+        return _exclusions.Any(ex =>
+            norm.Equals(ex, StringComparison.OrdinalIgnoreCase) ||
+            norm.StartsWith(ex + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ToggleFileExpand(FileNode node)
+    {
+        if (!node.IsDirectory) return;
+        var path = node.RelativePath;
+        if (_expandedDirs.Contains(path))
+            _expandedDirs.Remove(path);
+        else
+            _expandedDirs.Add(path);
+    }
+
+    private void ToggleFileExclusion(FileNode node)
+    {
+        var current = GetFileNodeState(node);
+        var next = current == ExclusionState.Excluded ? ExclusionState.Included : ExclusionState.Excluded;
+
+        if (node.IsDirectory)
+        {
+            ApplyDirectoryExclusion(node, next);
+        }
+        else
+        {
+            ApplyFileExclusion(node, next);
+        }
+
+        StateHasChanged();
+    }
+
+    private void ApplyDirectoryExclusion(FileNode? node, ExclusionState state)
+    {
+        if (node == null) return;
+        var rel = NormalizePath(node.RelativePath);
+
+        // Remove all paths under this directory
+        foreach (var path in EnumerateAllPaths(node).ToList())
+        {
+            _exclusions.Remove(path);
+        }
+
+        if (state == ExclusionState.Excluded && !string.IsNullOrEmpty(rel))
+        {
+            _exclusions.Add(rel);
+        }
+    }
+
+    private void ApplyFileExclusion(FileNode? node, ExclusionState state)
+    {
+        if (node == null) return;
+        var rel = NormalizePath(node.RelativePath);
+
+        if (state == ExclusionState.Excluded)
+        {
+            _exclusions.Add(rel);
+        }
+        else
+        {
+            _exclusions.Remove(rel);
+        }
+    }
+
+    private IEnumerable<string> EnumerateAllPaths(FileNode? node)
+    {
+        if (node == null) yield break;
+        if (!string.IsNullOrEmpty(node.RelativePath))
+            yield return NormalizePath(node.RelativePath);
+        foreach (var child in node.Children)
+            foreach (var p in EnumerateAllPaths(child))
+                yield return p;
+    }
+
+    private static string NormalizePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace("\\", "/").TrimStart('/');
+    }
+
+    #endregion
 }

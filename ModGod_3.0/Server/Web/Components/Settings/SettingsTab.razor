@@ -1,5 +1,6 @@
 @inject ConfigService ConfigService
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <div style="max-width: 800px;">
     <!-- Forge API Key -->
@@ -30,7 +31,7 @@
             </MudButton>
         </div>
 
-        @if (!string.IsNullOrEmpty(_forgeApiKey))
+        @if (!string.IsNullOrEmpty(ConfigService.StagedConfig.ForgeApiKey))
         {
             <MudAlert Severity="Severity.Success" Class="mt-3" Dense="true">
                 Forge API key is configured
@@ -50,139 +51,360 @@
             Source paths from archives are matched to target paths on your server.
         </MudText>
 
-        <MudSimpleTable Dense="true" Style="background: var(--secondary-bg);">
-            <thead>
-                <tr>
-                    <th>Archive Path</th>
-                    <th>Install Target</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var mapping in _installPaths)
-                {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Variant="Variant.Outlined">
+            <strong>How it works:</strong> The <em>contents</em> of the source directory are copied into the target directory.
+            For example, if the archive contains <code>BepInEx/plugins/SomeMod.dll</code> and you map
+            <code>BepInEx/plugins</code> &rarr; <code>BepInEx/plugins_custom</code>,
+            the file will be installed to <code>BepInEx/plugins_custom/SomeMod.dll</code>.
+        </MudAlert>
+
+        @if (_installPaths.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary); font-style: italic;" Class="mb-3">
+                No custom mappings configured. Using defaults (BepInEx &rarr; BepInEx, SPT &rarr; SPT).
+            </MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true" Class="mb-3" Style="background: var(--secondary-bg);">
+                <thead>
                     <tr>
-                        <td>@mapping.Source</td>
-                        <td>@mapping.Target</td>
-                        <td style="width: 50px;">
-                            @if (!IsDefaultMapping(mapping))
-                            {
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                               Size="Size.Small"
-                                               Color="Color.Error"
-                                               OnClick="@(() => RemoveInstallPath(mapping))" />
-                            }
-                        </td>
+                        <th style="color: var(--text-secondary);">Archive Path</th>
+                        <th style="width: 40px; text-align: center; color: var(--text-secondary);"></th>
+                        <th style="color: var(--text-secondary);">Install Target</th>
+                        <th style="width: 80px;"></th>
                     </tr>
-                }
-            </tbody>
-        </MudSimpleTable>
+                </thead>
+                <tbody>
+                    @foreach (var (mapping, index) in _installPaths.Select((m, i) => (m, i)))
+                    {
+                        <tr>
+                            <td style="color: var(--text-primary);">
+                                @if (_editingIndex == index)
+                                {
+                                    <MudTextField @bind-Value="_editSource"
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Placeholder="e.g., BepInEx/plugins" />
+                                }
+                                else
+                                {
+                                    <code>@mapping.Source</code>
+                                }
+                            </td>
+                            <td style="text-align: center; color: var(--text-secondary);">
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" />
+                            </td>
+                            <td style="color: var(--text-primary);">
+                                @if (_editingIndex == index)
+                                {
+                                    <MudTextField @bind-Value="_editTarget"
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Placeholder="e.g., BepInEx/plugins_custom" />
+                                }
+                                else
+                                {
+                                    <code>@mapping.Target</code>
+                                }
+                            </td>
+                            <td>
+                                @if (_editingIndex == index)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.Check"
+                                                   Color="Color.Success"
+                                                   Size="Size.Small"
+                                                   OnClick="() => SaveEdit(index)" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="CancelEdit" />
+                                }
+                                else
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="() => StartEdit(index)" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   OnClick="() => DeleteMapping(index)" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
 
-        <MudDivider Class="my-3" />
+        <!-- Add New Mapping Form -->
+        @if (_isAdding)
+        {
+            <MudPaper Class="pa-3 mb-3" Style="background: var(--secondary-bg); border: 1px dashed var(--border-color); border-radius: 8px;">
+                <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">Add New Mapping</MudText>
+                <div class="d-flex gap-2 align-center">
+                    <MudTextField @bind-Value="_newSource"
+                                  Label="Archive Path"
+                                  Placeholder="e.g., BepInEx/plugins"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Style="flex: 1;" />
+                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="color: var(--text-secondary);" />
+                    <MudTextField @bind-Value="_newTarget"
+                                  Label="Install Target"
+                                  Placeholder="e.g., BepInEx/plugins_custom"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Style="flex: 1;" />
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Success"
+                               OnClick="AddMapping"
+                               Disabled="@(string.IsNullOrWhiteSpace(_newSource))">
+                        Add
+                    </MudButton>
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Default"
+                               OnClick="CancelAdd">
+                        Cancel
+                    </MudButton>
+                </div>
+            </MudPaper>
+        }
 
-        <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-primary);">
-            Add Custom Mapping
-        </MudText>
+        <!-- Action Buttons -->
+        <div class="d-flex gap-2">
+            @if (!_isAdding)
+            {
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           Color="Color.Primary"
+                           OnClick="StartAdd"
+                           Disabled="@(_editingIndex >= 0)">
+                    Add Mapping
+                </MudButton>
+            }
 
-        <div class="d-flex gap-2 align-center">
-            <MudTextField @bind-Value="_newSource"
-                          Label="Archive Path"
-                          Placeholder="e.g., CustomFolder"
-                          Variant="Variant.Outlined"
-                          Size="Size.Small"
-                          Style="flex: 1;" />
-            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="color: var(--text-secondary);" />
-            <MudTextField @bind-Value="_newTarget"
-                          Label="Install Target"
-                          Placeholder="e.g., CustomFolder"
-                          Variant="Variant.Outlined"
-                          Size="Size.Small"
-                          Style="flex: 1;" />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Size="Size.Small"
-                       OnClick="AddInstallPath"
-                       Disabled="@(string.IsNullOrWhiteSpace(_newSource) || string.IsNullOrWhiteSpace(_newTarget))">
-                Add
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.RestartAlt"
+                       Color="Color.Warning"
+                       OnClick="ResetToDefaults"
+                       Disabled="@(_editingIndex >= 0 || _isAdding)">
+                Reset to Defaults
             </MudButton>
         </div>
     </MudPaper>
 </div>
 
 @code {
+    [Parameter] public EventCallback OnConfigChanged { get; set; }
+
     private string _forgeApiKey = string.Empty;
     private bool _showApiKey = false;
     private List<InstallPathMapping> _installPaths = new();
+
+    // Add form state
+    private bool _isAdding;
     private string _newSource = string.Empty;
     private string _newTarget = string.Empty;
 
+    // Edit state
+    private int _editingIndex = -1;
+    private string _editSource = string.Empty;
+    private string _editTarget = string.Empty;
+
     protected override void OnInitialized()
     {
-        _forgeApiKey = ConfigService.Config.ForgeApiKey ?? string.Empty;
-        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
+        LoadSettings();
+    }
+
+    private async Task NotifyConfigChanged()
+    {
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private void LoadSettings()
+    {
+        _forgeApiKey = ConfigService.StagedConfig.ForgeApiKey ?? string.Empty;
+        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
+    }
+
+    /// <summary>
+    /// Reload settings from staged config (called when discarding changes)
+    /// </summary>
+    public void ReloadFromConfig()
+    {
+        LoadSettings();
+        _isAdding = false;
+        _editingIndex = -1;
+        StateHasChanged();
     }
 
     private async Task SaveApiKey()
     {
-        ConfigService.Config.ForgeApiKey = string.IsNullOrWhiteSpace(_forgeApiKey) ? null : _forgeApiKey;
-        await ConfigService.SaveConfigAsync();
-        Snackbar.Add("Forge API key saved", Severity.Success);
+        ConfigService.StagedConfig.ForgeApiKey = string.IsNullOrWhiteSpace(_forgeApiKey) ? null : _forgeApiKey;
+        await ConfigService.SaveStagedConfigAsync();
+        Snackbar.Add("Forge API key saved. Click 'Apply Changes' to persist.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
-    private bool IsDefaultMapping(InstallPathMapping mapping)
+    // Add mapping
+    private void StartAdd()
     {
-        return DefaultInstallPaths.Mappings.Any(m =>
-            m.Source.Equals(mapping.Source, StringComparison.OrdinalIgnoreCase) &&
-            m.Target.Equals(mapping.Target, StringComparison.OrdinalIgnoreCase));
+        _isAdding = true;
+        _newSource = "";
+        _newTarget = "";
     }
 
-    private async Task AddInstallPath()
+    private void CancelAdd()
     {
-        if (string.IsNullOrWhiteSpace(_newSource) || string.IsNullOrWhiteSpace(_newTarget))
+        _isAdding = false;
+        _newSource = "";
+        _newTarget = "";
+    }
+
+    private async Task AddMapping()
+    {
+        if (string.IsNullOrWhiteSpace(_newSource))
             return;
 
-        var newMapping = new InstallPathMapping
+        var normalizedSource = NormalizePath(_newSource);
+        var normalizedTarget = string.IsNullOrWhiteSpace(_newTarget)
+            ? normalizedSource
+            : NormalizePath(_newTarget);
+
+        // Check for duplicate source
+        if (_installPaths.Any(m => m.Source.Equals(normalizedSource, StringComparison.OrdinalIgnoreCase)))
         {
-            Source = _newSource.Replace("\\", "/").Trim('/'),
-            Target = _newTarget.Replace("\\", "/").Trim('/')
-        };
+            Snackbar.Add($"A mapping for '{normalizedSource}' already exists.", Severity.Warning);
+            return;
+        }
 
         // Initialize custom list if needed
-        ConfigService.Config.DefaultInstallPaths ??= DefaultInstallPaths.Mappings.ToList();
-        ConfigService.Config.DefaultInstallPaths.Add(newMapping);
+        ConfigService.StagedConfig.DefaultInstallPaths ??= DefaultInstallPaths.Mappings.ToList();
+        ConfigService.StagedConfig.DefaultInstallPaths.Add(new InstallPathMapping
+        {
+            Source = normalizedSource,
+            Target = normalizedTarget
+        });
 
-        await ConfigService.SaveConfigAsync();
-        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
-        _newSource = string.Empty;
-        _newTarget = string.Empty;
-        Snackbar.Add("Install path mapping added", Severity.Success);
+        await ConfigService.SaveStagedConfigAsync();
+        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
+
+        _isAdding = false;
+        _newSource = "";
+        _newTarget = "";
+
+        Snackbar.Add("Mapping added. Click 'Apply Changes' to persist.", Severity.Info);
+        await NotifyConfigChanged();
     }
 
-    private async Task RemoveInstallPath(InstallPathMapping mapping)
+    // Edit mapping
+    private void StartEdit(int index)
     {
-        if (ConfigService.Config.DefaultInstallPaths != null)
+        _editingIndex = index;
+        _editSource = _installPaths[index].Source;
+        _editTarget = _installPaths[index].Target;
+    }
+
+    private void CancelEdit()
+    {
+        _editingIndex = -1;
+        _editSource = "";
+        _editTarget = "";
+    }
+
+    private async Task SaveEdit(int index)
+    {
+        if (string.IsNullOrWhiteSpace(_editSource))
         {
-            ConfigService.Config.DefaultInstallPaths.RemoveAll(m =>
-                m.Source.Equals(mapping.Source, StringComparison.OrdinalIgnoreCase) &&
-                m.Target.Equals(mapping.Target, StringComparison.OrdinalIgnoreCase));
+            Snackbar.Add("Source path cannot be empty.", Severity.Warning);
+            return;
+        }
 
-            // If we removed all custom mappings, set to null to use defaults
-            if (ConfigService.Config.DefaultInstallPaths.Count == DefaultInstallPaths.Mappings.Count)
+        var normalizedSource = NormalizePath(_editSource);
+        var normalizedTarget = string.IsNullOrWhiteSpace(_editTarget)
+            ? normalizedSource
+            : NormalizePath(_editTarget);
+
+        // Check for duplicate (excluding current item)
+        if (_installPaths.Where((m, i) => i != index)
+                         .Any(m => m.Source.Equals(normalizedSource, StringComparison.OrdinalIgnoreCase)))
+        {
+            Snackbar.Add($"A mapping for '{normalizedSource}' already exists.", Severity.Warning);
+            return;
+        }
+
+        // Update in staged config
+        ConfigService.StagedConfig.DefaultInstallPaths ??= DefaultInstallPaths.Mappings.ToList();
+        if (index < ConfigService.StagedConfig.DefaultInstallPaths.Count)
+        {
+            ConfigService.StagedConfig.DefaultInstallPaths[index].Source = normalizedSource;
+            ConfigService.StagedConfig.DefaultInstallPaths[index].Target = normalizedTarget;
+        }
+
+        await ConfigService.SaveStagedConfigAsync();
+        _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
+
+        _editingIndex = -1;
+        _editSource = "";
+        _editTarget = "";
+
+        Snackbar.Add("Mapping updated. Click 'Apply Changes' to persist.", Severity.Info);
+        await NotifyConfigChanged();
+    }
+
+    // Delete mapping
+    private async Task DeleteMapping(int index)
+    {
+        var mapping = _installPaths[index];
+        var result = await DialogService.ShowMessageBox(
+            "Delete Mapping",
+            $"Remove the mapping '{mapping.Source}' -> '{mapping.Target}'?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            if (ConfigService.StagedConfig.DefaultInstallPaths != null && index < ConfigService.StagedConfig.DefaultInstallPaths.Count)
             {
-                var allDefault = ConfigService.Config.DefaultInstallPaths.All(m =>
-                    DefaultInstallPaths.Mappings.Any(d =>
-                        d.Source.Equals(m.Source, StringComparison.OrdinalIgnoreCase) &&
-                        d.Target.Equals(m.Target, StringComparison.OrdinalIgnoreCase)));
+                ConfigService.StagedConfig.DefaultInstallPaths.RemoveAt(index);
 
-                if (allDefault)
+                // If we're back to defaults, set to null
+                if (ConfigService.StagedConfig.DefaultInstallPaths.Count == 0)
                 {
-                    ConfigService.Config.DefaultInstallPaths = null;
+                    ConfigService.StagedConfig.DefaultInstallPaths = null;
                 }
             }
 
-            await ConfigService.SaveConfigAsync();
-            _installPaths = DefaultInstallPaths.GetEffective(ConfigService.Config);
-            Snackbar.Add("Install path mapping removed", Severity.Info);
+            await ConfigService.SaveStagedConfigAsync();
+            _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
+            Snackbar.Add("Mapping removed. Click 'Apply Changes' to persist.", Severity.Info);
+            await NotifyConfigChanged();
         }
+    }
+
+    private async Task ResetToDefaults()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Reset to Defaults",
+            "Reset install path mappings to the defaults (BepInEx -> BepInEx, SPT -> SPT)?",
+            yesText: "Reset",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            ConfigService.StagedConfig.DefaultInstallPaths = null;
+            await ConfigService.SaveStagedConfigAsync();
+            _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
+            Snackbar.Add("Reset to defaults. Click 'Apply Changes' to persist.", Severity.Info);
+            await NotifyConfigChanged();
+        }
+    }
+
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+        return path.Replace('\\', '/').Trim('/');
     }
 }

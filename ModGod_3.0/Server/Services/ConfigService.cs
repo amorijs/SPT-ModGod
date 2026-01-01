@@ -26,9 +26,16 @@ public class ConfigService : IOnLoad
     private string _sptRoot = string.Empty;
 
     /// <summary>
-    /// The main configuration (modgod.json)
+    /// The live/active configuration. This represents the current saved state.
+    /// Only modified when changes are applied.
     /// </summary>
     public ModGodConfig Config { get; private set; } = new();
+
+    /// <summary>
+    /// The staged configuration with pending edits. UI changes write here.
+    /// When Apply is clicked, this replaces Config.
+    /// </summary>
+    public ModGodConfig StagedConfig { get; private set; } = new();
 
     /// <summary>
     /// True if a legacy v2.x config exists and needs migration
@@ -59,6 +66,7 @@ public class ConfigService : IOnLoad
     public string DataPath => _dataPath;
     public string SptRoot => _sptRoot;
     public string ConfigPath => Path.Combine(_dataPath, "modgod.json");
+    public string StagedConfigPath => Path.Combine(_dataPath, "modgod.staged.json");
     public string LegacyConfigPath => Path.Combine(_dataPath, "serverConfig.json");
 
     // Standard sync roots
@@ -83,6 +91,9 @@ public class ConfigService : IOnLoad
 
         // Load or create config
         await LoadConfigAsync();
+
+        // Load staged config (if exists, user has pending changes)
+        await LoadStagedConfigAsync();
 
         _logger.Success($"ModGod 3.0 ConfigService loaded!");
         _logger.Info($"  SPT Root: {_sptRoot}");
@@ -185,7 +196,8 @@ public class ConfigService : IOnLoad
     public List<SourceGroup> ScanSourceItems()
     {
         var groups = new List<SourceGroup>();
-        var syncRoots = DefaultSyncRoots.GetEffective(Config.SyncRules);
+        // Use staged config to show pending sync root changes
+        var syncRoots = DefaultSyncRoots.GetEffective(StagedConfig.SyncRules);
 
         foreach (var root in syncRoots)
         {
@@ -251,8 +263,8 @@ public class ConfigService : IOnLoad
     {
         var name = Path.GetFileName(relativePath.TrimEnd('/'));
 
-        // Check if we have metadata for this item
-        Config.Sources.TryGetValue(relativePath, out var metadata);
+        // Check if we have metadata for this item (use staged config to show pending changes)
+        StagedConfig.Sources.TryGetValue(relativePath, out var metadata);
 
         var item = new SourceItem
         {
@@ -262,6 +274,7 @@ public class ConfigService : IOnLoad
             DisplayName = metadata?.DisplayName ?? name,
             Optional = metadata?.Optional ?? false,
             LinkedTo = metadata?.LinkedTo ?? new List<string>(),
+            Exclusions = metadata?.Exclusions ?? new List<string>(),
             ExistsOnDisk = true
         };
 
@@ -510,4 +523,359 @@ public class ConfigService : IOnLoad
     {
         return DefaultSyncRoots.GetEffective(Config.SyncRules);
     }
+
+    #region Staged Config Management
+
+    /// <summary>
+    /// Load the staged configuration (working copy for UI edits).
+    /// If no staged config exists, use live config as the working copy.
+    /// </summary>
+    public async Task LoadStagedConfigAsync()
+    {
+        if (File.Exists(StagedConfigPath))
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(StagedConfigPath);
+                StagedConfig = JsonSerializer.Deserialize<ModGodConfig>(json, JsonOptions) ?? new ModGodConfig();
+                _logger.Info("Loaded staged config (unsaved changes exist)");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to load staged config: {ex.Message}. Using live config.");
+                StagedConfig = CloneConfig(Config);
+            }
+        }
+        else
+        {
+            // No staged file - clone from live config
+            StagedConfig = CloneConfig(Config);
+        }
+    }
+
+    /// <summary>
+    /// Save the staged configuration (called on every UI edit).
+    /// Creates modgod.staged.json if it doesn't exist.
+    /// </summary>
+    public async Task SaveStagedConfigAsync()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(StagedConfig, JsonOptions);
+            await File.WriteAllTextAsync(StagedConfigPath, json);
+            _logger.Debug("Staged config saved");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to save staged config: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Reset staged config to match live config (discard all changes).
+    /// Deletes the staged file and resets in-memory state.
+    /// </summary>
+    public async Task ResetStagedConfigAsync()
+    {
+        // Delete the staged config file
+        if (File.Exists(StagedConfigPath))
+        {
+            File.Delete(StagedConfigPath);
+            _logger.Info("Deleted staged config file");
+        }
+
+        // Reset in-memory staged config to match live config
+        StagedConfig = CloneConfig(Config);
+        _logger.Info("Staged config reset to match live config");
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Check if there are pending changes (staged file exists).
+    /// </summary>
+    public bool HasPendingChanges()
+    {
+        return File.Exists(StagedConfigPath);
+    }
+
+    /// <summary>
+    /// Detailed comparison between staged and live config.
+    /// Returns true if there are actual differences.
+    /// </summary>
+    public bool HasActualChanges()
+    {
+        // Compare sources
+        if (Config.Sources.Count != StagedConfig.Sources.Count)
+            return true;
+
+        foreach (var (path, stagedMeta) in StagedConfig.Sources)
+        {
+            if (!Config.Sources.TryGetValue(path, out var liveMeta))
+                return true;
+
+            if (liveMeta.DisplayName != stagedMeta.DisplayName ||
+                liveMeta.Optional != stagedMeta.Optional ||
+                !liveMeta.LinkedTo.SequenceEqual(stagedMeta.LinkedTo) ||
+                !liveMeta.Exclusions.SequenceEqual(stagedMeta.Exclusions))
+                return true;
+        }
+
+        // Compare sync rules
+        if (Config.SyncRules.UseDefaultExclusions != StagedConfig.SyncRules.UseDefaultExclusions)
+            return true;
+
+        if (!Config.SyncRules.Exclusions.SequenceEqual(StagedConfig.SyncRules.Exclusions))
+            return true;
+
+        if (!Config.SyncRules.AdditionalRoots.SequenceEqual(StagedConfig.SyncRules.AdditionalRoots))
+            return true;
+
+        // Compare Forge API key
+        if (Config.ForgeApiKey != StagedConfig.ForgeApiKey)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Apply staged config to live config. Called when user clicks "Apply Changes".
+    /// Deletes the staged file after successful apply.
+    /// </summary>
+    public async Task ApplyChangesAsync()
+    {
+        // Replace live config with staged config
+        Config = CloneConfig(StagedConfig);
+
+        // Save the new live config
+        await SaveConfigAsync();
+
+        // Delete the staged config file (no more pending changes)
+        if (File.Exists(StagedConfigPath))
+        {
+            File.Delete(StagedConfigPath);
+            _logger.Info("Deleted staged config file after apply");
+        }
+
+        _logger.Success("Applied staged changes to live config");
+    }
+
+    /// <summary>
+    /// Deep clone a config object
+    /// </summary>
+    private ModGodConfig CloneConfig(ModGodConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, JsonOptions);
+        return JsonSerializer.Deserialize<ModGodConfig>(json, JsonOptions) ?? new ModGodConfig();
+    }
+
+    #endregion
+
+    #region Staged Operations (UI writes to staged config)
+
+    /// <summary>
+    /// Update metadata for a source item (staged)
+    /// </summary>
+    public async Task UpdateSourceMetadataStagedAsync(string path, SourceItemMetadata metadata)
+    {
+        StagedConfig.Sources[path] = metadata;
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Remove metadata for a source item (staged)
+    /// </summary>
+    public async Task RemoveSourceMetadataStagedAsync(string path)
+    {
+        if (StagedConfig.Sources.Remove(path))
+        {
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Toggle the optional flag for a source item (staged)
+    /// </summary>
+    public async Task ToggleOptionalStagedAsync(string path)
+    {
+        if (!StagedConfig.Sources.TryGetValue(path, out var metadata))
+        {
+            metadata = new SourceItemMetadata();
+        }
+
+        metadata.Optional = !metadata.Optional;
+        StagedConfig.Sources[path] = metadata;
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Create a link between two source items (staged)
+    /// </summary>
+    public async Task LinkSourceItemsStagedAsync(string path1, string path2)
+    {
+        if (!StagedConfig.Sources.TryGetValue(path1, out var meta1))
+        {
+            meta1 = new SourceItemMetadata();
+        }
+
+        if (!StagedConfig.Sources.TryGetValue(path2, out var meta2))
+        {
+            meta2 = new SourceItemMetadata();
+        }
+
+        // Add bidirectional links
+        if (!meta1.LinkedTo.Contains(path2, StringComparer.OrdinalIgnoreCase))
+        {
+            meta1.LinkedTo.Add(path2);
+        }
+
+        if (!meta2.LinkedTo.Contains(path1, StringComparer.OrdinalIgnoreCase))
+        {
+            meta2.LinkedTo.Add(path1);
+        }
+
+        StagedConfig.Sources[path1] = meta1;
+        StagedConfig.Sources[path2] = meta2;
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Remove a link between two source items (staged)
+    /// </summary>
+    public async Task UnlinkSourceItemsStagedAsync(string path1, string path2)
+    {
+        if (StagedConfig.Sources.TryGetValue(path1, out var meta1))
+        {
+            meta1.LinkedTo.RemoveAll(p => p.Equals(path2, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (StagedConfig.Sources.TryGetValue(path2, out var meta2))
+        {
+            meta2.LinkedTo.RemoveAll(p => p.Equals(path1, StringComparison.OrdinalIgnoreCase));
+        }
+
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Add a sync root (staged)
+    /// </summary>
+    public async Task AddSyncRootStagedAsync(string root)
+    {
+        StagedConfig.SyncRules ??= new SyncRulesConfig();
+        StagedConfig.SyncRules.AdditionalRoots ??= new List<string>();
+
+        if (!StagedConfig.SyncRules.AdditionalRoots.Contains(root, StringComparer.OrdinalIgnoreCase))
+        {
+            StagedConfig.SyncRules.AdditionalRoots.Add(root);
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Remove a sync root (staged)
+    /// </summary>
+    public async Task RemoveSyncRootStagedAsync(string root)
+    {
+        if (StagedConfig.SyncRules?.AdditionalRoots != null)
+        {
+            StagedConfig.SyncRules.AdditionalRoots.Remove(root);
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Toggle default exclusions setting (staged)
+    /// </summary>
+    public async Task SetDefaultExclusionsStagedAsync(bool useDefaults)
+    {
+        StagedConfig.SyncRules ??= new SyncRulesConfig();
+        StagedConfig.SyncRules.UseDefaultExclusions = useDefaults;
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Add an exclusion pattern (staged)
+    /// </summary>
+    public async Task AddExclusionStagedAsync(string pattern)
+    {
+        StagedConfig.SyncRules ??= new SyncRulesConfig();
+        StagedConfig.SyncRules.Exclusions ??= new List<string>();
+
+        if (!StagedConfig.SyncRules.Exclusions.Contains(pattern, StringComparer.OrdinalIgnoreCase))
+        {
+            StagedConfig.SyncRules.Exclusions.Add(pattern);
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Remove an exclusion pattern (staged)
+    /// </summary>
+    public async Task RemoveExclusionStagedAsync(string pattern)
+    {
+        if (StagedConfig.SyncRules?.Exclusions != null)
+        {
+            StagedConfig.SyncRules.Exclusions.Remove(pattern);
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Get effective sync roots from staged config
+    /// </summary>
+    public List<string> GetEffectiveSyncRootsStaged()
+    {
+        return DefaultSyncRoots.GetEffective(StagedConfig.SyncRules);
+    }
+
+    /// <summary>
+    /// Update per-item exclusions for a source item (staged)
+    /// </summary>
+    public async Task UpdateSourceExclusionsStagedAsync(string path, List<string> exclusions)
+    {
+        if (!StagedConfig.Sources.TryGetValue(path, out var metadata))
+        {
+            metadata = new SourceItemMetadata();
+        }
+
+        metadata.Exclusions = exclusions.ToList();
+        StagedConfig.Sources[path] = metadata;
+        await SaveStagedConfigAsync();
+    }
+
+    /// <summary>
+    /// Add an exclusion to a source item (staged)
+    /// </summary>
+    public async Task AddSourceExclusionStagedAsync(string path, string exclusion)
+    {
+        if (!StagedConfig.Sources.TryGetValue(path, out var metadata))
+        {
+            metadata = new SourceItemMetadata();
+        }
+
+        var normalized = exclusion.Replace("\\", "/").TrimStart('/');
+        if (!metadata.Exclusions.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            metadata.Exclusions.Add(normalized);
+            StagedConfig.Sources[path] = metadata;
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    /// <summary>
+    /// Remove an exclusion from a source item (staged)
+    /// </summary>
+    public async Task RemoveSourceExclusionStagedAsync(string path, string exclusion)
+    {
+        if (StagedConfig.Sources.TryGetValue(path, out var metadata))
+        {
+            var normalized = exclusion.Replace("\\", "/").TrimStart('/');
+            metadata.Exclusions.RemoveAll(e => e.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            await SaveStagedConfigAsync();
+        }
+    }
+
+    #endregion
 }
