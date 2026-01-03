@@ -158,6 +158,11 @@ public class ModInstallService
             {
                 result.InstalledMods.Add($"{mod.ModName} (updated)");
                 mod.LastUpdated = DateTime.UtcNow.ToString("o");
+                
+                // Clear staging after successful update
+                _logger.Info($"[Apply] Clearing staging for: {mod.ModName}");
+                await _configService.ClearStagingForUrlAsync(mod.DownloadUrl);
+                
                 _logger.Info($"[Apply] Update complete: {mod.ModName}");
             }
             else if (installResult.NeedsRestart)

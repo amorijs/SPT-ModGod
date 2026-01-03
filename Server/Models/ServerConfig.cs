@@ -116,6 +116,16 @@ public class ServerConfig
     public HashSet<string> PendingReinstallUrls { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Maps old mod URL to new mod URL for version updates.
+    /// When a mod is updated to a new version (different download URL), we track the replacement
+    /// so we can handle it as an update (overwrite) rather than separate remove+install.
+    /// Key = old URL (in live config), Value = new URL (in staged config).
+    /// Cleared after Apply.
+    /// </summary>
+    [JsonPropertyName("urlReplacements")]
+    public Dictionary<string, string> UrlReplacements { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Default install path mappings for auto-generating mod install paths.
     /// When null, uses the built-in defaults (BepInEx -> BepInEx, SPT -> SPT).
     /// </summary>

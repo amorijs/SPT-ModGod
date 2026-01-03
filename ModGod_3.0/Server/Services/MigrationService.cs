@@ -79,48 +79,11 @@ public class MigrationService
 
             foreach (var mod in legacyConfig.ModList.Where(m => m.Status == LegacyModStatus.Installed))
             {
-                // Collect all source paths for this mod (from both InstallPaths and InstalledFiles)
+                // Collect all source paths for this mod from installedFiles
+                // (installPaths is just archive extraction metadata, not useful here)
                 var modSourcePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                // Extract from install paths
-                foreach (var installPath in mod.InstallPaths)
-                {
-                    if (installPath.Length < 2) continue;
-
-                    // Get the target path (remove <SPT_ROOT> prefix)
-                    var targetPath = installPath[1]
-                        .Replace("<SPT_ROOT>", "")
-                        .Replace("\\", "/")
-                        .TrimStart('/');
-
-                    if (string.IsNullOrWhiteSpace(targetPath)) continue;
-
-                    // Check if this path exists on disk
-                    var fullPath = Path.Combine(_configService.SptRoot, targetPath.Replace('/', Path.DirectorySeparatorChar));
-                    if (!Directory.Exists(fullPath) && !File.Exists(fullPath))
-                    {
-                        _logger.Debug($"Skipping non-existent install path: {targetPath}");
-                        continue;
-                    }
-
-                    modSourcePaths.Add(targetPath);
-
-                    // Create metadata entry
-                    if (!newConfig.Sources.ContainsKey(targetPath))
-                    {
-                        newConfig.Sources[targetPath] = new SourceItemMetadata
-                        {
-                            DisplayName = mod.ModName,
-                            Optional = mod.Optional,
-                            LinkedTo = new List<string>()
-                        };
-                        migratedSources++;
-                        _logger.Info($"Migrated source: {targetPath} ({mod.ModName})");
-                    }
-                }
-
-                // Auto-link from installedFiles array
-                // Extract parent directories that are direct children of sync roots
+                // Extract source items from installedFiles - these are the actual installed files
                 if (mod.InstalledFiles?.Count > 0)
                 {
                     foreach (var filePath in mod.InstalledFiles)
@@ -135,7 +98,7 @@ public class MigrationService
 
                             // Get the path relative to the sync root
                             var relativePath = normalizedPath.Substring(root.Length + 1);
-                            
+
                             // Get the first directory component (the source item)
                             var firstSlash = relativePath.IndexOf('/');
                             var sourceItemName = firstSlash > 0 ? relativePath.Substring(0, firstSlash) : relativePath;
@@ -158,7 +121,7 @@ public class MigrationService
                                     LinkedTo = new List<string>()
                                 };
                                 migratedSources++;
-                                _logger.Info($"Migrated source from installedFiles: {sourceItemPath} ({mod.ModName})");
+                                _logger.Info($"Migrated source: {sourceItemPath} ({mod.ModName})");
                             }
                             break;
                         }
@@ -244,6 +207,9 @@ public class MigrationService
             _configService.Config.DefaultInstallPaths = newConfig.DefaultInstallPaths;
             await _configService.SaveConfigAsync();
 
+            // Sync staged config and reset migration flag
+            await _configService.OnMigrationCompleteAsync();
+
             result.Success = true;
             _logger.Success($"Migration complete! Migrated {migratedSources} source items");
         }
@@ -282,6 +248,9 @@ public class MigrationService
             _configService.Config.ForgeApiKey = null;
 
             await _configService.SaveConfigAsync();
+
+            // Sync staged config and reset migration flag
+            await _configService.OnMigrationCompleteAsync();
 
             result.Success = true;
             _logger.Success("Started fresh with default configuration");

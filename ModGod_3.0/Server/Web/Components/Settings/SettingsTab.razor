@@ -1,3 +1,4 @@
+@using ModGod3.Web.Components.Shared
 @inject ConfigService ConfigService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -10,33 +11,7 @@
             Forge Integration
         </MudText>
 
-        <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-            Enter your Forge API key to enable mod search and health check features.
-            Get a key from <MudLink Href="https://forge.sp-tarkov.com/user/api-tokens" Target="_blank">forge.sp-tarkov.com</MudLink>
-        </MudText>
-
-        <div class="d-flex gap-2">
-            <MudTextField @bind-Value="_forgeApiKey"
-                          Label="Forge API Key"
-                          Variant="Variant.Outlined"
-                          InputType="@(_showApiKey ? InputType.Text : InputType.Password)"
-                          Adornment="Adornment.End"
-                          AdornmentIcon="@(_showApiKey ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                          OnAdornmentClick="@(() => _showApiKey = !_showApiKey)"
-                          Style="flex: 1;" />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       OnClick="SaveApiKey">
-                Save
-            </MudButton>
-        </div>
-
-        @if (!string.IsNullOrEmpty(ConfigService.StagedConfig.ForgeApiKey))
-        {
-            <MudAlert Severity="Severity.Success" Class="mt-3" Dense="true">
-                Forge API key is configured
-            </MudAlert>
-        }
+        <ForgeApiKeyInput OnApiKeyChanged="HandleApiKeyChanged" />
     </MudPaper>
 
     <!-- Default Install Paths -->
@@ -199,8 +174,6 @@
 @code {
     [Parameter] public EventCallback OnConfigChanged { get; set; }
 
-    private string _forgeApiKey = string.Empty;
-    private bool _showApiKey = false;
     private List<InstallPathMapping> _installPaths = new();
 
     // Add form state
@@ -223,9 +196,15 @@
         await OnConfigChanged.InvokeAsync();
     }
 
+    private async Task HandleApiKeyChanged()
+    {
+        // ForgeApiKeyInput saves directly to ForgeService, not staged config
+        // Notify parent for any UI updates needed
+        await NotifyConfigChanged();
+    }
+
     private void LoadSettings()
     {
-        _forgeApiKey = ConfigService.StagedConfig.ForgeApiKey ?? string.Empty;
         _installPaths = DefaultInstallPaths.GetEffective(ConfigService.StagedConfig);
     }
 
@@ -238,14 +217,6 @@
         _isAdding = false;
         _editingIndex = -1;
         StateHasChanged();
-    }
-
-    private async Task SaveApiKey()
-    {
-        ConfigService.StagedConfig.ForgeApiKey = string.IsNullOrWhiteSpace(_forgeApiKey) ? null : _forgeApiKey;
-        await ConfigService.SaveStagedConfigAsync();
-        Snackbar.Add("Forge API key saved. Click 'Apply Changes' to persist.", Severity.Info);
-        await NotifyConfigChanged();
     }
 
     // Add mapping

@@ -319,7 +319,10 @@ public partial class ConfigService
         }
         
         // Filter to only staged mods that have files downloaded
+        // Include ModsToInstall, ModsToUpdate, and ModsToReinstall - all need installation
         var pendingInstalls = stagedChanges.ModsToInstall
+            .Concat(stagedChanges.ModsToUpdate)
+            .Concat(stagedChanges.ModsToReinstall)
             .Where(m => IsUrlStaged(m.DownloadUrl))
             .ToList();
 

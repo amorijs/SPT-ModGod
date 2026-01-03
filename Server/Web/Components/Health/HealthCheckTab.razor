@@ -1155,8 +1155,8 @@
     }
 
     /// <summary>
-    /// Updates a mod by removing the old tracked version and downloading the latest.
-    /// Uses detected paths from the new archive (does not preserve old paths).
+    /// Updates a mod by downloading the latest version and recording it as a URL replacement.
+    /// The old mod's files will be overwritten by the new version (no separate delete step).
     /// </summary>
     private async Task UpdateModAsync(ModHealthInfo mod)
     {
@@ -1171,18 +1171,21 @@
 
         try
         {
-            // If mod is tracked, remove it from staged config so it gets uninstalled
+            string? oldUrl = null;
+            
+            // If mod is tracked, record URL replacement (old → new) instead of removing
             if (mod.TrackedMod != null)
             {
                 var existingMod = ConfigService.StagedConfig.ModList
                     .FirstOrDefault(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl);
                 
-                        if (existingMod != null)
-                        {
-                            ConfigService.StagedConfig.ModList.Remove(existingMod);
-                            // Also clear any staging data for the old URL
-                            await ConfigService.ClearStagingForUrlAsync(existingMod.DownloadUrl);
-                        }
+                if (existingMod != null)
+                {
+                    oldUrl = existingMod.DownloadUrl;
+                    // Remove old mod entry from staged config (it will be replaced by new entry)
+                    ConfigService.StagedConfig.ModList.Remove(existingMod);
+                    // DON'T clear staging for old URL - we don't need it, but also don't need to clean up now
+                }
             }
 
             // Download and stage the new version
@@ -1192,7 +1195,15 @@
 
             if (success)
             {
-                // Save the staged config with the old mod removed and new mod added
+                // Record the URL replacement so CalculateStagedChanges knows this is an update
+                // This prevents the old mod from being treated as "to remove" with file deletions
+                if (!string.IsNullOrEmpty(oldUrl))
+                {
+                    ConfigService.StagedConfig.UrlReplacements ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    ConfigService.StagedConfig.UrlReplacements[oldUrl] = mod.LatestDownloadUrl;
+                }
+                
+                // Save the staged config
                 await ConfigService.SaveStagedConfigAsync();
                 
                 // Update the UI state to show update is staged
@@ -1211,6 +1222,11 @@
                 if (mod.TrackedMod != null && !ConfigService.StagedConfig.ModList.Any(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl))
                 {
                     ConfigService.StagedConfig.ModList.Add(mod.TrackedMod);
+                }
+                // Also remove any URL replacement we might have added
+                if (!string.IsNullOrEmpty(oldUrl))
+                {
+                    ConfigService.StagedConfig.UrlReplacements?.Remove(oldUrl);
                 }
                 Snackbar.Add($"Failed to update {mod.DisplayName}: {error}", Severity.Error);
             }

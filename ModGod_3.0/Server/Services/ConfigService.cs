@@ -573,6 +573,27 @@ public class ConfigService : IOnLoad
     }
 
     /// <summary>
+    /// Called after migration is complete to sync all in-memory state.
+    /// Resets NeedsMigration flag and syncs StagedConfig with the new Config.
+    /// </summary>
+    public async Task OnMigrationCompleteAsync()
+    {
+        NeedsMigration = false;
+
+        // Delete any stale staged config file
+        if (File.Exists(StagedConfigPath))
+        {
+            File.Delete(StagedConfigPath);
+        }
+
+        // Sync staged config with the new live config
+        StagedConfig = CloneConfig(Config);
+
+        _logger.Info("Migration complete - synced staged config with new config");
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Reset staged config to match live config (discard all changes).
     /// Deletes the staged file and resets in-memory state.
     /// </summary>

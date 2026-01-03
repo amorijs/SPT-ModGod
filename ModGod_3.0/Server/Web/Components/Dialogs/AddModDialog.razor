@@ -1,5 +1,6 @@
 @using ModGod3.Services
 @using ModGod3.Models
+@using ModGod3.Web.Components.Shared
 @using System.Text.Json
 
 @inject ForgeService ForgeService
@@ -8,7 +9,7 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager NavigationManager
 
-<MudDialog Visible="Visible" VisibleChanged="OnVisibilityChanged" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = false })">
+<MudDialog Visible="Visible" VisibleChanged="OnVisibilityChanged" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = false, BackdropClick = false })">
     <TitleContent>
         <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
             @if (_step == AddDialogStep.Input)
@@ -17,7 +18,7 @@
             }
             else if (_step == AddDialogStep.Downloading)
             {
-                <span>Downloading...</span>
+                <span>Downloading Mods...</span>
             }
             else
             {
@@ -32,31 +33,29 @@
                 <!-- Tab 1: From Forge -->
                 <MudTabPanel Text="From Forge" Icon="@Icons.Material.Filled.Store">
                     <div class="pa-2">
-                        @if (!ForgeService.HasApiKey)
+                        @* Inline API Key Section *@
+                        <ForgeApiKeyInput OnApiKeyChanged="OnApiKeyChanged" />
+
+                        @* Forge Search Input - only show if API key configured *@
+                        @if (ForgeService.HasApiKey)
                         {
-                            <MudAlert Severity="Severity.Warning" Class="mb-3">
-                                <MudIcon Icon="@Icons.Material.Filled.Key" Class="mr-2" />
-                                No Forge API key configured. Add one in Settings to search Forge.
-                            </MudAlert>
-                        }
-                        else
-                        {
-                            <div class="mb-3" style="position: relative;">
+                            <div style="position: relative;" class="mt-3">
                                 <MudTextField @bind-Value="_forgeSearchInput"
                                               @bind-Value:after="OnForgeSearchInputChanged"
-                                              Label="Search mods or paste Forge URL"
+                                              Label="Search mods or paste URL"
                                               Variant="Variant.Outlined"
                                               Immediate="true"
                                               Disabled="@(_forgeModLoading || _forgeMod != null)"
                                               Placeholder="Type to search or paste a Forge URL..."
                                               Adornment="Adornment.End"
                                               AdornmentIcon="@(_forgeSearchLoading ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Search)"
-                                              OnKeyDown="OnForgeSearchKeyDown" />
+                                              OnKeyDown="OnForgeSearchKeyDown"
+                                              Class="mb-2" />
 
                                 @* Search Results Dropdown *@
                                 @if (_forgeShowSearchResults && _forgeSearchResults.Count > 0 && _forgeMod == null)
                                 {
-                                    <MudPaper Elevation="8" Style="position: absolute; z-index: 100; width: 100%; max-height: 300px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color);">
+                                    <MudPaper Elevation="8" Style="z-index: 100; width: 100%; max-height: 350px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color);">
                                         <MudList T="ForgeSearchModData" Dense="true" Class="py-0">
                                             @foreach (var result in _forgeSearchResults)
                                             {
@@ -64,11 +63,11 @@
                                                     <div class="d-flex gap-2 align-center py-1">
                                                         @if (!string.IsNullOrEmpty(result.Thumbnail))
                                                         {
-                                                            <MudImage Src="@result.Thumbnail" Width="40" Height="40" ObjectFit="ObjectFit.Cover" Style="border-radius: 4px;" />
+                                                            <MudImage Src="@result.Thumbnail" Width="40" Height="40" ObjectFit="ObjectFit.Cover" Style="border-radius: 4px; flex-shrink: 0;" />
                                                         }
                                                         else
                                                         {
-                                                            <div style="width: 40px; height: 40px; background: var(--secondary-bg); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                                            <div style="width: 40px; height: 40px; background: var(--secondary-bg); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                                                                 <MudIcon Icon="@Icons.Material.Filled.Extension" Size="Size.Small" Style="color: var(--text-secondary);" />
                                                             </div>
                                                         }
@@ -81,7 +80,7 @@
                                                                 </MudText>
                                                             }
                                                         </div>
-                                                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                                        <MudText Typo="Typo.caption" Style="color: var(--text-secondary); flex-shrink: 0;">
                                                             @FormatDownloadCount(result.Downloads)
                                                         </MudText>
                                                     </div>
@@ -92,9 +91,11 @@
                                 }
                             </div>
 
+                            @* Clear selection button when mod is selected *@
                             @if (_forgeMod != null && !_forgeModLoading)
                             {
                                 <MudButton Variant="Variant.Text"
+                                           Color="Color.Secondary"
                                            Size="Size.Small"
                                            StartIcon="@Icons.Material.Filled.ArrowBack"
                                            OnClick="ClearForgeSelection"
@@ -161,6 +162,7 @@
                                                 </MudText>
                                             }
                                             <MudText Typo="Typo.caption" Class="mt-1" Style="color: var(--text-secondary);">
+                                                <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" Style="vertical-align: middle;" />
                                                 @FormatDownloadCount(_forgeMod.Downloads) downloads
                                             </MudText>
                                         </div>
@@ -188,6 +190,15 @@
                                                 </MudSelectItem>
                                             }
                                         </MudSelect>
+
+                                        @if (_forgeMod.Versions.FirstOrDefault(v => v.Version == _forgeSelectedVersion) is { } selectedVer)
+                                        {
+                                            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
+                                                SPT Version: @(selectedVer.SptVersionConstraint ?? "Any") •
+                                                @FormatDownloadCount(selectedVer.Downloads) version downloads
+                                            </MudText>
+                                        }
                                     }
                                     else
                                     {
@@ -195,7 +206,7 @@
                                     }
 
                                     <MudCheckBox @bind-Value="_forgeOptional"
-                                                 Label="Mark as optional (clients can opt out)"
+                                                 Label="Mark as optional (not enforced on clients)"
                                                  Color="Color.Primary"
                                                  Class="mt-3" />
                                 </MudPaper>
@@ -207,22 +218,42 @@
                 <!-- Tab 2: Direct URLs -->
                 <MudTabPanel Text="Direct URLs" Icon="@Icons.Material.Filled.Link">
                     <div class="pa-2">
-                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Variant="Variant.Outlined">
-                            Paste <strong>direct download links</strong> for mod archives (.zip, .7z, etc).
-                            <br />
-                            <span style="color: var(--accent-red);">Do NOT paste Forge mod page URLs here!</span>
-                        </MudAlert>
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary);">
+                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Class="mr-1" />
+                                Add Mods by Direct Download URL
+                            </MudText>
+                            <MudDivider Class="my-2" />
+                            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                Paste <b>direct download links</b> for mod archives.<br />
+                                <span style="color:var(--accent-red)">Do <u>NOT</u> paste Forge mod page URLs here!</span> <br />
+                                You can find your URL on GitHub/Forge/etc – the link will usually end with <code>.zip</code>, <code>.7z</code> or similar.<br />
+                                <span style="color: var(--text-secondary); font-size: 0.90em;">
+                                    Mod name will be <span style="font-style: italic;">auto-detected from the file name.</span>
+                                </span>
+                                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mt-3">
+                                    <b>Examples:</b><br />
+                                    <span class="mono" style="display: block; color: var(--accent-green); margin-left: .5em;">
+                                       https://github.com/example/mod/releases/download/v1.0/ModName.zip<br />
+                                    </span>
+                                    <b class="d-block mt-2" style="color: var(--accent-red);">Do NOT use:</b>
+                                    <span class="mono" style="color: var(--accent-red); margin-left:.5em;">
+                                        https://forge.sp-tarkov.com/mod/861/morecheckmarks
+                                    </span>
+                                </MudAlert>
+                            </MudText>
+                        </MudPaper>
 
                         <MudTextField @bind-Value="_bulkUrls"
-                                      Label="Download URLs (one per line)"
+                                      Label="Download URLs"
                                       Variant="Variant.Outlined"
-                                      Lines="6"
+                                      Lines="8"
                                       Immediate="true"
-                                      Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip"
+                                      Placeholder="https://github.com/example/mod/releases/download/v1.0/ModName.zip&#10;https://github.com/another/mod.7z"
                                       Class="mb-4 mono" />
 
                         <MudCheckBox @bind-Value="_bulkOptional"
-                                     Label="Mark all as optional"
+                                     Label="Mark all as optional (not enforced on clients)"
                                      Color="Color.Primary" />
                     </div>
                 </MudTabPanel>
@@ -232,9 +263,9 @@
         {
             <div class="pa-4">
                 <MudText Typo="Typo.body1" Class="mb-2" Style="color: var(--text-primary);">
-                    @_downloadStage (@_downloadProgress%)
+                    Processing @(_currentDownloadIndex + 1) of @_urlsToProcess.Count
                 </MudText>
-                <MudProgressLinear Value="@_downloadProgress"
+                <MudProgressLinear Value="@((_currentDownloadIndex + 1) * 100.0 / Math.Max(1, _urlsToProcess.Count))"
                                    Color="Color.Primary"
                                    Rounded="true"
                                    Size="Size.Large"
@@ -243,33 +274,68 @@
                 <MudText Typo="Typo.body2" Class="mono" Style="color: var(--text-secondary); word-break: break-all;">
                     @(_currentDownloadUrl ?? "Starting...")
                 </MudText>
+
+                @if (_downloadResults.Count > 0)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-secondary);">
+                        Status: @_downloadResults.Count(r => r.Success) succeeded, @_downloadResults.Count(r => !r.Success) failed
+                    </MudText>
+                }
             </div>
         }
         else if (_step == AddDialogStep.Results)
         {
             <div class="pa-2">
-                @if (!string.IsNullOrEmpty(_downloadError))
+                @{
+                    var successes = _downloadResults.Where(r => r.Success).ToList();
+                    var failures = _downloadResults.Where(r => !r.Success).ToList();
+                }
+
+                @if (failures.Count > 0)
                 {
                     <MudAlert Severity="Severity.Error" Class="mb-4">
-                        @_downloadError
+                        Failed to download @failures.Count mod(s)
                     </MudAlert>
+
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-red);">
+                        Failed Downloads (@failures.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in failures)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
+                                <MudText Style="color: var(--text-primary); word-break: break-all; font-size: 0.85rem;">
+                                    @TruncateUrl(result.Url)
+                                </MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                    @result.Error
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
                 }
-                else if (_downloadResult != null)
+
+                @if (successes.Count > 0)
                 {
                     <MudAlert Severity="Severity.Success" Class="mb-4">
-                        Successfully downloaded and installed!
+                        Successfully installed @successes.Count mod(s)
                     </MudAlert>
 
-                    <MudText Typo="Typo.body1" Style="color: var(--text-primary);">
-                        <strong>@_downloadResult.CopiedFiles</strong> file(s) installed
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
+                        Installed (@successes.Count)
                     </MudText>
-
-                    @if (_downloadResult.LockedFiles.Count > 0)
-                    {
-                        <MudAlert Severity="Severity.Warning" Class="mt-3" Dense="true">
-                            @_downloadResult.LockedFiles.Count file(s) could not be copied (may be in use).
-                        </MudAlert>
-                    }
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in successes)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    @result.FilesInstalled file(s) installed
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
                 }
             </div>
         }
@@ -326,9 +392,15 @@
     // Bulk URL state
     private string _bulkUrls = "";
     private bool _bulkOptional;
+    private List<string> _urlsToProcess = new();
+    private int _currentDownloadIndex;
+    private string? _currentDownloadUrl;
+    private List<DownloadResultInfo> _downloadResults = new();
 
     // Forge state
     private string _forgeSearchInput = "";
+    private string _forgeLastSearchQuery = "";
+    private List<ForgeSearchModData> _forgeLastSearchResults = new();
     private bool _forgeSearchLoading;
     private bool _forgeShowSearchResults;
     private List<ForgeSearchModData> _forgeSearchResults = new();
@@ -339,13 +411,6 @@
     private bool _forgeOptional;
     private System.Threading.Timer? _forgeSearchDebounceTimer;
     private const int ForgeSearchDebounceMs = 400;
-
-    // Download state
-    private string _downloadStage = "Initializing";
-    private int _downloadProgress;
-    private string? _currentDownloadUrl;
-    private string? _downloadError;
-    private InstallResult? _downloadResult;
 
     private async Task OnVisibilityChanged(bool visible)
     {
@@ -362,8 +427,14 @@
         _tabIndex = 0;
         _bulkUrls = "";
         _bulkOptional = false;
+        _urlsToProcess.Clear();
+        _currentDownloadIndex = 0;
+        _currentDownloadUrl = null;
+        _downloadResults.Clear();
 
         _forgeSearchInput = "";
+        _forgeLastSearchQuery = "";
+        _forgeLastSearchResults.Clear();
         _forgeSearchLoading = false;
         _forgeShowSearchResults = false;
         _forgeSearchResults.Clear();
@@ -373,17 +444,17 @@
         _forgeSelectedVersion = null;
         _forgeOptional = false;
         _forgeSearchDebounceTimer?.Dispose();
-
-        _downloadStage = "Initializing";
-        _downloadProgress = 0;
-        _currentDownloadUrl = null;
-        _downloadError = null;
-        _downloadResult = null;
     }
 
     private async Task Close()
     {
         await VisibleChanged.InvokeAsync(false);
+    }
+
+    private void OnApiKeyChanged()
+    {
+        // Force re-render when API key changes
+        StateHasChanged();
     }
 
     #region Forge Search
@@ -458,6 +529,10 @@
 
     private async Task OnForgeSearchResultSelected(ForgeSearchModData result)
     {
+        // Save search state before viewing mod details
+        _forgeLastSearchQuery = _forgeSearchInput;
+        _forgeLastSearchResults = new List<ForgeSearchModData>(_forgeSearchResults);
+
         _forgeShowSearchResults = false;
         _forgeSearchResults.Clear();
         _forgeSearchInput = result.Name;
@@ -469,7 +544,11 @@
         _forgeMod = null;
         _forgeSelectedVersion = null;
         _forgeModError = null;
-        _forgeSearchInput = "";
+
+        // Restore previous search state instead of clearing
+        _forgeSearchInput = _forgeLastSearchQuery;
+        _forgeSearchResults = new List<ForgeSearchModData>(_forgeLastSearchResults);
+        _forgeShowSearchResults = _forgeSearchResults.Count > 0;
     }
 
     private async Task FetchForgeModById(int modId)
@@ -525,44 +604,64 @@
             downloadUrl = ForgeService.BuildDownloadUrl(_forgeMod.Id, _forgeMod.Slug, _forgeSelectedVersion);
         }
 
+        _urlsToProcess = new List<string> { downloadUrl };
+        _downloadResults = new();
+        _currentDownloadIndex = 0;
+        _step = AddDialogStep.Downloading;
+        StateHasChanged();
+
         await ProcessDownload(downloadUrl, _forgeMod.Name, _forgeOptional);
+
+        _step = AddDialogStep.Results;
+        await OnModsAdded.InvokeAsync();
+        StateHasChanged();
     }
 
     private async Task ProcessBulkDownload()
     {
-        var urls = _bulkUrls
-            .Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+        _urlsToProcess = _bulkUrls
+            .Split(new[] { '\n', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(u => u.Trim())
-            .Where(u => u.StartsWith("http://") || u.StartsWith("https://"))
+            .Where(u => !string.IsNullOrWhiteSpace(u) && (u.StartsWith("http://") || u.StartsWith("https://")))
             .Distinct()
             .ToList();
 
-        if (urls.Count == 0)
+        if (_urlsToProcess.Count == 0)
         {
-            Snackbar.Add("No valid URLs found", Severity.Warning);
+            Snackbar.Add("No valid URLs found. Please enter direct download links.", Severity.Warning);
             return;
         }
 
-        // Process first URL (in v3, we'll do one at a time for simplicity)
-        var url = urls[0];
-        var modName = ExtractModNameFromUrl(url);
-        await ProcessDownload(url, modName, _bulkOptional);
+        _downloadResults = new();
+        _currentDownloadIndex = 0;
+        _step = AddDialogStep.Downloading;
+        StateHasChanged();
+
+        foreach (var url in _urlsToProcess)
+        {
+            _currentDownloadUrl = url;
+            StateHasChanged();
+
+            var modName = ExtractModNameFromUrl(url);
+            await ProcessDownload(url, modName, _bulkOptional);
+
+            _currentDownloadIndex++;
+            StateHasChanged();
+        }
+
+        _step = AddDialogStep.Results;
+        await OnModsAdded.InvokeAsync();
+        StateHasChanged();
     }
 
     private async Task ProcessDownload(string url, string modName, bool optional)
     {
-        _step = AddDialogStep.Downloading;
         _currentDownloadUrl = url;
-        _downloadError = null;
-        _downloadResult = null;
-        StateHasChanged();
 
         try
         {
             var progress = new Progress<DownloadProgress>(p =>
             {
-                _downloadStage = p.Stage;
-                _downloadProgress = p.Progress;
                 InvokeAsync(StateHasChanged);
             });
 
@@ -571,16 +670,17 @@
 
             if (!downloadResult.Success)
             {
-                _downloadError = downloadResult.Error;
-                _step = AddDialogStep.Results;
+                _downloadResults.Add(new DownloadResultInfo
+                {
+                    Url = url,
+                    ModName = modName,
+                    Success = false,
+                    Error = downloadResult.Error
+                });
                 return;
             }
 
             // Install
-            _downloadStage = "Installing";
-            _downloadProgress = 0;
-            StateHasChanged();
-
             var installResult = await ModDownloadService.InstallExtractedAsync(
                 downloadResult.ExtractPath!,
                 downloadResult.SuggestedInstallPaths);
@@ -593,25 +693,38 @@
 
             if (installResult.Success)
             {
-                _downloadResult = installResult;
+                _downloadResults.Add(new DownloadResultInfo
+                {
+                    Url = url,
+                    ModName = modName,
+                    Success = true,
+                    FilesInstalled = installResult.CopiedFiles
+                });
 
                 // Create source item metadata for the installed files
                 await CreateSourceItemMetadataAsync(installResult, modName, optional);
-
-                await OnModsAdded.InvokeAsync();
             }
             else
             {
-                _downloadError = installResult.Error;
+                _downloadResults.Add(new DownloadResultInfo
+                {
+                    Url = url,
+                    ModName = modName,
+                    Success = false,
+                    Error = installResult.Error
+                });
             }
         }
         catch (Exception ex)
         {
-            _downloadError = $"Download failed: {ex.Message}";
+            _downloadResults.Add(new DownloadResultInfo
+            {
+                Url = url,
+                ModName = modName,
+                Success = false,
+                Error = ex.Message
+            });
         }
-
-        _step = AddDialogStep.Results;
-        StateHasChanged();
     }
 
     private async Task CreateSourceItemMetadataAsync(InstallResult installResult, string modName, bool optional)
@@ -657,6 +770,15 @@
     #endregion
 
     #region Helpers
+
+    private class DownloadResultInfo
+    {
+        public string Url { get; set; } = "";
+        public string ModName { get; set; } = "";
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public int FilesInstalled { get; set; }
+    }
 
     private static string ExtractModNameFromUrl(string url)
     {
@@ -708,6 +830,12 @@
             >= 1_000 => $"{count / 1_000.0:F1}K",
             _ => count.ToString("N0")
         };
+    }
+
+    private static string TruncateUrl(string url)
+    {
+        if (url.Length <= 50) return url;
+        return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
     }
 
     #endregion

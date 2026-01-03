@@ -8,6 +8,7 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge">
     <!-- Header Section -->
+    <!--
     <MudPaper Class="pa-6 mb-4 glass-panel" Style="border-radius: 16px; margin-top: 55px;">
         <div class="d-flex justify-space-between align-center">
             <div>
@@ -36,11 +37,11 @@
             </MudAlert>
         }
     </MudPaper>
-
+    -->
     <MudTabs ActivePanelIndex="@_activeTabIndex"
              ActivePanelIndexChanged="OnTabChanged"
-             Class="mb-4">
-        
+             Class="mb-4 mt-10">
+
         <!-- Sources Tab -->
         <MudTabPanel Text="Sources" Class="mt-4">
             <SourcesTab @ref="_sourcesTab" OnConfigChanged="StateHasChanged" />
@@ -133,10 +134,17 @@
         Snackbar.Add("Sources refreshed from filesystem", Severity.Info);
     }
 
-    private void OnMigrationComplete()
+    private async Task OnMigrationComplete()
     {
         _showMigrationDialog = false;
         Snackbar.Add("Configuration ready!", Severity.Success);
+
+        // Refresh the sources tab to show migrated data
+        if (_sourcesTab != null)
+        {
+            await _sourcesTab.RefreshAsync();
+        }
+
         StateHasChanged();
     }
 

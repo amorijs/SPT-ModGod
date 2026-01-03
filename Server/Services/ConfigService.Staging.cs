@@ -35,6 +35,7 @@ public partial class ConfigService
         StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         StagedConfig.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
         StagedConfig.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
+        StagedConfig.UrlReplacements ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
     
     /// <summary>
@@ -66,6 +67,7 @@ public partial class ConfigService
         StagedConfig.RemovalSelections ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         StagedConfig.PlayerSyncConfig ??= ClientSyncConfig.DefaultPlayerConfig();
         StagedConfig.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
+        StagedConfig.UrlReplacements ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         _logger.Info("Staged config reset to match live config");
         
         await Task.CompletedTask; // Keep async signature for consistency
@@ -233,8 +235,15 @@ public partial class ConfigService
         var liveModsByUrl = Config.ModList.ToDictionary(m => m.DownloadUrl);
         var stagedModsByUrl = StagedConfig.ModList.ToDictionary(m => m.DownloadUrl);
         var pendingReinstallUrls = StagedConfig.PendingReinstallUrls;
+        var urlReplacements = StagedConfig.UrlReplacements ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        // Find mods to add (in staged but not in live)
+        // Build reverse lookup: new URL → old URL (for checking if a staged mod is a version update)
+        var reverseReplacements = urlReplacements.ToDictionary(
+            kvp => kvp.Value, 
+            kvp => kvp.Key, 
+            StringComparer.OrdinalIgnoreCase);
+        
+        // Find mods to add/update (in staged but not in live)
         foreach (var stagedMod in StagedConfig.ModList)
         {
             // Check if this is a pending reinstall
@@ -242,13 +251,21 @@ public partial class ConfigService
             {
                 changes.ModsToReinstall.Add(stagedMod);
             }
+            // Check if this is a version update (new URL replaces old URL)
+            else if (reverseReplacements.TryGetValue(stagedMod.DownloadUrl, out var oldUrl))
+            {
+                // This is a version update - categorize as ModsToUpdate
+                // The old mod's files will be overwritten, no deletion needed
+                changes.ModsToUpdate.Add(stagedMod);
+            }
             else if (!liveModsByUrl.ContainsKey(stagedMod.DownloadUrl))
             {
+                // New mod (not in live config)
                 changes.ModsToInstall.Add(stagedMod);
             }
             else
             {
-                // Check if mod needs update (properties changed)
+                // Check if mod needs update (same URL but properties changed)
                 var liveMod = liveModsByUrl[stagedMod.DownloadUrl];
                 if (!InstallPathsEqual(liveMod.InstallPaths, stagedMod.InstallPaths) ||
                     !FileRulesEqual(liveMod.FileRules, stagedMod.FileRules))
@@ -258,11 +275,20 @@ public partial class ConfigService
             }
         }
         
-        // Find mods to remove (in live but not in staged)
+        // Find mods to remove (in live but not in staged, and NOT being replaced by a new version)
         foreach (var liveMod in Config.ModList)
         {
             if (!stagedModsByUrl.ContainsKey(liveMod.DownloadUrl))
             {
+                // Check if this old URL is being replaced by a new version
+                if (urlReplacements.ContainsKey(liveMod.DownloadUrl))
+                {
+                    // This is a version update - the old mod will be overwritten, not removed
+                    // Don't add to ModsToRemove (no file deletion needed)
+                    continue;
+                }
+                
+                // This is a genuine removal
                 changes.ModsToRemove.Add(liveMod);
             }
         }
@@ -282,6 +308,9 @@ public partial class ConfigService
         // Clear pending reinstall tracking - these are now applied
         StagedConfig.PendingReinstallUrls.Clear();
         
+        // Clear URL replacements - these are now applied
+        StagedConfig.UrlReplacements?.Clear();
+        
         // Replace live config with staged config
         var json = JsonSerializer.Serialize(StagedConfig, JsonOptions);
         Config = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
@@ -296,8 +325,10 @@ public partial class ConfigService
             _logger.Info("Deleted staged config file after apply");
         }
         
-        // Clear all staging data (downloaded mod archives) - they're no longer needed
-        await ClearAllStagingAsync();
+        // NOTE: We do NOT clear staging data here anymore!
+        // Staging is cleared individually after each successful install in ModInstallService.
+        // For mods queued for restart (locked files), staging must remain until the install script runs.
+        // The script runs after server shutdown, and CheckAndMarkInstalledModsAsync clears staging on restart.
         
         _logger.Info($"Applied staged config: {changes.ModsToInstall.Count} to install, " +
                     $"{changes.ModsToRemove.Count} to remove, {changes.ModsToUpdate.Count} to update, " +
