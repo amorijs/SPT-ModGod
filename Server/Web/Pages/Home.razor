@@ -99,6 +99,18 @@
                             Clear Filters
                         </MudButton>
                     }
+                    
+                    <MudDivider Vertical="true" FlexItem="true" Style="height: 24px; margin: 0 8px;" />
+                    
+                    <MudTooltip Text="@(_isTableView ? "Switch to card view" : "Switch to table view")">
+                        <MudToggleIconButton @bind-Toggled="_isTableView"
+                                             Icon="@Icons.Material.Filled.ViewModule"
+                                             ToggledIcon="@Icons.Material.Filled.TableRows"
+                                             Size="Size.Medium"
+                                             ToggledSize="Size.Medium"
+                                             Style="color: var(--text-secondary);"
+                                             ToggledColor="Color.Primary" />
+                    </MudTooltip>
                 </div>
                 @{
                     var modsWithWarnings = GetModsWithWarnings();
@@ -181,8 +193,27 @@
                         <MudText Typo="Typo.body1" Class="mt-2" Style="color: var(--text-secondary);">No mods match your search or filter</MudText>
                     </MudPaper>
                 }
+                else if (_isTableView)
+                {
+                    <!-- Table View -->
+                    <ModGod.Web.Components.Mods.ModTable 
+                        Mods="@filteredMods.OrderByDescending(m => m.IsProtected).ThenBy(m => IsModPendingInstall(m) ? 0 : IsModPendingRemoval(m) ? 1 : 2).ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase).ToList()"
+                        IsPendingInstall="IsModPendingInstall"
+                        IsPendingRemoval="IsModPendingRemoval"
+                        NeedsConfiguration="ModNeedsConfiguration"
+                        GetMissingFilesCount="@(mod => GetMissingInstalledFiles(mod).Count)"
+                        GetStatusChipStyle="GetStatusChipStyleForMod"
+                        GetStatusText="GetStatusTextForMod"
+                        OnEdit="EditMod"
+                        OnDelete="DeleteMod"
+                        OnToggleOptional="ToggleModOptional"
+                        OnOpenUninstallDialog="OpenUninstallDialog"
+                        OnUndoRemoval="UndoRemoval"
+                        OnReinstall="ReinstallMod" />
+                }
                 else
                 {
+                    <!-- Card View -->
                     if (pendingMods.Count > 0)
                     {
                         <MudText Typo="Typo.subtitle1" Class="mb-2 mt-2" Style="color: var(--accent-orange); font-weight: 600;">
@@ -393,6 +424,9 @@
     // Search and filter
     private string _searchQuery = "";
     private string? _activeStatusFilter = null; // null = show all, "Installed", "Pending", "Required"
+    
+    // View mode toggle (card or table)
+    private bool _isTableView = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
