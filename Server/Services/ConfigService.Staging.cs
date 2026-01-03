@@ -50,7 +50,7 @@ public partial class ConfigService
     
     /// <summary>
     /// Reset staged config to match live config (discard all changes).
-    /// Deletes the staged file and resets in-memory state.
+    /// Deletes the staged file, clears orphaned staging data, and resets in-memory state.
     /// </summary>
     public async Task ResetStagedConfigAsync()
     {
@@ -61,6 +61,10 @@ public partial class ConfigService
             _logger.Info("Deleted staged config file");
         }
         
+        // Clear orphaned staging data (downloads for mods that were never applied)
+        // Preserves staging for mods in live config (may be waiting for restart install script)
+        await ClearOrphanedStagingDataAsync();
+        
         // Reset in-memory staged config to match live config
         var json = JsonSerializer.Serialize(Config, JsonOptions);
         StagedConfig = JsonSerializer.Deserialize<ServerConfig>(json, JsonOptions) ?? new ServerConfig();
@@ -69,8 +73,36 @@ public partial class ConfigService
         StagedConfig.HeadlessSyncConfig ??= ClientSyncConfig.DefaultHeadlessConfig();
         StagedConfig.UrlReplacements ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         _logger.Info("Staged config reset to match live config");
+    }
+    
+    /// <summary>
+    /// Clear staging data for mods that are not in the live config (orphaned downloads).
+    /// Preserves staging for mods that have been applied but may be waiting for restart.
+    /// </summary>
+    private async Task ClearOrphanedStagingDataAsync()
+    {
+        // Get URLs from live config - these mods have been applied and may need their staging
+        // preserved for the install script (if files were locked and queued for restart)
+        var liveUrls = Config.ModList
+            .Select(m => m.DownloadUrl)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         
-        await Task.CompletedTask; // Keep async signature for consistency
+        // Find staging entries for mods NOT in live config (never applied, orphaned)
+        var orphanedUrls = Staging.UrlToPath.Keys
+            .Where(url => !liveUrls.Contains(url))
+            .ToList();
+        
+        if (orphanedUrls.Count == 0)
+        {
+            return;
+        }
+        
+        _logger.Info($"Clearing {orphanedUrls.Count} orphaned staging entries...");
+        
+        foreach (var url in orphanedUrls)
+        {
+            await ClearStagingForUrlAsync(url);
+        }
     }
     
     /// <summary>

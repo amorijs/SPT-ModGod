@@ -32,6 +32,13 @@ public class ForgeService : IOnLoad
 
     private const string ForgeBaseUrl = "https://forge.sp-tarkov.com";
     private const string ApiBaseUrl = "https://forge.sp-tarkov.com/api/v0";
+    
+    // Caching for addon API calls to prevent rate limiting
+    private readonly Dictionary<int, (ForgeAddonsResponse Response, DateTime CachedAt)> _addonsCache = new();
+    private readonly Dictionary<int, (ForgeAddonVersionsResponse Response, DateTime CachedAt)> _addonVersionsCache = new();
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+    private static readonly TimeSpan ApiCallDelay = TimeSpan.FromMilliseconds(150); // Rate limiting
+    private readonly SemaphoreSlim _apiThrottle = new(1, 1); // Ensure sequential API calls
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -434,70 +441,104 @@ public class ForgeService : IOnLoad
     }
 
     /// <summary>
-    /// Get addons for a specific mod
+    /// Get addons for a specific mod (cached with rate limiting)
     /// </summary>
     public async Task<ForgeAddonsResponse?> GetModAddonsAsync(int modId)
     {
         if (!HasApiKey)
         {
-            _logger.Warning("Cannot fetch addons - no Forge API key configured");
             return null;
         }
 
+        // Check cache first
+        if (_addonsCache.TryGetValue(modId, out var cached) && 
+            DateTime.UtcNow - cached.CachedAt < CacheDuration)
+        {
+            return cached.Response;
+        }
+
+        // Rate limit API calls
+        await _apiThrottle.WaitAsync();
         try
         {
-            var url = $"{ApiBaseUrl}/addons?filter[mod_id]={modId}";
-            _logger.Info($"[ForgeService] Fetching addons from: {url}");
+            // Double-check cache after acquiring lock
+            if (_addonsCache.TryGetValue(modId, out cached) && 
+                DateTime.UtcNow - cached.CachedAt < CacheDuration)
+            {
+                return cached.Response;
+            }
             
+            await Task.Delay(ApiCallDelay); // Rate limiting delay
+            
+            var url = $"{ApiBaseUrl}/addons?filter[mod_id]={modId}";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
 
             var response = await _httpClient.SendAsync(request);
             var json = await response.Content.ReadAsStringAsync();
             
-            _logger.Info($"[ForgeService] Addons API response status: {response.StatusCode}");
-            _logger.Info($"[ForgeService] Addons API response (first 500 chars): {json.Substring(0, Math.Min(500, json.Length))}");
-            
             if (!response.IsSuccessStatusCode)
             {
                 _logger.Warning($"Forge API returned {response.StatusCode} for mod {modId} addons");
-                return new ForgeAddonsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+                var errorResponse = new ForgeAddonsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+                // Cache errors briefly to avoid hammering API
+                _addonsCache[modId] = (errorResponse, DateTime.UtcNow);
+                return errorResponse;
             }
 
             var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeAddonData>>>(json, JsonOptions);
-            _logger.Info($"[ForgeService] Deserialized result - Success: {result?.Success}, Data count: {result?.Data?.Count ?? 0}");
             
-            if (result?.Data == null)
-            {
-                return new ForgeAddonsResponse { Success = true, Addons = new List<ForgeAddonData>() };
-            }
-
-            return new ForgeAddonsResponse
+            var addonsResponse = new ForgeAddonsResponse
             {
                 Success = true,
-                Addons = result.Data
+                Addons = result?.Data ?? new List<ForgeAddonData>()
             };
+            
+            // Cache successful response
+            _addonsCache[modId] = (addonsResponse, DateTime.UtcNow);
+            return addonsResponse;
         }
         catch (Exception ex)
         {
             _logger.Error($"Error fetching addons for mod {modId}: {ex.Message}");
             return new ForgeAddonsResponse { Success = false, Error = ex.Message };
         }
+        finally
+        {
+            _apiThrottle.Release();
+        }
     }
 
     /// <summary>
-    /// Get versions for a specific addon
+    /// Get versions for a specific addon (cached with rate limiting)
     /// </summary>
     public async Task<ForgeAddonVersionsResponse?> GetAddonVersionsAsync(int addonId)
     {
         if (!HasApiKey)
         {
-            _logger.Warning("Cannot fetch addon versions - no Forge API key configured");
             return null;
         }
 
+        // Check cache first
+        if (_addonVersionsCache.TryGetValue(addonId, out var cached) && 
+            DateTime.UtcNow - cached.CachedAt < CacheDuration)
+        {
+            return cached.Response;
+        }
+
+        // Rate limit API calls
+        await _apiThrottle.WaitAsync();
         try
         {
+            // Double-check cache after acquiring lock
+            if (_addonVersionsCache.TryGetValue(addonId, out cached) && 
+                DateTime.UtcNow - cached.CachedAt < CacheDuration)
+            {
+                return cached.Response;
+            }
+            
+            await Task.Delay(ApiCallDelay); // Rate limiting delay
+            
             var url = $"{ApiBaseUrl}/addon/{addonId}/versions";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _credentials.ApiKey);
@@ -507,27 +548,32 @@ public class ForgeService : IOnLoad
             if (!response.IsSuccessStatusCode)
             {
                 _logger.Warning($"Forge API returned {response.StatusCode} for addon {addonId} versions");
-                return new ForgeAddonVersionsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+                var errorResponse = new ForgeAddonVersionsResponse { Success = false, Error = $"API error: {response.StatusCode}" };
+                _addonVersionsCache[addonId] = (errorResponse, DateTime.UtcNow);
+                return errorResponse;
             }
 
             var json = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<ForgeApiResponse<List<ForgeAddonVersionData>>>(json, JsonOptions);
             
-            if (result?.Data == null)
-            {
-                return new ForgeAddonVersionsResponse { Success = true, Versions = new List<ForgeAddonVersionData>() };
-            }
-
-            return new ForgeAddonVersionsResponse
+            var versionsResponse = new ForgeAddonVersionsResponse
             {
                 Success = true,
-                Versions = result.Data
+                Versions = result?.Data ?? new List<ForgeAddonVersionData>()
             };
+            
+            // Cache successful response
+            _addonVersionsCache[addonId] = (versionsResponse, DateTime.UtcNow);
+            return versionsResponse;
         }
         catch (Exception ex)
         {
             _logger.Error($"Error fetching versions for addon {addonId}: {ex.Message}");
             return new ForgeAddonVersionsResponse { Success = false, Error = ex.Message };
+        }
+        finally
+        {
+            _apiThrottle.Release();
         }
     }
 
