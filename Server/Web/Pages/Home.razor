@@ -65,6 +65,30 @@
         }
     </MudPaper>
 
+    @if (ConfigService.NeedsRestart)
+    {
+        <div class="pending-shutdown-banner">
+            <div class="pending-shutdown-content">
+                <MudIcon Icon="@Icons.Material.Filled.PowerSettingsNew" Size="Size.Small" Class="pending-shutdown-icon" />
+                <div class="pending-shutdown-messages">
+                    @if (ConfigService.HasPendingShutdown)
+                    {
+                        <span>Waiting for shutdown to complete pending changes</span>
+                    }
+                    @if (ConfigService.HasPendingReload && !ConfigService.HasPendingShutdown)
+                    {
+                        <span>Restart required to load changes</span>
+                    }
+                    @if (ConfigService.HasPendingReload && ConfigService.HasPendingShutdown)
+                    {
+                        <span class="pending-secondary">+ Additional changes ready to load</span>
+                    }
+                </div>
+                <MudIcon Icon="@Icons.Material.Filled.PowerSettingsNew" Size="Size.Small" Class="pending-shutdown-icon" />
+            </div>
+        </div>
+    }
+
     <MudTabs ActivePanelIndex="@_activeTabIndex"
              ActivePanelIndexChanged="OnTabChanged"
              Class="mb-4">
@@ -109,7 +133,7 @@
                                              Size="Size.Medium"
                                              ToggledSize="Size.Medium"
                                              Style="color: var(--text-secondary);"
-                                             ToggledColor="Color.Primary" />
+                                             ToggledColor="Color.Info" />
                     </MudTooltip>
                 </div>
                 @{
@@ -425,8 +449,8 @@
     private string _searchQuery = "";
     private string? _activeStatusFilter = null; // null = show all, "Installed", "Pending", "Required"
     
-    // View mode toggle (card or table)
-    private bool _isTableView = false;
+    // View mode toggle (card or table) - table is default
+    private bool _isTableView = true;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -441,7 +465,51 @@
                 _migrationDialogVisible = true;
                 StateHasChanged();
             }
+            // Check for interrupted install script
+            else if (ConfigService.InterruptedScriptDetected)
+            {
+                await ShowInterruptedScriptDialogAsync();
+            }
         }
+    }
+
+    private async Task ShowInterruptedScriptDialogAsync()
+    {
+        var options = new DialogOptions
+        {
+            BackdropClick = false,
+            CloseOnEscapeKey = false,
+            CloseButton = false
+        };
+
+        var result = await DialogService.ShowMessageBox(
+            "Update Interrupted",
+            "A previous mod update was interrupted before it could complete. Would you like to retry now?",
+            yesText: "Retry Update",
+            cancelText: "Dismiss",
+            options: options);
+
+        if (result == true)
+        {
+            // Retry the interrupted script
+            var success = await ConfigService.RetryInterruptedScriptAsync(NavigationManager.BaseUri.TrimEnd('/'));
+            if (success)
+            {
+                Snackbar.Add("Update script launched. Close the server and wait for completion.", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("No pending operations to retry.", Severity.Warning);
+            }
+        }
+        else
+        {
+            // User dismissed - clear the flag so we don't ask again
+            await ConfigService.ClearInterruptedScriptFlagAsync();
+            Snackbar.Add("Interrupted update dismissed.", Severity.Info);
+        }
+
+        StateHasChanged();
     }
 
     // Migration dialog state
@@ -1220,5 +1288,82 @@
         .floating-action-info {
             font-size: 0.75rem;
         }
+    }
+
+    /* Pending Shutdown Banner */
+    .pending-shutdown-banner {
+        position: relative;
+        margin: 16px 0;
+        padding: 14px 24px;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 50%, rgba(56, 189, 248, 0.15) 100%);
+        border: 1px solid rgba(168, 85, 247, 0.4);
+        border-radius: 12px;
+        overflow: hidden;
+        animation: banner-pulse 3s ease-in-out infinite;
+    }
+
+    .pending-shutdown-banner::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg,
+            rgba(56, 189, 248, 0) 0%,
+            rgba(56, 189, 248, 1) 20%,
+            rgba(168, 85, 247, 1) 50%,
+            rgba(56, 189, 248, 1) 80%,
+            rgba(56, 189, 248, 0) 100%
+        );
+        animation: shimmer 2s linear infinite;
+    }
+
+    @@keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+
+    @@keyframes banner-pulse {
+        0%, 100% {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2), inset 0 0 30px rgba(56, 189, 248, 0.05);
+        }
+        50% {
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.35), inset 0 0 40px rgba(56, 189, 248, 0.1);
+        }
+    }
+
+    .pending-shutdown-content {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 600;
+        font-size: 0.95rem;
+        letter-spacing: 0.5px;
+    }
+
+    .pending-shutdown-messages {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .pending-secondary {
+        font-size: 0.8rem;
+        font-weight: 400;
+        opacity: 0.7;
+    }
+
+    .pending-shutdown-icon {
+        color: var(--accent-cyan);
+        animation: icon-pulse 2s ease-in-out infinite;
+    }
+
+    @@keyframes icon-pulse {
+        0%, 100% { opacity: 0.6; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.1); }
     }
 </style>

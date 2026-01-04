@@ -66,6 +66,7 @@ public partial class ConfigService : IOnLoad
     public string DataPath => _dataPath;
     public string SptRoot => _sptRoot;
     public string StagingPath => Path.Combine(_dataPath, "staging");
+    public string LocalModsPath => Path.Combine(_dataPath, "local-mods");
     public string ConfigPath => Path.Combine(_dataPath, "serverConfig.json");
     public string StagedConfigPath => Path.Combine(_dataPath, "serverConfig.staged.json");
     public string StagingIndexPath => Path.Combine(_dataPath, "stagingIndex.json");
@@ -90,11 +91,13 @@ public partial class ConfigService : IOnLoad
         // Ensure data directory exists
         Directory.CreateDirectory(_dataPath);
         Directory.CreateDirectory(StagingPath);
+        EnsureLocalModsDirectory();
 
         await LoadConfigAsync();
         await LoadStagedConfigAsync();
         await LoadStagingIndexAsync();
         await LoadPendingOpsAsync();
+        await LoadLocalModsIndexAsync();
         
         // Ensure ModGod is in both live and staged config as a protected entry
         await EnsureModGodEntryAsync();

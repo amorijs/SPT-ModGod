@@ -30,6 +30,7 @@ public class ModInstallService
     {
         var result = new ApplyChangesResult();
         var applyStartTime = DateTime.UtcNow;
+        var modsNeedingRestartForInstall = new List<ModEntry>();
 
         _logger.Info("===============================================================");
         _logger.Info("[Apply] Starting to apply staged config changes...");
@@ -132,6 +133,7 @@ public class ModInstallService
             {
                 // Files are locked - queue for restart
                 result.QueuedForInstall.Add(mod.ModName);
+                modsNeedingRestartForInstall.Add(mod);
                 _logger.Info($"[Apply] Queued for install on restart: {mod.ModName}");
             }
             else
@@ -140,7 +142,7 @@ public class ModInstallService
                 result.Errors.Add($"Failed to install {mod.ModName}: {installResult.Error}");
             }
         }
-        
+
         // Handle updates (reinstalls with different config)
         if (stagedChanges.ModsToUpdate.Count > 0)
         {
@@ -168,6 +170,7 @@ public class ModInstallService
             else if (installResult.NeedsRestart)
             {
                 result.QueuedForInstall.Add($"{mod.ModName} (update)");
+                modsNeedingRestartForInstall.Add(mod);
                 _logger.Info($"[Apply] Update queued for restart: {mod.ModName}");
             }
             else
@@ -204,6 +207,7 @@ public class ModInstallService
             else if (installResult.NeedsRestart)
             {
                 result.QueuedForInstall.Add($"{mod.ModName} (reinstall)");
+                modsNeedingRestartForInstall.Add(mod);
                 _logger.Info($"[Apply] Reinstall queued for restart: {mod.ModName}");
             }
             else
@@ -240,8 +244,23 @@ public class ModInstallService
         // Generate and launch install script if there are queued operations
         if (result.QueuedForInstall.Count > 0 || result.QueuedForRemoval.Count > 0)
         {
-            result.InstallScriptPath = await _configService.GenerateInstallScriptAsync(serverUrl ?? "https://127.0.0.1:6969");
-            
+            // Build filtered staged changes with only mods that need restart
+            // We must pass this explicitly because ApplyStagedToLiveAsync() cleared PendingReinstallUrls
+            var restartChanges = new StagedChanges
+            {
+                ModsToInstall = modsNeedingRestartForInstall
+                    .Where(m => stagedChanges.ModsToInstall.Contains(m)).ToList(),
+                ModsToUpdate = modsNeedingRestartForInstall
+                    .Where(m => stagedChanges.ModsToUpdate.Contains(m)).ToList(),
+                ModsToReinstall = modsNeedingRestartForInstall
+                    .Where(m => stagedChanges.ModsToReinstall.Contains(m)).ToList(),
+                ModsToRemove = stagedChanges.ModsToRemove
+                    .Where(m => result.QueuedForRemoval.Contains(m.ModName)).ToList()
+            };
+
+            result.InstallScriptPath = await _configService.GenerateInstallScriptAsync(
+                restartChanges, serverUrl ?? "https://127.0.0.1:6969");
+
             if (!string.IsNullOrEmpty(result.InstallScriptPath))
             {
                 // Launch the auto-install script in a new window
@@ -264,6 +283,13 @@ public class ModInstallService
         _logger.Info($"[Apply]   - Errors: {result.Errors.Count}");
         _logger.Info($"[Apply]   - Requires restart: {result.RequiresRestart}");
         _logger.Info("===============================================================");
+
+        // Mark pending reload if any filesystem changes occurred
+        if (result.InstalledMods.Count > 0 || result.RemovedMods.Count > 0 ||
+            result.QueuedForInstall.Count > 0 || result.QueuedForRemoval.Count > 0)
+        {
+            _configService.MarkPendingReload();
+        }
 
         return result;
     }

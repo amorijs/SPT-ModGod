@@ -9,6 +9,42 @@ namespace ModGod.Services;
 /// </summary>
 public partial class ConfigService
 {
+    /// <summary>
+    /// Set to true if a previous install script was interrupted (pending marker exists but no completion marker)
+    /// </summary>
+    public bool InterruptedScriptDetected { get; private set; }
+
+    /// <summary>
+    /// Returns true if there are pending changes waiting for server shutdown to complete
+    /// </summary>
+    public bool HasPendingShutdown => File.Exists(Path.Combine(_dataPath, "pending-script.json"));
+
+    /// <summary>
+    /// Returns true if files were changed and server needs restart to load them
+    /// </summary>
+    public bool HasPendingReload => File.Exists(Path.Combine(_dataPath, "pending-reload.json"));
+
+    /// <summary>
+    /// Returns true if server needs restart for any reason (pending script or reload)
+    /// </summary>
+    public bool NeedsRestart => HasPendingShutdown || HasPendingReload;
+
+    /// <summary>
+    /// Mark that files have changed and server needs restart to load them
+    /// </summary>
+    public void MarkPendingReload()
+    {
+        var pendingReloadPath = Path.Combine(_dataPath, "pending-reload.json");
+        try
+        {
+            File.WriteAllText(pendingReloadPath, "{}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed to write pending reload marker: {ex.Message}");
+        }
+    }
+
     #region Pending Operations
 
     public async Task LoadPendingOpsAsync()
@@ -35,13 +71,47 @@ public partial class ConfigService
     /// </summary>
     private async Task ApplyPendingOperationsOnStartupAsync()
     {
+        var pendingScriptPath = Path.Combine(_dataPath, "pending-script.json");
+        var completedPath = Path.Combine(_dataPath, "completed-installs.json");
+        var pendingReloadPath = Path.Combine(_dataPath, "pending-reload.json");
+
+        // Check for interrupted install script (pending marker exists but no completion marker)
+        // Important: Check BEFORE processing completed-installs.json
+        if (File.Exists(pendingScriptPath) && !File.Exists(completedPath))
+        {
+            _logger.Warning("========================================");
+            _logger.Warning("ModGod: Previous update script was interrupted!");
+            _logger.Warning("Open the ModGod web UI to retry the update.");
+            _logger.Warning("========================================");
+            InterruptedScriptDetected = true;
+            // Don't clear pending-reload - the changes weren't actually applied!
+        }
+        else
+        {
+            // Only clear pending-reload marker if script completed successfully (or no script was pending)
+            // This means mods were actually loaded on this restart
+            if (File.Exists(pendingReloadPath))
+            {
+                try
+                {
+                    File.Delete(pendingReloadPath);
+                    _logger.Info("ModGod: Cleared pending reload marker (mods are now loaded)");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Failed to clear pending reload marker: {ex.Message}");
+                }
+            }
+        }
+
         // FIRST: Check if the auto-installer script already handled operations
         // This clears PendingOps.PathsToDelete for any removals the script completed
         await CheckAndMarkInstalledModsAsync();
 
         // SECOND: Apply any remaining queued deletions as a fallback
         // This handles cases where the script didn't run (e.g., user closed the window)
-        if (PendingOps.PathsToDelete.Count > 0)
+        // BUT: Don't apply if script was interrupted - let user choose to retry or dismiss
+        if (PendingOps.PathsToDelete.Count > 0 && !InterruptedScriptDetected)
         {
             _logger.Info("========================================");
             _logger.Info("ModGod: Processing remaining pending deletions...");
@@ -333,13 +403,26 @@ public partial class ConfigService
         var pathsToDelete = PendingOps.PathsToDelete.ToList();
 
         var scriptPathPs1 = Path.Combine(_dataPath, "install-pending-mods.ps1");
+        var pendingScriptPath = Path.Combine(_dataPath, "pending-script.json");
 
-        // Nothing to do -> delete script
+        // Nothing to do -> delete script and pending marker
         if (pendingInstalls.Count == 0 && pendingRemovals.Count == 0 && pathsToDelete.Count == 0)
         {
             if (File.Exists(scriptPathPs1)) File.Delete(scriptPathPs1);
+            if (File.Exists(pendingScriptPath)) File.Delete(pendingScriptPath);
             return null;
         }
+
+        // Write pending marker before generating script
+        // This tracks that a script was generated - if it still exists on next startup
+        // without a completed-installs.json, we know the script was interrupted
+        var pendingMarker = new
+        {
+            timestamp = DateTime.UtcNow,
+            installs = pendingInstalls.Select(m => m.DownloadUrl).ToList(),
+            removals = pendingRemovals.Select(m => m.DownloadUrl).ToList()
+        };
+        await File.WriteAllTextAsync(pendingScriptPath, JsonSerializer.Serialize(pendingMarker, JsonOptions));
 
         // Generate PowerShell script (Windows only)
         await GeneratePowerShellScriptAsync(scriptPathPs1, pendingInstalls, pendingRemovals, pathsToDelete, serverUrl);
@@ -389,8 +472,8 @@ public partial class ConfigService
         sb.AppendLine("    exit 1");
         sb.AppendLine("}");
         sb.AppendLine("");
-        sb.AppendLine("# Reset error action for non-critical operations");
-        sb.AppendLine("$ErrorActionPreference = 'SilentlyContinue'");
+        sb.AppendLine("# Track errors for summary at end");
+        sb.AppendLine("$script:InstallErrors = @()");
         sb.AppendLine("");
 
         // SSL certificate bypass for self-signed certs
@@ -420,7 +503,8 @@ public partial class ConfigService
             sb.AppendLine($"Write-Host 'Pending mods to install: {pendingInstalls.Count}' -ForegroundColor Yellow");
             foreach (var mod in pendingInstalls)
             {
-                sb.AppendLine($"Write-Host '  + {mod.ModName}' -ForegroundColor Green");
+                var safeName = mod.ModName.Replace("'", "''");
+                sb.AppendLine($"Write-Host '  + {safeName}' -ForegroundColor Green");
             }
             sb.AppendLine("Write-Host ''");
         }
@@ -430,7 +514,8 @@ public partial class ConfigService
             sb.AppendLine($"Write-Host 'Pending mods to remove: {pendingRemovals.Count}' -ForegroundColor Yellow");
             foreach (var mod in pendingRemovals)
             {
-                sb.AppendLine($"Write-Host '  - {mod.ModName}' -ForegroundColor Red");
+                var safeName = mod.ModName.Replace("'", "''");
+                sb.AppendLine($"Write-Host '  - {safeName}' -ForegroundColor Red");
             }
             sb.AppendLine("Write-Host ''");
         }
@@ -443,31 +528,26 @@ public partial class ConfigService
         // Polling loop
         sb.AppendLine("# Poll until server shuts down");
         sb.AppendLine("$serverWasUp = $false");
-        sb.AppendLine("$spinChars = @('|', '/', '-', '\\')");
         sb.AppendLine("$spinIndex = 0");
         sb.AppendLine("");
         sb.AppendLine("while ($true) {");
         sb.AppendLine("    try {");
         sb.AppendLine("        $response = Invoke-WebRequest -Uri $StatusEndpoint -TimeoutSec 3 -UseBasicParsing");
         sb.AppendLine("        $serverWasUp = $true");
-        sb.AppendLine("        $spin = $spinChars[$spinIndex % 4]");
         sb.AppendLine("        $spinIndex++");
-        sb.AppendLine("        Write-Host \"`r[$spin] Server is running... waiting for shutdown    \" -NoNewline -ForegroundColor Gray");
+        sb.AppendLine("        Write-Host \"`rServer is running... waiting for shutdown [$spinIndex]    \" -NoNewline -ForegroundColor Gray");
         sb.AppendLine("        Start-Sleep -Seconds $PollIntervalSeconds");
         sb.AppendLine("    }");
         sb.AppendLine("    catch {");
         sb.AppendLine("        if ($serverWasUp) {");
-        sb.AppendLine("            # Server was up, now it's down - time to install!");
         sb.AppendLine("            Write-Host ''");
         sb.AppendLine("            Write-Host ''");
         sb.AppendLine("            Write-Host 'Server shutdown detected!' -ForegroundColor Green");
         sb.AppendLine("            Write-Host ''");
         sb.AppendLine("            break");
         sb.AppendLine("        }");
-        sb.AppendLine("        # Server not up yet, keep waiting");
-        sb.AppendLine("        $spin = $spinChars[$spinIndex % 4]");
         sb.AppendLine("        $spinIndex++");
-        sb.AppendLine("        Write-Host \"`r[$spin] Waiting for server to start...              \" -NoNewline -ForegroundColor Yellow");
+        sb.AppendLine("        Write-Host \"`rWaiting for server to start... [$spinIndex]              \" -NoNewline -ForegroundColor Yellow");
         sb.AppendLine("        Start-Sleep -Seconds $PollIntervalSeconds");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -480,6 +560,8 @@ public partial class ConfigService
             sb.AppendLine("Write-Host 'Removing mods...' -ForegroundColor Cyan");
             sb.AppendLine("Write-Host ''");
             sb.AppendLine("");
+            sb.AppendLine("$script:RemovedParentDirs = @()");
+            sb.AppendLine("");
 
             foreach (var pathToDelete in pathsToDelete)
             {
@@ -487,16 +569,123 @@ public partial class ConfigService
                 var fullPath = pathToDelete.Contains("<SPT_ROOT>")
                     ? pathToDelete.Replace("<SPT_ROOT>", "$SptRoot")
                     : "$SptRoot\\" + pathToDelete.Replace("/", "\\").TrimStart('\\');
+                var safeFileName = Path.GetFileName(pathToDelete.TrimEnd('/', '\\')).Replace("'", "''");
+                var safeFileNameDbl = Path.GetFileName(pathToDelete.TrimEnd('/', '\\')).Replace("\"", "`\"");
+                var safePathToDelete = pathToDelete.Replace("'", "''");
+
                 sb.AppendLine($"if (Test-Path \"{fullPath}\") {{");
                 sb.AppendLine($"    try {{");
+                sb.AppendLine($"        $parentDir = Split-Path -Parent \"{fullPath}\"");
                 sb.AppendLine($"        Remove-Item -Path \"{fullPath}\" -Recurse -Force -ErrorAction Stop");
-                sb.AppendLine($"        Write-Host '  [OK] Removed {Path.GetFileName(pathToDelete.TrimEnd('/', '\\'))}' -ForegroundColor Green");
+                sb.AppendLine($"        Write-Host '  [OK] Removed {safeFileName}' -ForegroundColor Green");
+                sb.AppendLine($"        if ($parentDir -and ($script:RemovedParentDirs -notcontains $parentDir)) {{");
+                sb.AppendLine($"            $script:RemovedParentDirs += $parentDir");
+                sb.AppendLine($"        }}");
                 sb.AppendLine($"    }} catch {{");
-                sb.AppendLine($"        Write-Host '  [FAIL] {pathToDelete}: ' $_.Exception.Message -ForegroundColor Red");
+                sb.AppendLine($"        Write-Host '  [FAIL] {safePathToDelete}: ' $_.Exception.Message -ForegroundColor Red");
+                sb.AppendLine($"        $script:InstallErrors += \"Remove {safeFileNameDbl}: $($_.Exception.Message)\"");
                 sb.AppendLine($"    }}");
                 sb.AppendLine("}");
                 sb.AppendLine("");
             }
+
+            // Add empty directory cleanup logic
+            sb.AppendLine("# Find all empty directories recursively from start paths");
+            sb.AppendLine("function Get-AllEmptyDirectories {");
+            sb.AppendLine("    param([string[]]$StartPaths, [string]$SptRoot)");
+            sb.AppendLine("    $allEmpty = @()");
+            sb.AppendLine("    $visited = @{}");
+            sb.AppendLine("    ");
+            sb.AppendLine("    foreach ($startPath in $StartPaths) {");
+            sb.AppendLine("        $current = $startPath");
+            sb.AppendLine("        while ($current -and $current.Length -gt $SptRoot.Length) {");
+            sb.AppendLine("            if ($visited.ContainsKey($current)) { break }");
+            sb.AppendLine("            $visited[$current] = $true");
+            sb.AppendLine("            ");
+            sb.AppendLine("            if (Test-Path $current -PathType Container) {");
+            sb.AppendLine("                $items = @(Get-ChildItem -Path $current -Force -ErrorAction SilentlyContinue)");
+            sb.AppendLine("                if ($items.Count -eq 0) {");
+            sb.AppendLine("                    $allEmpty += $current");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            $current = Split-Path -Parent $current");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("    return $allEmpty | Sort-Object -Property Length -Descending");
+            sb.AppendLine("}");
+            sb.AppendLine("");
+            sb.AppendLine("$emptyDirs = Get-AllEmptyDirectories -StartPaths $script:RemovedParentDirs -SptRoot $SptRoot");
+            sb.AppendLine("");
+            sb.AppendLine("if ($emptyDirs.Count -gt 0) {");
+            sb.AppendLine("    Write-Host ''");
+            sb.AppendLine("    Write-Host \"Found $($emptyDirs.Count) empty director$(if ($emptyDirs.Count -eq 1) { 'y' } else { 'ies' }) after removal:\" -ForegroundColor Yellow");
+            sb.AppendLine("    foreach ($dir in $emptyDirs) {");
+            sb.AppendLine("        $relPath = $dir.Substring($SptRoot.Length).TrimStart('\\', '/')");
+            sb.AppendLine("        Write-Host \"  - $relPath\" -ForegroundColor DarkGray");
+            sb.AppendLine("    }");
+            sb.AppendLine("    Write-Host ''");
+            sb.AppendLine("    Write-Host '1. Remove all empty directories' -ForegroundColor Cyan");
+            sb.AppendLine("    Write-Host '2. Review one by one' -ForegroundColor Cyan");
+            sb.AppendLine("    Write-Host '3. Skip (keep empty directories)' -ForegroundColor Cyan");
+            sb.AppendLine("    Write-Host ''");
+            sb.AppendLine("    $choice = Read-Host 'Enter choice (1/2/3)'");
+            sb.AppendLine("    Write-Host ''");
+            sb.AppendLine("");
+            sb.AppendLine("    switch ($choice) {");
+            sb.AppendLine("        '1' {");
+            sb.AppendLine("            Write-Host 'Removing empty directories...' -ForegroundColor Cyan");
+            sb.AppendLine("            # Keep removing until no more empty dirs (handles cascading empties)");
+            sb.AppendLine("            $totalRemoved = 0");
+            sb.AppendLine("            do {");
+            sb.AppendLine("                $removedThisPass = 0");
+            sb.AppendLine("                $currentEmpty = Get-AllEmptyDirectories -StartPaths $script:RemovedParentDirs -SptRoot $SptRoot");
+            sb.AppendLine("                foreach ($dir in $currentEmpty) {");
+            sb.AppendLine("                    try {");
+            sb.AppendLine("                        Remove-Item -Path $dir -Force -ErrorAction Stop");
+            sb.AppendLine("                        $relPath = $dir.Substring($SptRoot.Length).TrimStart('\\', '/')");
+            sb.AppendLine("                        Write-Host \"  [OK] Removed $relPath\" -ForegroundColor Green");
+            sb.AppendLine("                        $removedThisPass++");
+            sb.AppendLine("                        $totalRemoved++");
+            sb.AppendLine("                    } catch {");
+            sb.AppendLine("                        Write-Host \"  [FAIL] ${dir}: $($_.Exception.Message)\" -ForegroundColor Red");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                }");
+            sb.AppendLine("            } while ($removedThisPass -gt 0)");
+            sb.AppendLine("            Write-Host \"Removed $totalRemoved empty director$(if ($totalRemoved -eq 1) { 'y' } else { 'ies' }).\" -ForegroundColor Green");
+            sb.AppendLine("        }");
+            sb.AppendLine("        '2' {");
+            sb.AppendLine("            Write-Host 'Reviewing directories...' -ForegroundColor Cyan");
+            sb.AppendLine("            Write-Host ''");
+            sb.AppendLine("            # Keep asking until no more empty dirs");
+            sb.AppendLine("            do {");
+            sb.AppendLine("                $currentEmpty = Get-AllEmptyDirectories -StartPaths $script:RemovedParentDirs -SptRoot $SptRoot");
+            sb.AppendLine("                $removedAny = $false");
+            sb.AppendLine("                foreach ($dir in $currentEmpty) {");
+            sb.AppendLine("                    $relPath = $dir.Substring($SptRoot.Length).TrimStart('\\', '/')");
+            sb.AppendLine("                    $confirm = Read-Host \"Remove '$relPath'? (y/n/q to quit)\"");
+            sb.AppendLine("                    if ($confirm -eq 'q' -or $confirm -eq 'Q') { break }");
+            sb.AppendLine("                    if ($confirm -eq 'y' -or $confirm -eq 'Y') {");
+            sb.AppendLine("                        try {");
+            sb.AppendLine("                            Remove-Item -Path $dir -Force -ErrorAction Stop");
+            sb.AppendLine("                            Write-Host \"  [OK] Removed\" -ForegroundColor Green");
+            sb.AppendLine("                            $removedAny = $true");
+            sb.AppendLine("                            break"); // Re-scan after each removal to catch cascading empties
+            sb.AppendLine("                        } catch {");
+            sb.AppendLine("                            Write-Host \"  [FAIL] $($_.Exception.Message)\" -ForegroundColor Red");
+            sb.AppendLine("                        }");
+            sb.AppendLine("                    } else {");
+            sb.AppendLine("                        Write-Host '  [SKIP] Kept' -ForegroundColor DarkGray");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                }");
+            sb.AppendLine("                if ($confirm -eq 'q' -or $confirm -eq 'Q') { break }");
+            sb.AppendLine("            } while ($removedAny)");
+            sb.AppendLine("        }");
+            sb.AppendLine("        default {");
+            sb.AppendLine("            Write-Host 'Skipping empty directory cleanup.' -ForegroundColor DarkGray");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine("");
         }
 
         // Installation section
@@ -576,9 +765,13 @@ public partial class ConfigService
                     .Select(r => r.Path.Replace("\\", "/"))
                     .ToList() ?? new List<string>();
 
-                sb.AppendLine($"# {mod.ModName}");
-                sb.AppendLine($"Write-Host 'Installing: {mod.ModName}' -ForegroundColor Yellow");
-                
+                // Escape mod name for PowerShell strings
+                var safeModName = mod.ModName.Replace("'", "''");
+                var safeModNameDbl = mod.ModName.Replace("\"", "`\"").Replace("'", "''");
+
+                sb.AppendLine($"# {safeModName}");
+                sb.AppendLine($"Write-Host 'Installing: {safeModName}' -ForegroundColor Yellow");
+
                 if (ignoreRules.Count > 0)
                 {
                     sb.AppendLine($"Write-Host '  ({ignoreRules.Count} file(s) will be skipped)' -ForegroundColor DarkGray");
@@ -587,26 +780,27 @@ public partial class ConfigService
                 foreach (var installPath in mod.InstallPaths)
                 {
                     var sourcePath = installPath[0];
+                    var safeSourcePath = sourcePath.Replace("'", "''");
                     // Handle both old format (<SPT_ROOT>/path) and new format (path) for backwards compatibility
                     var rawTarget = installPath[1];
                     var targetPath = rawTarget.Contains("<SPT_ROOT>")
                         ? rawTarget.Replace("<SPT_ROOT>", "$SptRoot")
                         : "$SptRoot\\" + rawTarget.Replace("/", "\\").TrimStart('\\');
                     var fullSourcePath = Path.Combine(extractedPath, sourcePath);
-                    
+
                     // Filter ignore rules to only those relevant to this install path
                     var relevantIgnores = ignoreRules
-                        .Where(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) || 
+                        .Where(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) ||
                                     r.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
-                        .Select(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase) 
-                            ? r.Substring(sourcePath.Length + 1) 
+                        .Select(r => r.StartsWith(sourcePath + "/", StringComparison.OrdinalIgnoreCase)
+                            ? r.Substring(sourcePath.Length + 1)
                             : "")
                         .Where(r => !string.IsNullOrEmpty(r))
                         .ToList();
 
                     sb.AppendLine($"if (Test-Path '{fullSourcePath}') {{");
                     sb.AppendLine($"    try {{");
-                    
+
                     if (relevantIgnores.Count > 0)
                     {
                         // Use the helper function with ignore rules
@@ -619,10 +813,11 @@ public partial class ConfigService
                         // Simple copy when no ignores
                         sb.AppendLine($"        Copy-Item -Path '{fullSourcePath}\\*' -Destination \"{targetPath}\" -Recurse -Force -ErrorAction Stop");
                     }
-                    
-                    sb.AppendLine($"        Write-Host '  [OK] Copied {sourcePath}' -ForegroundColor Green");
+
+                    sb.AppendLine($"        Write-Host '  [OK] Copied {safeSourcePath}' -ForegroundColor Green");
                     sb.AppendLine($"    }} catch {{");
-                    sb.AppendLine($"        Write-Host '  [FAIL] {sourcePath}: ' $_.Exception.Message -ForegroundColor Red");
+                    sb.AppendLine($"        Write-Host '  [FAIL] {safeSourcePath}: ' $_.Exception.Message -ForegroundColor Red");
+                    sb.AppendLine($"        $script:InstallErrors += \"{safeModNameDbl} ({safeSourcePath}): $($_.Exception.Message)\"");
                     sb.AppendLine($"    }}");
                     sb.AppendLine("}");
                 }
@@ -637,27 +832,49 @@ public partial class ConfigService
             installed = pendingInstalls.Select(m => m.DownloadUrl).ToList(),
             removed = pendingRemovals.Select(m => m.DownloadUrl).ToList()
         };
-        var urlsJson = JsonSerializer.Serialize(completionData, JsonOptions);
+        // Use compact JSON and Base64 encode to avoid all PowerShell escaping issues
+        var compactJsonOptions = new JsonSerializerOptions { WriteIndented = false };
+        var urlsJson = JsonSerializer.Serialize(completionData, compactJsonOptions);
+        var jsonBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(urlsJson));
 
         sb.AppendLine("# Write completion marker file");
-        sb.AppendLine($"$completedUrls = @'");
-        sb.AppendLine(urlsJson);
-        sb.AppendLine("'@");
+        sb.AppendLine($"$jsonBase64 = '{jsonBase64}'");
+        sb.AppendLine("$completedUrls = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($jsonBase64))");
         sb.AppendLine($"$completedUrls | Out-File -FilePath '{completedPath}' -Encoding UTF8");
         sb.AppendLine("Write-Host 'Wrote completion marker for server.' -ForegroundColor DarkGray");
         sb.AppendLine("");
 
-        // Completion
-        sb.AppendLine("Write-Host ''");
-        sb.AppendLine("Write-Host '======================================' -ForegroundColor Green");
-        sb.AppendLine("Write-Host '  Installation Complete!              ' -ForegroundColor Green");
-        sb.AppendLine("Write-Host '======================================' -ForegroundColor Green");
+        // Delete the pending marker now that we've completed successfully
+        var pendingScriptPath = Path.Combine(_dataPath, "pending-script.json");
+        sb.AppendLine("# Delete pending marker (script completed successfully)");
+        sb.AppendLine($"Remove-Item -Path '{pendingScriptPath}' -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("");
+
+        // Completion - check for errors
+        sb.AppendLine("# Check for errors and display summary");
+        sb.AppendLine("if ($script:InstallErrors.Count -gt 0) {");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host '  ERRORS OCCURRED                     ' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Red");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    foreach ($err in $script:InstallErrors) {");
+        sb.AppendLine("        Write-Host \"  - $err\" -ForegroundColor Red");
+        sb.AppendLine("    }");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host 'Some operations failed. Check the errors above.' -ForegroundColor Yellow");
+        sb.AppendLine("    Write-Host 'The completion marker was still written - server will attempt to mark mods as installed.' -ForegroundColor DarkGray");
+        sb.AppendLine("} else {");
+        sb.AppendLine("    Write-Host ''");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Green");
+        sb.AppendLine("    Write-Host '  All Operations Complete!            ' -ForegroundColor Green");
+        sb.AppendLine("    Write-Host '======================================' -ForegroundColor Green");
+        sb.AppendLine("}");
         sb.AppendLine("Write-Host ''");
         sb.AppendLine("Write-Host 'You can now start the SPT server.' -ForegroundColor Cyan");
-        sb.AppendLine("Write-Host 'The server will automatically mark these mods as installed.' -ForegroundColor DarkGray");
+        sb.AppendLine("Write-Host 'The server will automatically detect the completed changes.' -ForegroundColor DarkGray");
         sb.AppendLine("Write-Host ''");
-        sb.AppendLine("Write-Host 'This window will close in 10 seconds...' -ForegroundColor DarkGray");
-        sb.AppendLine("Start-Sleep -Seconds 10");
+        sb.AppendLine("Write-Host 'You may close this window.' -ForegroundColor DarkGray");
 
         await File.WriteAllTextAsync(scriptPath, sb.ToString());
         _logger.Info($"Generated install script: {scriptPath}");
@@ -691,7 +908,8 @@ public partial class ConfigService
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\"",
+                // -NoExit keeps window open so user can see errors or results
+                Arguments = $"-NoExit -ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\"",
                 UseShellExecute = true,
                 CreateNoWindow = false
             };
@@ -702,6 +920,137 @@ public partial class ConfigService
         {
             _logger.Error($"Failed to launch install script: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Retry a previously interrupted install script.
+    /// Regenerates the script from the pending marker and launches it.
+    /// </summary>
+    public async Task<bool> RetryInterruptedScriptAsync(string serverUrl = "https://127.0.0.1:6969")
+    {
+        var pendingScriptPath = Path.Combine(_dataPath, "pending-script.json");
+
+        if (!File.Exists(pendingScriptPath))
+        {
+            _logger.Warning("No pending script marker found, cannot retry");
+            return false;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(pendingScriptPath);
+            var pendingData = JsonSerializer.Deserialize<PendingScriptMarker>(json, JsonOptions);
+
+            if (pendingData == null)
+            {
+                _logger.Warning("Failed to parse pending script marker");
+                return false;
+            }
+
+            // Build lists of mods to install/remove based on the URLs in the pending marker
+            var pendingInstalls = new List<ModEntry>();
+            var pendingRemovals = new List<ModEntry>();
+
+            foreach (var url in pendingData.Installs ?? new List<string>())
+            {
+                // Look in staged config first, then live config
+                var mod = StagedConfig.ModList.FirstOrDefault(m => m.DownloadUrl == url)
+                    ?? Config.ModList.FirstOrDefault(m => m.DownloadUrl == url);
+                if (mod != null && IsUrlStaged(url))
+                {
+                    pendingInstalls.Add(mod);
+                }
+            }
+
+            foreach (var url in pendingData.Removals ?? new List<string>())
+            {
+                var mod = Config.ModList.FirstOrDefault(m => m.DownloadUrl == url);
+                if (mod != null && !mod.IsProtected)
+                {
+                    pendingRemovals.Add(mod);
+                }
+            }
+
+            var pathsToDelete = PendingOps.PathsToDelete.ToList();
+
+            if (pendingInstalls.Count == 0 && pendingRemovals.Count == 0 && pathsToDelete.Count == 0)
+            {
+                _logger.Info("No pending operations found to retry - clearing marker");
+                ClearInterruptedScriptFlag();
+                return false;
+            }
+
+            _logger.Info($"Retrying interrupted script: {pendingInstalls.Count} installs, {pendingRemovals.Count} removals");
+
+            // Regenerate and launch the script
+            var scriptPath = Path.Combine(_dataPath, "install-pending-mods.ps1");
+            await GeneratePowerShellScriptAsync(scriptPath, pendingInstalls, pendingRemovals, pathsToDelete, serverUrl);
+            LaunchInstallScript();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to retry interrupted script: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Clear the interrupted script flag and delete the pending markers
+    /// </summary>
+    public async Task ClearInterruptedScriptFlagAsync()
+    {
+        InterruptedScriptDetected = false;
+
+        // Delete pending script marker
+        var pendingScriptPath = Path.Combine(_dataPath, "pending-script.json");
+        if (File.Exists(pendingScriptPath))
+        {
+            try
+            {
+                File.Delete(pendingScriptPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to delete pending script marker: {ex.Message}");
+            }
+        }
+
+        // Also clear pending reload marker since user is dismissing/handling the interrupted state
+        var pendingReloadPath = Path.Combine(_dataPath, "pending-reload.json");
+        if (File.Exists(pendingReloadPath))
+        {
+            try
+            {
+                File.Delete(pendingReloadPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to delete pending reload marker: {ex.Message}");
+            }
+        }
+
+        // Clear pending file deletions since user dismissed the retry
+        if (PendingOps.PathsToDelete.Count > 0)
+        {
+            PendingOps.PathsToDelete.Clear();
+            await SavePendingOpsAsync();
+            _logger.Info("Cleared pending file deletions (user dismissed retry)");
+        }
+    }
+
+    // Keep sync version for backwards compatibility
+    public void ClearInterruptedScriptFlag() => ClearInterruptedScriptFlagAsync().GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Model for deserializing pending-script.json
+    /// </summary>
+    private class PendingScriptMarker
+    {
+        public DateTime Timestamp { get; set; }
+        public List<string>? Installs { get; set; }
+        public List<string>? Removals { get; set; }
     }
 
     #endregion

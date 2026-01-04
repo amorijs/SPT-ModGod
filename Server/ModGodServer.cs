@@ -24,7 +24,7 @@ public record ModMetadata : AbstractModMetadata, IModWebMetadata
     public override string Name { get; init; } = "ModGod";
     public override string Author { get; init; } = "Bewa";
     public override List<string>? Contributors { get; init; }
-    public override SemanticVersioning.Version Version { get; init; } = new("1.0.0");
+    public override SemanticVersioning.Version Version { get; init; } = new("2.3.0");
     public override SemanticVersioning.Range SptVersion { get; init; } = new("~4.0.0");
     public override List<string>? Incompatibilities { get; init; }
     public override Dictionary<string, SemanticVersioning.Range>? ModDependencies { get; init; }
@@ -47,7 +47,7 @@ public class ModGodServer(
     public Task OnLoad()
     {
         ModPath = modHelper.GetAbsolutePathToModFolder(Assembly.GetExecutingAssembly());
-        
+
         logger.Success("========================================");
         logger.Success("  ModGod Server loaded!");
         logger.Success("  Web UI: <your-server-url>/modgod");
@@ -90,7 +90,7 @@ public class ModConfigHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/config", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -103,8 +103,8 @@ public class ModConfigHttpListener : IHttpListener
         _logger.Info($"Client requested mod config (headless: {isHeadless})");
 
         // Generate the appropriate manifest to determine which mods have syncable files
-        var manifest = isHeadless 
-            ? _manifestService.GenerateHeadlessManifest() 
+        var manifest = isHeadless
+            ? _manifestService.GenerateHeadlessManifest()
             : _manifestService.GenerateManifest();
 
         // Get the set of mod names that have files in the manifest
@@ -170,7 +170,7 @@ public class ManifestHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/manifest", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -200,7 +200,7 @@ public class StatusHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/status", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -243,7 +243,7 @@ public class HeadlessManifestHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/manifest/headless", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -268,7 +268,7 @@ public class HeadlessManifestHttpListener : IHttpListener
 /// HTTP listener to serve individual files for client sync
 /// URL format: /modgod/api/file/{relativePath}
 /// e.g., /modgod/api/file/BepInEx/plugins/ModName/ModName.dll
-/// 
+///
 /// The relativePath is the TARGET path (what client expects).
 /// This handler reverse-maps it to the SOURCE path (where file actually exists on server).
 /// </summary>
@@ -289,14 +289,14 @@ public class FileDownloadHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.StartsWith("/modgod/api/file/", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task Handle(MongoId sessionId, HttpContext context)
     {
         var requestPath = context.Request.Path.Value ?? "";
-        
+
         // Extract relative file path from URL (after /modgod/api/file/)
         // This is the TARGET path that the client is requesting
         var targetPath = requestPath.Substring("/modgod/api/file/".Length);
@@ -304,9 +304,9 @@ public class FileDownloadHttpListener : IHttpListener
 
         // Check if request is for headless manifest (via query param or header)
         var isHeadless = context.Request.Query["headless"].FirstOrDefault() == "true";
-        
+
         // Get the appropriate sync config
-        var syncConfig = isHeadless 
+        var syncConfig = isHeadless
             ? (_configService.Config.HeadlessSyncConfig ?? ClientSyncConfig.DefaultHeadlessConfig())
             : (_configService.Config.PlayerSyncConfig ?? ClientSyncConfig.DefaultPlayerConfig());
 
@@ -317,7 +317,7 @@ public class FileDownloadHttpListener : IHttpListener
             .ToList();
 
         // Security: Only allow files under configured sync path targets
-        if (!allowedTargets.Any(target => 
+        if (!allowedTargets.Any(target =>
             targetPath.Equals(target, StringComparison.OrdinalIgnoreCase) ||
             targetPath.StartsWith(target + "/", StringComparison.OrdinalIgnoreCase)))
         {
@@ -372,11 +372,11 @@ public class FileDownloadHttpListener : IHttpListener
         try
         {
             var fileBytes = await File.ReadAllBytesAsync(fullPath);
-            
+
             context.Response.StatusCode = 200;
             context.Response.ContentType = "application/octet-stream";
             context.Response.Headers.Append("Content-Length", fileBytes.Length.ToString());
-            
+
             await context.Response.Body.WriteAsync(fileBytes);
             await context.Response.StartAsync();
             await context.Response.CompleteAsync();
@@ -397,29 +397,29 @@ public class FileDownloadHttpListener : IHttpListener
     private static string? ReverseMapTargetToSource(string targetPath, List<SyncPathEntry> syncPaths)
     {
         var normTarget = NormalizePath(targetPath);
-        
+
         foreach (var syncPath in syncPaths)
         {
             var normSyncSource = NormalizePath(syncPath.Source);
             var normSyncTarget = NormalizePath(syncPath.Target);
-            
+
             // Check if targetPath is under this sync path's target
             if (normTarget.Equals(normSyncTarget, StringComparison.OrdinalIgnoreCase))
             {
                 // Exact match - return the source
                 return normSyncSource;
             }
-            
+
             if (normTarget.StartsWith(normSyncTarget + "/", StringComparison.OrdinalIgnoreCase))
             {
                 // Path is under this sync target - transform back to source
                 var relativePart = normTarget.Substring(normSyncTarget.Length + 1);
-                return string.IsNullOrEmpty(normSyncSource) 
-                    ? relativePart 
+                return string.IsNullOrEmpty(normSyncSource)
+                    ? relativePart
                     : $"{normSyncSource}/{relativePart}";
             }
         }
-        
+
         return null; // Path not in any sync path
     }
 
@@ -456,7 +456,7 @@ public class SelfDownloadHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/self-download", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -478,7 +478,7 @@ public class SelfDownloadHttpListener : IHttpListener
             context.Response.ContentType = "application/zip";
             context.Response.Headers.Append("Content-Disposition", "attachment; filename=\"ModGod.zip\"");
             context.Response.Headers.Append("Content-Length", _cachedZip.Length.ToString());
-            
+
             await context.Response.Body.WriteAsync(_cachedZip);
             await context.Response.StartAsync();
             await context.Response.CompleteAsync();
@@ -533,7 +533,7 @@ public class SelfDownloadHttpListener : IHttpListener
         {
             var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
             var entryName = $"{archivePath}/{relativePath}";
-            
+
             try
             {
                 var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
@@ -590,7 +590,7 @@ public class ForgeValidateKeyHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "POST" && 
+        return context.Request.Method == "POST" &&
                path.Equals("/modgod/api/forge/validate-key", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -677,7 +677,7 @@ public class ForgeModDetailsHttpListener : IHttpListener
         // Only match /modgod/api/forge/mod/{modId} - NOT paths with additional segments like /addons
         if (context.Request.Method != "GET") return false;
         if (!path.StartsWith("/modgod/api/forge/mod/", StringComparison.OrdinalIgnoreCase)) return false;
-        
+
         // Exclude sub-paths like /addons
         var remainder = path.Substring("/modgod/api/forge/mod/".Length).TrimEnd('/');
         return !remainder.Contains('/'); // Only match if there's no additional path segment
@@ -790,8 +790,8 @@ public class ForgeModAddonsHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value ?? "";
-        return context.Request.Method == "GET" && 
-               path.Contains("/modgod/api/forge/mod/") && 
+        return context.Request.Method == "GET" &&
+               path.Contains("/modgod/api/forge/mod/") &&
                path.EndsWith("/addons", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -801,7 +801,7 @@ public class ForgeModAddonsHttpListener : IHttpListener
         {
             var path = context.Request.Path.Value ?? "";
             _logger.Info($"[AddonsHandler] Handling request: {path}");
-            
+
             // Extract modId from /modgod/api/forge/mod/{modId}/addons
             var startIndex = "/modgod/api/forge/mod/".Length;
             var endIndex = path.LastIndexOf("/addons", StringComparison.OrdinalIgnoreCase);
@@ -895,8 +895,8 @@ public class ForgeAddonVersionsHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value ?? "";
-        return context.Request.Method == "GET" && 
-               path.Contains("/modgod/api/forge/addon/") && 
+        return context.Request.Method == "GET" &&
+               path.Contains("/modgod/api/forge/addon/") &&
                path.EndsWith("/versions", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -988,7 +988,7 @@ public class ForgeStatusHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/forge/status", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1025,7 +1025,7 @@ public class ForgeGetApiKeyHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/forge/api-key", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1077,7 +1077,7 @@ public class ForgeDeleteKeyHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "DELETE" && 
+        return context.Request.Method == "DELETE" &&
                path.Equals("/modgod/api/forge/api-key", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1087,7 +1087,7 @@ public class ForgeDeleteKeyHttpListener : IHttpListener
         {
             await _forgeService.SaveApiKeyAsync(null!);
             _logger.Info("Forge API key removed");
-            
+
             var json = JsonSerializer.Serialize(new { success = true }, JsonOptions);
             context.Response.StatusCode = 200;
             context.Response.ContentType = "application/json";
@@ -1101,7 +1101,7 @@ public class ForgeDeleteKeyHttpListener : IHttpListener
             context.Response.ContentType = "application/json";
             await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
         }
-        
+
         await context.Response.StartAsync();
         await context.Response.CompleteAsync();
     }
@@ -1134,7 +1134,7 @@ public class ForgeSearchHttpListener : IHttpListener
     public bool CanHandle(MongoId sessionId, HttpContext context)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
-        return context.Request.Method == "GET" && 
+        return context.Request.Method == "GET" &&
                path.Equals("/modgod/api/forge/search", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1196,5 +1196,425 @@ public class ForgeSearchHttpListener : IHttpListener
         await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
         await context.Response.StartAsync();
         await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener to serve local mods as downloadable zip archives.
+/// URL format: /modgod/api/local-mods/{guid}
+///
+/// Local mods are mods that exist on the server filesystem (e.g., distributed via Discord).
+/// This endpoint zips the files on-the-fly and serves them to clients.
+/// The client updater downloads from this URL just like any other mod.
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class LocalModDownloadHttpListener : IHttpListener
+{
+    private readonly ConfigService _configService;
+    private readonly ISptLogger<LocalModDownloadHttpListener> _logger;
+
+    // Cache zipped mods briefly to avoid re-zipping for rapid requests
+    private readonly Dictionary<string, (byte[] Data, DateTime Cached)> _zipCache = new();
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(2);
+
+    public LocalModDownloadHttpListener(
+        ConfigService configService,
+        ISptLogger<LocalModDownloadHttpListener> logger)
+    {
+        _configService = configService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? "";
+        return context.Request.Method == "GET" &&
+               path.StartsWith("/modgod/api/local-mods/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        var requestPath = context.Request.Path.Value ?? "";
+
+        // Extract guid from URL (after /modgod/api/local-mods/)
+        var guid = requestPath.Substring("/modgod/api/local-mods/".Length).TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(guid))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Missing mod guid\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        // Validate the guid exists
+        if (!_configService.IsValidLocalMod(guid))
+        {
+            _logger.Warning($"Local mod not found: {guid}");
+            context.Response.StatusCode = 404;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Local mod not found\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        var localModPath = _configService.GetLocalModPath(guid);
+        if (localModPath == null || !Directory.Exists(localModPath))
+        {
+            _logger.Warning($"Local mod path does not exist: {guid}");
+            context.Response.StatusCode = 404;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Local mod files not found\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+            return;
+        }
+
+        var modInfo = _configService.GetLocalModInfo(guid);
+        var modName = modInfo?.ModName ?? guid;
+
+        _logger.Info($"Serving local mod: {modName} (guid: {guid})");
+
+        try
+        {
+            // Check cache first
+            byte[] zipData;
+            if (_zipCache.TryGetValue(guid, out var cached) && DateTime.UtcNow - cached.Cached < CacheDuration)
+            {
+                _logger.Debug($"Using cached zip for local mod: {guid}");
+                zipData = cached.Data;
+            }
+            else
+            {
+                // Generate zip on-the-fly
+                zipData = await GenerateZipFromDirectory(localModPath);
+
+                // Cache it
+                _zipCache[guid] = (zipData, DateTime.UtcNow);
+
+                // Clean old cache entries
+                CleanCache();
+
+                _logger.Info($"Generated zip for local mod: {modName} ({zipData.Length / 1024}KB)");
+            }
+
+            // Sanitize filename for Content-Disposition
+            var safeFileName = SanitizeFileName(modName) + ".zip";
+
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/zip";
+            context.Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{safeFileName}\"");
+            context.Response.Headers.Append("Content-Length", zipData.Length.ToString());
+
+            await context.Response.Body.WriteAsync(zipData);
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error serving local mod {guid}: {ex.Message}");
+            context.Response.StatusCode = 500;
+            await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"error\":\"Failed to serve mod\"}"));
+            await context.Response.StartAsync();
+            await context.Response.CompleteAsync();
+        }
+    }
+
+    private static async Task<byte[]> GenerateZipFromDirectory(string sourceDir)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
+        {
+            var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
+
+            foreach (var file in files)
+            {
+                var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+                var entry = archive.CreateEntry(relativePath, CompressionLevel.Optimal);
+
+                await using var entryStream = entry.Open();
+                await using var fileStream = File.OpenRead(file);
+                await fileStream.CopyToAsync(entryStream);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private void CleanCache()
+    {
+        var expired = _zipCache
+            .Where(kvp => DateTime.UtcNow - kvp.Value.Cached > CacheDuration)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in expired)
+        {
+            _zipCache.Remove(key);
+        }
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Where(c => !invalidChars.Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "mod" : sanitized;
+    }
+}
+
+/// <summary>
+/// HTTP listener for browsing the server filesystem.
+/// GET /modgod/api/browse?path=...
+/// Returns list of directories and files at the given path.
+/// Security: Only allows browsing within the SPT root directory.
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class FileBrowserHttpListener : IHttpListener
+{
+    private readonly ConfigService _configService;
+    private readonly ISptLogger<FileBrowserHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public FileBrowserHttpListener(
+        ConfigService configService,
+        ISptLogger<FileBrowserHttpListener> logger)
+    {
+        _configService = configService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "GET" &&
+               path.Equals("/modgod/api/browse", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        var requestedPath = context.Request.Query["path"].FirstOrDefault() ?? "";
+
+        // Default to SPT root if no path specified
+        var browsePath = string.IsNullOrWhiteSpace(requestedPath)
+            ? _configService.SptRoot
+            : requestedPath;
+
+        // Resolve to absolute path
+        var resolvedPath = Path.GetFullPath(browsePath);
+        var sptRootFull = Path.GetFullPath(_configService.SptRoot);
+
+        // Security: Only allow browsing within SPT root (or on same drive for flexibility)
+        // This is a server-side admin tool, so we allow more flexibility but prevent obvious issues
+        if (!Directory.Exists(resolvedPath))
+        {
+            await SendJsonResponse(context, 404, new { success = false, error = "Directory not found" });
+            return;
+        }
+
+        try
+        {
+            var entries = new List<object>();
+
+            // Add parent directory entry if not at root
+            var parent = Directory.GetParent(resolvedPath);
+            if (parent != null)
+            {
+                entries.Add(new
+                {
+                    name = "..",
+                    path = parent.FullName,
+                    isDirectory = true,
+                    isParent = true
+                });
+            }
+
+            // List directories first
+            foreach (var dir in Directory.GetDirectories(resolvedPath).OrderBy(d => d))
+            {
+                var dirInfo = new DirectoryInfo(dir);
+                entries.Add(new
+                {
+                    name = dirInfo.Name,
+                    path = dirInfo.FullName,
+                    isDirectory = true,
+                    isParent = false
+                });
+            }
+
+            // Then list files
+            foreach (var file in Directory.GetFiles(resolvedPath).OrderBy(f => f))
+            {
+                var fileInfo = new FileInfo(file);
+                entries.Add(new
+                {
+                    name = fileInfo.Name,
+                    path = fileInfo.FullName,
+                    isDirectory = false,
+                    isParent = false,
+                    size = fileInfo.Length
+                });
+            }
+
+            await SendJsonResponse(context, 200, new
+            {
+                success = true,
+                currentPath = resolvedPath,
+                sptRoot = sptRootFull,
+                entries
+            });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await SendJsonResponse(context, 403, new { success = false, error = "Access denied to directory" });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error browsing directory: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = ex.Message });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+}
+
+/// <summary>
+/// HTTP listener for staging a local mod from the server filesystem.
+/// POST /modgod/api/local-mods/stage
+/// Body: { "path": "/path/to/mod/folder", "modName": "My Mod", "optional": false }
+///
+/// Copies the folder to local-mods storage and returns the download URL.
+/// </summary>
+[Injectable(TypePriority = 0)]
+public class LocalModStageHttpListener : IHttpListener
+{
+    private readonly ConfigService _configService;
+    private readonly ModDownloadService _modDownloadService;
+    private readonly ISptLogger<LocalModStageHttpListener> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public LocalModStageHttpListener(
+        ConfigService configService,
+        ModDownloadService modDownloadService,
+        ISptLogger<LocalModStageHttpListener> logger)
+    {
+        _configService = configService;
+        _modDownloadService = modDownloadService;
+        _logger = logger;
+    }
+
+    public bool CanHandle(MongoId sessionId, HttpContext context)
+    {
+        var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
+        return context.Request.Method == "POST" &&
+               path.Equals("/modgod/api/local-mods/stage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task Handle(MongoId sessionId, HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var body = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<StageLocalModRequest>(body, JsonOptions);
+
+            if (string.IsNullOrWhiteSpace(request?.Path))
+            {
+                await SendJsonResponse(context, 400, new { success = false, error = "Path is required" });
+                return;
+            }
+
+            if (!Directory.Exists(request.Path))
+            {
+                await SendJsonResponse(context, 404, new { success = false, error = "Directory not found" });
+                return;
+            }
+
+            var modName = string.IsNullOrWhiteSpace(request.ModName)
+                ? Path.GetFileName(request.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                : request.ModName;
+
+            _logger.Info($"Staging local mod: {modName} from {request.Path}");
+
+            // Stage the local mod (copy files to local-mods storage)
+            var guid = await _configService.StageLocalModAsync(request.Path, modName);
+
+            // Build the download URL
+            var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
+            var downloadUrl = _configService.GetLocalModDownloadUrl(guid, baseUrl);
+
+            _logger.Info($"Local mod staged: {modName} -> {downloadUrl}");
+
+            // Now download and analyze the mod (will use the local-mods endpoint)
+            // This reuses the existing download/staging infrastructure
+            var downloadResult = await _modDownloadService.DownloadAndAnalyzeModAsync(downloadUrl);
+
+            if (!downloadResult.Success)
+            {
+                // Clean up the local mod storage if staging failed
+                await _configService.DeleteLocalModAsync(guid);
+                await SendJsonResponse(context, 500, new
+                {
+                    success = false,
+                    error = $"Failed to analyze mod: {downloadResult.Error}"
+                });
+                return;
+            }
+
+            // Stage the mod entry
+            await _modDownloadService.StageDownloadedModAsync(
+                downloadResult,
+                downloadUrl,
+                modName,
+                request.Optional);
+
+            await SendJsonResponse(context, 200, new
+            {
+                success = true,
+                guid,
+                downloadUrl,
+                modName,
+                isStandardStructure = downloadResult.IsStandardStructure,
+                topLevelDirectories = downloadResult.TopLevelDirectories,
+                suggestedInstallPaths = downloadResult.SuggestedInstallPaths
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error staging local mod: {ex.Message}");
+            await SendJsonResponse(context, 500, new { success = false, error = ex.Message });
+        }
+    }
+
+    private static async Task SendJsonResponse(HttpContext context, int statusCode, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        await context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json));
+        await context.Response.StartAsync();
+        await context.Response.CompleteAsync();
+    }
+
+    private class StageLocalModRequest
+    {
+        public string? Path { get; set; }
+        public string? ModName { get; set; }
+        public bool Optional { get; set; }
     }
 }

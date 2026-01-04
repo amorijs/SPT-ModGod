@@ -851,6 +851,10 @@
             _fileTreeRoot = root;
             _noFilesToOverwrite = filesFound == 0;
             _fileTreeError = null;
+
+            // Expand all directories by default
+            _expandedDirs.Clear();
+            ExpandAllDirectories(root);
         }
         catch (Exception ex)
         {
@@ -860,6 +864,20 @@
         {
             _fileTreeLoading = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ExpandAllDirectories(FileNode? node)
+    {
+        if (node == null) return;
+
+        foreach (var child in node.Children)
+        {
+            if (child.IsDirectory)
+            {
+                _expandedDirs.Add(child.RelativePath);
+                ExpandAllDirectories(child);
+            }
         }
     }
 

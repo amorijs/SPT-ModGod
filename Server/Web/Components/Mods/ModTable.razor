@@ -1,0 +1,207 @@
+@using ModGod.Models
+@using Color = MudBlazor.Color
+
+<MudTable Items="@Mods"
+          Hover="true"
+          Dense="true"
+          SortLabel="Sort By"
+          Style="background: transparent;"
+          RowStyle="cursor: pointer;"
+          RowClass="mod-table-row"
+          OnRowClick="@((TableRowClickEventArgs<ModEntry> args) => { if (args.Item != null) OnRowClicked(args.Item); })">
+    <HeaderContent>
+        <MudTh><MudTableSortLabel SortBy="new Func<ModEntry, object>(x => x.ModName)">Name</MudTableSortLabel></MudTh>
+        <MudTh><MudTableSortLabel InitialDirection="SortDirection.Ascending" SortBy="new Func<ModEntry, object>(x => GetStatusSortOrder(x))">Status</MudTableSortLabel></MudTh>
+        <MudTh><MudTableSortLabel SortBy="new Func<ModEntry, object>(x => x.Optional)">Type</MudTableSortLabel></MudTh>
+        <MudTh Style="text-align: center;">Paths</MudTh>
+        <MudTh><MudTableSortLabel SortBy="new Func<ModEntry, object>(x => GetLastUpdatedSort(x))">Last Updated</MudTableSortLabel></MudTh>
+        <MudTh Style="text-align: right;">Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">
+            @{
+                var isPendingRow = IsPendingInstall?.Invoke(context) ?? false;
+                var isPendingRemovalRow = IsPendingRemoval?.Invoke(context) ?? false;
+                var missingFilesRow = GetMissingFilesCount?.Invoke(context) ?? 0;
+                var noTrackedFiles = (context.InstalledFiles?.Count ?? 0) == 0 && !context.IsProtected;
+                var hasWarning = !isPendingRow && !isPendingRemovalRow && (missingFilesRow > 0 || noTrackedFiles);
+                var warningTooltip = missingFilesRow > 0 ? $"{missingFilesRow} file(s) missing from disk" : "No files tracked";
+                var needsConfig = isPendingRow && (NeedsConfiguration?.Invoke(context) ?? false);
+            }
+            <div class="d-flex align-center gap-2">
+                <MudText Style="color: var(--text-primary); font-weight: 600;">@context.ModName</MudText>
+                @if (context.IsProtected)
+                {
+                    <MudChip T="string" Size="Size.Small"
+                             Style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%); color: #fff; font-size: 0.7rem;">
+                        <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Style="font-size: 0.8rem;" /> Built-in
+                    </MudChip>
+                }
+                @if (hasWarning)
+                {
+                    <MudTooltip Text="@warningTooltip">
+                        <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Style="color: var(--accent-orange); vertical-align: middle;" />
+                    </MudTooltip>
+                }
+                @if (needsConfig)
+                {
+                    <MudTooltip Text="Configure install paths">
+                        <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Style="color: var(--accent-red); vertical-align: middle;" />
+                    </MudTooltip>
+                }
+            </div>
+        </MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Style="@(GetStatusChipStyle?.Invoke(context) ?? "")">
+                @(GetStatusText?.Invoke(context) ?? "Unknown")
+            </MudChip>
+        </MudTd>
+        <MudTd DataLabel="Type" @onclick:stopPropagation="true">
+            @if (!context.IsProtected)
+            {
+                <MudChip T="string" Size="Size.Small"
+                         Style="@(context.Optional ? "background: rgba(74, 222, 128, 0.9); color: #000; cursor: pointer;" : "background: rgba(251, 191, 36, 0.9); color: #000; cursor: pointer;")"
+                         OnClick="@(() => OnToggleOptional.InvokeAsync(context))">
+                    @(context.Optional ? "Optional" : "Required")
+                </MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Paths" Style="text-align: center;">
+            <MudTooltip>
+                <ChildContent>
+                    <MudChip T="string" Size="Size.Small" Style="background: var(--card-bg); color: var(--text-secondary);">
+                        @context.InstallPaths.Count
+                    </MudChip>
+                </ChildContent>
+                <TooltipContent>
+                    <div style="max-width: 400px;">
+                        @foreach (var path in context.InstallPaths)
+                        {
+                            <div class="mono" style="font-size: 0.75rem;">@path[0] → @path[1]</div>
+                        }
+                    </div>
+                </TooltipContent>
+            </MudTooltip>
+        </MudTd>
+        <MudTd DataLabel="Last Updated">
+            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                @FormatTimestamp(context.LastUpdated)
+            </MudText>
+        </MudTd>
+        <MudTd DataLabel="Actions" Style="text-align: right;" @onclick:stopPropagation="true">
+            @if (!context.IsProtected)
+            {
+                @if (IsPendingRemoval?.Invoke(context) ?? false)
+                {
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true" Size="Size.Small">
+                        <MudMenuItem OnClick="@(() => OnOpenUninstallDialog.InvokeAsync(context))">
+                            <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit Removal
+                        </MudMenuItem>
+                        <MudMenuItem OnClick="@(() => OnUndoRemoval.InvokeAsync(context))" Style="color: var(--accent-green);">
+                            <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Class="mr-2" /> Undo Removal
+                        </MudMenuItem>
+                    </MudMenu>
+                }
+                else
+                {
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Dense="true" Size="Size.Small">
+                        <MudMenuItem OnClick="@(() => OnEdit.InvokeAsync(context))">
+                            <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="mr-2" /> Edit
+                        </MudMenuItem>
+                        @if (!(IsPendingInstall?.Invoke(context) ?? false) && !string.IsNullOrEmpty(context.DownloadUrl))
+                        {
+                            <MudMenuItem OnClick="@(() => OnReinstall.InvokeAsync(context))" Style="color: var(--accent-cyan);">
+                                <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Class="mr-2" /> Reinstall
+                            </MudMenuItem>
+                        }
+                        <MudMenuItem OnClick="@(() => OnDelete.InvokeAsync(context))" Style="color: var(--accent-red);">
+                            <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-2" /> 
+                            @((IsPendingInstall?.Invoke(context) ?? false) ? "Remove" : "Uninstall")
+                        </MudMenuItem>
+                    </MudMenu>
+                }
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent>
+        <MudText Style="color: var(--text-secondary);">No mods match your search or filter</MudText>
+    </NoRecordsContent>
+</MudTable>
+
+<style>
+    .mod-table-row:hover {
+        background: rgba(255, 255, 255, 0.05) !important;
+    }
+    .mod-table-row td {
+        border-bottom: 1px solid var(--border-color) !important;
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public List<ModEntry> Mods { get; set; } = new();
+    
+    // Functions to compute state for each mod
+    [Parameter] public Func<ModEntry, bool>? IsPendingInstall { get; set; }
+    [Parameter] public Func<ModEntry, bool>? IsPendingRemoval { get; set; }
+    [Parameter] public Func<ModEntry, bool>? NeedsConfiguration { get; set; }
+    [Parameter] public Func<ModEntry, int>? GetMissingFilesCount { get; set; }
+    [Parameter] public Func<ModEntry, string>? GetStatusChipStyle { get; set; }
+    [Parameter] public Func<ModEntry, string>? GetStatusText { get; set; }
+    
+    // Event callbacks
+    [Parameter] public EventCallback<ModEntry> OnEdit { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnDelete { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnToggleOptional { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnOpenUninstallDialog { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnUndoRemoval { get; set; }
+    [Parameter] public EventCallback<ModEntry> OnReinstall { get; set; }
+    
+    private void OnRowClicked(ModEntry mod)
+    {
+        if (mod.IsProtected) return;
+        
+        if (IsPendingRemoval?.Invoke(mod) ?? false)
+        {
+            OnOpenUninstallDialog.InvokeAsync(mod);
+        }
+        else
+        {
+            OnEdit.InvokeAsync(mod);
+        }
+    }
+    
+    private int GetStatusSortOrder(ModEntry mod)
+    {
+        // Sort order hierarchy:
+        // 0 = Pending removal (highest priority - needs attention)
+        // 1 = Pending install
+        // 2 = Installed with warnings (missing files or no files tracked)
+        // 3 = Installed (clean)
+
+        if (IsPendingRemoval?.Invoke(mod) ?? false) return 0;
+        if (IsPendingInstall?.Invoke(mod) ?? false) return 1;
+
+        // Check for warnings: missing files or no files tracked
+        var missingFiles = GetMissingFilesCount?.Invoke(mod) ?? 0;
+        var hasNoTrackedFiles = (mod.InstalledFiles?.Count ?? 0) == 0 && !mod.IsProtected;
+
+        if (missingFiles > 0 || hasNoTrackedFiles) return 2;
+
+        return 3; // Clean installed
+    }
+    
+    private static string GetLastUpdatedSort(ModEntry mod)
+    {
+        return mod.LastUpdated ?? "";
+    }
+    
+    private static string FormatTimestamp(string? timestamp)
+    {
+        if (string.IsNullOrEmpty(timestamp)) return "Never";
+        if (DateTime.TryParse(timestamp, out var dt))
+        {
+            return dt.ToString("MMM dd, yyyy");
+        }
+        return "Never";
+    }
+}

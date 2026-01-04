@@ -1,0 +1,399 @@
+@using ModGod.Models
+@using ModGod.Services
+@using Color = MudBlazor.Color
+
+@inject ModDownloadService ModDownloadService
+@inject ConfigService ConfigService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="Visible" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            @if (_step == UpdateStep.Confirm)
+            {
+                <div class="d-flex align-center gap-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Upgrade" Color="Color.Warning" />
+                    <span>@(ModsToUpdate.Count == 1 ? "Update Mod" : "Update Mods")</span>
+                </div>
+            }
+            else if (_step == UpdateStep.Downloading)
+            {
+                <div class="d-flex align-center gap-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Downloading" Color="Color.Primary" />
+                    <span>Updating Mods...</span>
+                </div>
+            }
+            else
+            {
+                <div class="d-flex align-center gap-2">
+                    <MudIcon Icon="@(_results.Any(r => !r.Success) ? Icons.Material.Filled.Warning : Icons.Material.Filled.CheckCircle)" 
+                             Color="@(_results.Any(r => !r.Success) ? Color.Warning : Color.Success)" />
+                    <span>Update Complete</span>
+                </div>
+            }
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_step == UpdateStep.Confirm)
+        {
+            <div class="pa-2">
+                @if (ModsToUpdate.Count == 1)
+                {
+                    var mod = ModsToUpdate[0];
+                    <MudText Class="mb-3" Style="color: var(--text-primary);">
+                        Update <strong>@mod.DisplayName</strong> from v@(mod.InstalledVersion) to v@(mod.LatestVersion)?
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body1" Class="mb-3" Style="color: var(--text-primary);">
+                        The following @ModsToUpdate.Count mod(s) will be updated:
+                    </MudText>
+                    
+                    <MudList T="string" Dense="true" Class="mb-4" Style="max-height: 300px; overflow-y: auto;">
+                        @foreach (var mod in ModsToUpdate)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Upgrade" IconColor="Color.Warning">
+                                <div class="d-flex flex-column">
+                                    <MudText Style="color: var(--text-primary);">@mod.DisplayName</MudText>
+                                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                        v@(mod.InstalledVersion) → v@(mod.LatestVersion)
+                                    </MudText>
+                                </div>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    The new version(s) will be downloaded and staged. You'll need to click "Apply Changes" to complete the installation.
+                </MudAlert>
+                
+                @if (ModsToUpdate.Any(m => m.IsTracked))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">
+                        The new version will overwrite existing files. Any custom configuration files may be overwritten unless you edit the file rules after staging.
+                    </MudAlert>
+                }
+            </div>
+        }
+        else if (_step == UpdateStep.Downloading)
+        {
+            <div class="pa-4">
+                <MudText Typo="Typo.body1" Class="mb-2" Style="color: var(--text-primary);">
+                    Processing @(_currentIndex + 1) of @ModsToUpdate.Count
+                </MudText>
+                <MudProgressLinear Value="@((_currentIndex + 1) * 100.0 / ModsToUpdate.Count)" 
+                                   Color="Color.Warning" 
+                                   Rounded="true" 
+                                   Size="Size.Large"
+                                   Class="mb-4" />
+                
+                <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--text-primary); font-weight: 500;">
+                    @(_currentModName ?? "Starting...")
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mono" Style="color: var(--text-secondary); word-break: break-all;">
+                    @(_currentUrl ?? "")
+                </MudText>
+                
+                @if (_results.Count > 0)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--text-secondary);">
+                        Status: @_results.Count(r => r.Success) succeeded, @_results.Count(r => !r.Success) failed
+                    </MudText>
+                }
+            </div>
+        }
+        else if (_step == UpdateStep.Results)
+        {
+            <div class="pa-2">
+                @{
+                    var successes = _results.Where(r => r.Success).ToList();
+                    var failures = _results.Where(r => !r.Success).ToList();
+                }
+                
+                @if (failures.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">
+                        Failed to update @failures.Count mod(s)
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-red);">
+                        Failed (@failures.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true" Class="mb-4">
+                        @foreach (var result in failures)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
+                                <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--accent-red);">
+                                    @result.Error
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                
+                @if (successes.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">
+                        Successfully staged @successes.Count mod(s) for update
+                    </MudAlert>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color: var(--accent-green);">
+                        Staged (@successes.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var result in successes)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                                <div class="d-flex flex-column">
+                                    <MudText Style="color: var(--text-primary);">@result.ModName</MudText>
+                                    <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                        Updated to v@(result.NewVersion)
+                                    </MudText>
+                                </div>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_step == UpdateStep.Confirm)
+        {
+            <MudButton OnClick="Close" Variant="Variant.Text">Cancel</MudButton>
+            <MudButton Color="Color.Warning" 
+                       Variant="Variant.Filled"
+                       OnClick="StartUpdate"
+                       Disabled="@(ModsToUpdate.Count == 0)">
+                <MudIcon Icon="@Icons.Material.Filled.Upgrade" Class="mr-1" />
+                Update @ModsToUpdate.Count Mod(s)
+            </MudButton>
+        }
+        else if (_step == UpdateStep.Downloading)
+        {
+            <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                Please wait...
+            </MudText>
+        }
+        else if (_step == UpdateStep.Results)
+        {
+            <MudButton Color="Color.Primary" 
+                       Variant="Variant.Filled"
+                       OnClick="Close">
+                Done
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public List<ModHealthInfo> ModsToUpdate { get; set; } = new();
+    [Parameter] public EventCallback OnUpdateComplete { get; set; }
+    
+    private enum UpdateStep { Confirm, Downloading, Results }
+    private UpdateStep _step = UpdateStep.Confirm;
+    
+    private int _currentIndex;
+    private string? _currentModName;
+    private string? _currentUrl;
+    private List<UpdateResult> _results = new();
+    
+    // Stable dialog options - prevents MudDialog from resetting when options object changes
+    private DialogOptions _dialogOptions = new() 
+    { 
+        MaxWidth = MaxWidth.Medium, 
+        FullWidth = true, 
+        CloseOnEscapeKey = true, 
+        BackdropClick = true 
+    };
+    
+    protected override void OnParametersSet()
+    {
+        // Only reset state when dialog is closed AND we're not in the middle of downloading
+        // This prevents accidental state reset during async operations
+        if (!Visible && _step != UpdateStep.Downloading)
+        {
+            ResetState();
+        }
+    }
+    
+    private void ResetState()
+    {
+        _step = UpdateStep.Confirm;
+        _currentIndex = 0;
+        _currentModName = null;
+        _currentUrl = null;
+        _results.Clear();
+        UpdateDialogOptions();
+    }
+    
+    private void UpdateDialogOptions()
+    {
+        // Allow closing only during Confirm and Results steps, not during Downloading
+        var allowClose = _step == UpdateStep.Confirm || _step == UpdateStep.Results;
+        _dialogOptions = new DialogOptions
+        { 
+            MaxWidth = MaxWidth.Medium, 
+            FullWidth = true, 
+            CloseOnEscapeKey = allowClose, 
+            BackdropClick = allowClose 
+        };
+    }
+    
+    private async Task StartUpdate()
+    {
+        try
+        {
+            _step = UpdateStep.Downloading;
+            UpdateDialogOptions();
+            _results.Clear();
+            _currentIndex = 0;
+            StateHasChanged();
+            
+            // Small delay to ensure UI updates before starting downloads
+            await Task.Delay(100);
+        
+            foreach (var mod in ModsToUpdate)
+            {
+            _currentModName = mod.DisplayName;
+            _currentUrl = mod.LatestDownloadUrl;
+            await InvokeAsync(StateHasChanged);
+            
+            var result = new UpdateResult 
+            { 
+                ModName = mod.DisplayName, 
+                NewVersion = mod.LatestVersion ?? "unknown"
+            };
+            
+            try
+            {
+                if (string.IsNullOrEmpty(mod.LatestDownloadUrl))
+                {
+                    result.Success = false;
+                    result.Error = "No download URL available";
+                }
+                else
+                {
+                    string? oldUrl = null;
+                    
+                    // If mod is tracked, record URL replacement (old → new) instead of removing
+                    if (mod.TrackedMod != null)
+                    {
+                        var existingMod = ConfigService.StagedConfig.ModList
+                            .FirstOrDefault(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl);
+                        
+                        if (existingMod != null)
+                        {
+                            oldUrl = existingMod.DownloadUrl;
+                            // Remove old mod entry from staged config (it will be replaced by new entry)
+                            ConfigService.StagedConfig.ModList.Remove(existingMod);
+                            // DON'T clear staging for old URL - we don't need it, but also don't need to clean up now
+                        }
+                    }
+                    
+                    // Download and stage the new version
+                    var (success, error) = await ModDownloadService.DownloadAndStageAsync(
+                        mod.LatestDownloadUrl, 
+                        mod.DisplayName);
+                    
+                    result.Success = success;
+                    result.Error = error;
+                    
+                    if (success)
+                    {
+                        // Determine if this is a URL change or same-URL reinstall
+                        var isSameUrl = string.Equals(oldUrl, mod.LatestDownloadUrl, StringComparison.OrdinalIgnoreCase);
+                        
+                        if (!string.IsNullOrEmpty(oldUrl))
+                        {
+                            if (isSameUrl)
+                            {
+                                // Same URL = reinstall (e.g., version detected from DLL differs from installed)
+                                // Use PendingReinstallUrls mechanism
+                                ConfigService.StagedConfig.PendingReinstallUrls ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                ConfigService.StagedConfig.PendingReinstallUrls.Add(mod.LatestDownloadUrl);
+                            }
+                            else
+                            {
+                                // Different URL = version update with new download
+                                // Use UrlReplacements mechanism so old mod isn't queued for deletion
+                                ConfigService.StagedConfig.UrlReplacements ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                                ConfigService.StagedConfig.UrlReplacements[oldUrl] = mod.LatestDownloadUrl;
+                            }
+                        }
+                        
+                        // Update the UI state to show update is staged
+                        mod.InstalledVersion = $"{mod.InstalledVersion} → {mod.LatestVersion}";
+                        mod.Status = ModHealthStatus.UpToDate; // Mark as "handled" so button disappears
+                        mod.LatestDownloadUrl = null; // Clear download URL to prevent re-clicking
+                    }
+                    else
+                    {
+                        // Rollback: re-add the old mod if we removed it
+                        if (mod.TrackedMod != null && !ConfigService.StagedConfig.ModList.Any(m => m.DownloadUrl == mod.TrackedMod.DownloadUrl))
+                        {
+                            ConfigService.StagedConfig.ModList.Add(mod.TrackedMod);
+                        }
+                        // Also remove any URL replacement or reinstall tracking we might have added
+                        if (!string.IsNullOrEmpty(oldUrl))
+                        {
+                            ConfigService.StagedConfig.UrlReplacements?.Remove(oldUrl);
+                            ConfigService.StagedConfig.PendingReinstallUrls?.Remove(mod.LatestDownloadUrl ?? "");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Error = ex.Message;
+            }
+            
+            _results.Add(result);
+            _currentIndex++;
+            await InvokeAsync(StateHasChanged);
+        }
+        
+            // Save config changes
+            await ConfigService.SaveStagedConfigAsync();
+            
+            _step = UpdateStep.Results;
+            UpdateDialogOptions();
+            await OnUpdateComplete.InvokeAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Handle any unexpected errors during update process
+            _results.Add(new UpdateResult 
+            { 
+                ModName = "Update Process", 
+                Success = false, 
+                Error = $"Unexpected error: {ex.Message}" 
+            });
+            _step = UpdateStep.Results;
+            UpdateDialogOptions();
+            StateHasChanged();
+        }
+    }
+    
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+    
+    private class UpdateResult
+    {
+        public string ModName { get; set; } = "";
+        public string NewVersion { get; set; } = "";
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+}

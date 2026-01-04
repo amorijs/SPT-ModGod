@@ -508,6 +508,140 @@
                                      Color="Color.Primary" />
                     </div>
                 </MudTabPanel>
+                
+                <!-- Tab 3: Local Folder -->
+                <MudTabPanel Text="Local Folder" Icon="@Icons.Material.Filled.Folder">
+                    <div class="pa-2">
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <MudText Typo="Typo.subtitle1" Style="color: var(--text-primary);">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-1" />
+                                Add Mod from Server Filesystem
+                            </MudText>
+                            <MudDivider Class="my-2" />
+                            <MudText Typo="Typo.body2" Style="color: var(--text-secondary);">
+                                Select a folder containing mod files from the server's filesystem.<br />
+                                Useful for mods distributed via Discord or other channels.
+                            </MudText>
+                        </MudPaper>
+                        
+                        @* File Browser *@
+                        <MudPaper Class="pa-3 mb-4" Style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                            <div class="d-flex align-center gap-2 mb-3">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Style="color: var(--accent-cyan);" />
+                                <MudText Typo="Typo.subtitle2" Style="color: var(--text-primary);">
+                                    Browse Server Files
+                                </MudText>
+                                @if (_localBrowseLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="ml-2" />
+                                }
+                            </div>
+                            
+                            @* Current Path Display *@
+                            <MudTextField @bind-Value="_localCurrentPath"
+                                          Label="Current Path"
+                                          Variant="Variant.Outlined"
+                                          ReadOnly="true"
+                                          Adornment="Adornment.End"
+                                          AdornmentIcon="@Icons.Material.Filled.Refresh"
+                                          OnAdornmentClick="@(() => BrowseLocalPath(_localCurrentPath))"
+                                          Class="mb-3 mono"
+                                          Style="font-size: 0.85rem;" />
+                            
+                            @* Directory Listing *@
+                            <MudPaper Style="max-height: 300px; overflow-y: auto; background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 4px;">
+                                @if (_localBrowseError != null)
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true">@_localBrowseError</MudAlert>
+                                }
+                                else if (_localEntries.Count == 0 && !_localBrowseLoading)
+                                {
+                                    <MudText Class="pa-3" Style="color: var(--text-secondary);">
+                                        No entries found. Use the refresh button to load directory contents.
+                                    </MudText>
+                                }
+                                else
+                                {
+                                    <MudList T="LocalBrowseEntry" Dense="true" Class="py-0">
+                                        @foreach (var entry in _localEntries)
+                                        {
+                                            <MudListItem T="LocalBrowseEntry" 
+                                                         OnClick="@(() => OnLocalEntryClicked(entry))"
+                                                         Style="cursor: pointer;">
+                                                <div class="d-flex align-center gap-2">
+                                                    @if (entry.IsDirectory)
+                                                    {
+                                                        <MudIcon Icon="@(entry.IsParent ? Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.Folder)" 
+                                                                 Size="Size.Small" 
+                                                                 Style="color: var(--accent-cyan);" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" 
+                                                                 Size="Size.Small" 
+                                                                 Style="color: var(--text-secondary);" />
+                                                    }
+                                                    <span style="color: var(--text-primary); flex: 1;">@entry.Name</span>
+                                                    @if (!entry.IsDirectory && entry.Size.HasValue)
+                                                    {
+                                                        <span style="color: var(--text-secondary); font-size: 0.8rem;">
+                                                            @FormatFileSize(entry.Size.Value)
+                                                        </span>
+                                                    }
+                                                    @if (entry.IsDirectory && !entry.IsParent)
+                                                    {
+                                                        <span @onclick:stopPropagation="true">
+                                                            <MudButton Variant="Variant.Outlined" 
+                                                                       Size="Size.Small"
+                                                                       Color="Color.Primary"
+                                                                       OnClick="@(() => SelectLocalFolder(entry))">
+                                                                Select
+                                                            </MudButton>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                            </MudPaper>
+                        </MudPaper>
+                        
+                        @* Selected Folder Info *@
+                        @if (!string.IsNullOrEmpty(_localSelectedPath))
+                        {
+                            <MudPaper Class="pa-3 mb-4" Style="background: var(--accent-green); background: rgba(34, 197, 94, 0.1); border: 1px solid var(--accent-green); border-radius: 8px;">
+                                <div class="d-flex align-center gap-2 mb-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Style="color: var(--accent-green);" />
+                                    <MudText Typo="Typo.subtitle2" Style="color: var(--accent-green);">
+                                        Selected Folder
+                                    </MudText>
+                                </div>
+                                <MudText Class="mono" Style="color: var(--text-primary); font-size: 0.85rem; word-break: break-all;">
+                                    @_localSelectedPath
+                                </MudText>
+                            </MudPaper>
+                            
+                            <MudTextField @bind-Value="_localModName"
+                                          Label="Mod Name"
+                                          Variant="Variant.Outlined"
+                                          Immediate="true"
+                                          Class="mb-3"
+                                          HelperText="Display name for this mod" />
+                            
+                            <MudCheckBox @bind-Value="_localOptional" 
+                                         Label="Mark as optional (not enforced on clients)"
+                                         Color="Color.Primary" />
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true">
+                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Style="vertical-align: middle;" />
+                                Navigate to a folder and click "Select" to choose it as a local mod.
+                            </MudAlert>
+                        }
+                    </div>
+                </MudTabPanel>
             </MudTabs>
         }
         else if (_step == AddDialogStep.Downloading)
@@ -634,13 +768,30 @@
                     Download & Stage
                 </MudButton>
             }
-            else
+            else if (_tabIndex == 1)
             {
                 <MudButton Color="Color.Primary" 
                            Variant="Variant.Filled"
                            Disabled="@(string.IsNullOrWhiteSpace(_bulkUrls))"
                            OnClick="ProcessBulkDownload">
                     Download & Stage
+                </MudButton>
+            }
+            else if (_tabIndex == 2)
+            {
+                <MudButton Color="Color.Primary" 
+                           Variant="Variant.Filled"
+                           Disabled="@(string.IsNullOrEmpty(_localSelectedPath) || _localStaging)"
+                           OnClick="ProcessLocalMod">
+                    @if (_localStaging)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <span>Staging...</span>
+                    }
+                    else
+                    {
+                        <span>Stage Local Mod</span>
+                    }
                 </MudButton>
             }
         }
@@ -702,14 +853,33 @@
     private string? _addonsError;
     private List<ForgeAddonViewModel> _addons = new();
     
+    // Local mod state
+    private string _localCurrentPath = "";
+    private string _localSelectedPath = "";
+    private string _localModName = "";
+    private bool _localOptional;
+    private bool _localBrowseLoading;
+    private string? _localBrowseError;
+    private List<LocalBrowseEntry> _localEntries = new();
+    private bool _localStaging;
+    
     // Get the API base URL dynamically from the current navigation URI
     private string ApiBaseUrl => NavigationManager.BaseUri.TrimEnd('/');
 
     protected override async Task OnParametersSetAsync()
     {
-        if (Visible && _step == AddDialogStep.Input && !_forgeHasApiKey)
+        if (Visible && _step == AddDialogStep.Input)
         {
-            await CheckForgeApiKeyStatus();
+            if (!_forgeHasApiKey)
+            {
+                await CheckForgeApiKeyStatus();
+            }
+            
+            // Load initial path for local browsing if not already loaded
+            if (string.IsNullOrEmpty(_localCurrentPath))
+            {
+                await BrowseLocalPath(null); // null = SPT root
+            }
         }
         else if (!Visible)
         {
@@ -747,6 +917,16 @@
         _addonsLoading = false;
         _addonsError = null;
         _addons.Clear();
+        
+        // Reset local mod state
+        _localCurrentPath = "";
+        _localSelectedPath = "";
+        _localModName = "";
+        _localOptional = false;
+        _localBrowseLoading = false;
+        _localBrowseError = null;
+        _localEntries.Clear();
+        _localStaging = false;
     }
 
     private async Task CheckForgeApiKeyStatus()
@@ -1518,6 +1698,220 @@
         if (url.Length <= 50) return url;
         return url.Substring(0, 25) + "..." + url.Substring(url.Length - 22);
     }
+
+    #region Local Mod Browsing
+
+    private async Task BrowseLocalPath(string? path)
+    {
+        _localBrowseLoading = true;
+        _localBrowseError = null;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            
+            var url = string.IsNullOrEmpty(path) 
+                ? $"{ApiBaseUrl}/modgod/api/browse"
+                : $"{ApiBaseUrl}/modgod/api/browse?path={Uri.EscapeDataString(path)}";
+            
+            var response = await client.GetAsync(url);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<InternalBrowseResponse>(json, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Success == true)
+                {
+                    _localCurrentPath = result.CurrentPath ?? "";
+                    _localEntries = result.Entries?.Select(e => new LocalBrowseEntry
+                    {
+                        Name = e.Name ?? "",
+                        Path = e.Path ?? "",
+                        IsDirectory = e.IsDirectory,
+                        IsParent = e.IsParent,
+                        Size = e.Size
+                    }).ToList() ?? new();
+                }
+                else
+                {
+                    _localBrowseError = "Failed to browse directory";
+                }
+            }
+            else
+            {
+                var errorResult = JsonSerializer.Deserialize<InternalErrorResponse>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                _localBrowseError = errorResult?.Error ?? $"Error: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _localBrowseError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _localBrowseLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnLocalEntryClicked(LocalBrowseEntry entry)
+    {
+        if (entry.IsDirectory)
+        {
+            await BrowseLocalPath(entry.Path);
+        }
+    }
+
+    private void SelectLocalFolder(LocalBrowseEntry entry)
+    {
+        if (!entry.IsDirectory) return;
+        
+        _localSelectedPath = entry.Path;
+        _localModName = entry.Name;
+        StateHasChanged();
+    }
+
+    private async Task ProcessLocalMod()
+    {
+        if (string.IsNullOrEmpty(_localSelectedPath))
+            return;
+
+        _localStaging = true;
+        _step = AddDialogStep.Downloading;
+        _urlsToProcess = new List<string> { _localSelectedPath };
+        _downloadResults = new();
+        _currentDownloadIndex = 0;
+        _currentDownloadUrl = _localSelectedPath;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            using var client = new HttpClient(new HttpClientHandler 
+            { 
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true 
+            });
+            client.Timeout = TimeSpan.FromMinutes(10); // Large mods may take time
+            
+            var content = new StringContent(
+                JsonSerializer.Serialize(new 
+                { 
+                    path = _localSelectedPath, 
+                    modName = string.IsNullOrWhiteSpace(_localModName) ? null : _localModName,
+                    optional = _localOptional 
+                }),
+                System.Text.Encoding.UTF8,
+                "application/json");
+            
+            var response = await client.PostAsync($"{ApiBaseUrl}/modgod/api/local-mods/stage", content);
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<InternalLocalModStageResponse>(json, 
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (result?.Success == true)
+            {
+                _downloadResults.Add(new ModDownloadResult
+                {
+                    Url = result.DownloadUrl ?? _localSelectedPath,
+                    Success = true,
+                    ModName = result.ModName ?? _localModName,
+                    IsStandardStructure = result.IsStandardStructure,
+                    TopLevelDirectories = result.TopLevelDirectories ?? new(),
+                    SuggestedInstallPaths = result.SuggestedInstallPaths ?? new()
+                });
+            }
+            else
+            {
+                _downloadResults.Add(new ModDownloadResult
+                {
+                    Url = _localSelectedPath,
+                    Success = false,
+                    Error = result?.Error ?? "Failed to stage local mod"
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _downloadResults.Add(new ModDownloadResult
+            {
+                Url = _localSelectedPath,
+                Success = false,
+                Error = ex.Message
+            });
+        }
+        finally
+        {
+            _localStaging = false;
+            _currentDownloadIndex = 1;
+            _step = AddDialogStep.Results;
+            await OnModsAdded.InvokeAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        return bytes switch
+        {
+            >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:F1} GB",
+            >= 1_048_576 => $"{bytes / 1_048_576.0:F1} MB",
+            >= 1_024 => $"{bytes / 1_024.0:F1} KB",
+            _ => $"{bytes} B"
+        };
+    }
+
+    // Helper classes for local browsing
+    private class LocalBrowseEntry
+    {
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "";
+        public bool IsDirectory { get; set; }
+        public bool IsParent { get; set; }
+        public long? Size { get; set; }
+    }
+
+    private class InternalBrowseResponse
+    {
+        public bool Success { get; set; }
+        public string? CurrentPath { get; set; }
+        public string? SptRoot { get; set; }
+        public List<InternalBrowseEntry>? Entries { get; set; }
+    }
+
+    private class InternalBrowseEntry
+    {
+        public string? Name { get; set; }
+        public string? Path { get; set; }
+        public bool IsDirectory { get; set; }
+        public bool IsParent { get; set; }
+        public long? Size { get; set; }
+    }
+
+    private class InternalErrorResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private class InternalLocalModStageResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string? Guid { get; set; }
+        public string? DownloadUrl { get; set; }
+        public string? ModName { get; set; }
+        public bool IsStandardStructure { get; set; }
+        public List<string>? TopLevelDirectories { get; set; }
+        public List<string[]>? SuggestedInstallPaths { get; set; }
+    }
+
+    #endregion
 
     private async Task Close()
     {

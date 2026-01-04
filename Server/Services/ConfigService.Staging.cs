@@ -263,7 +263,7 @@ public partial class ConfigService
     public StagedChanges CalculateStagedChanges()
     {
         var changes = new StagedChanges();
-        
+
         var liveModsByUrl = Config.ModList.ToDictionary(m => m.DownloadUrl);
         var stagedModsByUrl = StagedConfig.ModList.ToDictionary(m => m.DownloadUrl);
         var pendingReinstallUrls = StagedConfig.PendingReinstallUrls;
