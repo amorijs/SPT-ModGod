@@ -390,6 +390,25 @@ public class ModInstallService
             var elapsed = DateTime.UtcNow - installStartTime;
             _logger.Info($"[Install] File tracking complete: {installedFiles.Count} file(s) tracked");
 
+            // Apply sync exclusion flags if set (for pending mods configured via Edit dialog)
+            if (installedFiles.Count > 0)
+            {
+                if (mod.ExcludeFromPlayerSync)
+                {
+                    AddFilesToSyncExclusions(_configService.StagedConfig.PlayerSyncConfig, installedFiles);
+                    _logger.Info($"[Install] Added {installedFiles.Count} files to player sync exclusions");
+                }
+                if (mod.ExcludeFromHeadlessSync)
+                {
+                    AddFilesToSyncExclusions(_configService.StagedConfig.HeadlessSyncConfig, installedFiles);
+                    _logger.Info($"[Install] Added {installedFiles.Count} files to headless sync exclusions");
+                }
+
+                // Clear the flags after applying (they've been converted to actual exclusions)
+                mod.ExcludeFromPlayerSync = false;
+                mod.ExcludeFromHeadlessSync = false;
+            }
+
             // Check if any files were locked
             if (lockedFiles.Count > 0)
             {
@@ -520,6 +539,25 @@ public class ModInstallService
     private static string NormalizeRelativePath(string path)
     {
         return path.Replace("\\", "/").TrimStart('/');
+    }
+
+    /// <summary>
+    /// Adds files to the sync exclusion list for a client type.
+    /// </summary>
+    private void AddFilesToSyncExclusions(ClientSyncConfig? syncConfig, List<string> files)
+    {
+        if (syncConfig == null) return;
+
+        syncConfig.ExcludedPaths ??= new List<string>();
+
+        foreach (var file in files)
+        {
+            var normalized = NormalizeRelativePath(file);
+            if (!syncConfig.ExcludedPaths.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                syncConfig.ExcludedPaths.Add(normalized);
+            }
+        }
     }
 
     private static bool IsIgnored(string relativePath, List<string> ignoreRules)

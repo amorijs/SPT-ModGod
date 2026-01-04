@@ -671,12 +671,78 @@
             _editingMod.InstalledFiles = result.InstalledFiles;
         }
 
+        // Handle sync settings
+        if (result.SyncToPlayerClients.HasValue || result.SyncToHeadlessClients.HasValue)
+        {
+            var isPending = IsModPendingInstall(_editingMod);
+            if (isPending)
+            {
+                // For pending mods, store flags to be applied during installation
+                if (result.SyncToPlayerClients.HasValue)
+                    _editingMod.ExcludeFromPlayerSync = !result.SyncToPlayerClients.Value;
+                if (result.SyncToHeadlessClients.HasValue)
+                    _editingMod.ExcludeFromHeadlessSync = !result.SyncToHeadlessClients.Value;
+            }
+            else
+            {
+                // For installed mods, update the exclusion lists directly
+                var modFiles = _editingMod.InstalledFiles ?? new List<string>();
+                if (modFiles.Count > 0)
+                {
+                    if (result.SyncToPlayerClients.HasValue)
+                    {
+                        UpdateSyncExclusions(
+                            ConfigService.StagedConfig.PlayerSyncConfig,
+                            modFiles,
+                            !result.SyncToPlayerClients.Value);
+                    }
+                    if (result.SyncToHeadlessClients.HasValue)
+                    {
+                        UpdateSyncExclusions(
+                            ConfigService.StagedConfig.HeadlessSyncConfig,
+                            modFiles,
+                            !result.SyncToHeadlessClients.Value);
+                    }
+                }
+            }
+        }
+
         await ConfigService.SaveStagedConfigAsync();
         Snackbar.Add($"Mod '{result.ModName}' updated!", Severity.Success);
 
         _editDialogVisible = false;
         _editingMod = null;
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Updates sync exclusions for a set of mod files.
+    /// If exclude=true, adds all files to exclusions. If exclude=false, removes them.
+    /// </summary>
+    private void UpdateSyncExclusions(ClientSyncConfig? syncConfig, List<string> modFiles, bool exclude)
+    {
+        if (syncConfig == null) return;
+
+        syncConfig.ExcludedPaths ??= new List<string>();
+
+        var normalizedFiles = modFiles.Select(NormalizeRulePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (exclude)
+        {
+            // Add files that aren't already excluded
+            foreach (var file in normalizedFiles)
+            {
+                if (!syncConfig.ExcludedPaths.Contains(file, StringComparer.OrdinalIgnoreCase))
+                {
+                    syncConfig.ExcludedPaths.Add(file);
+                }
+            }
+        }
+        else
+        {
+            // Remove files from exclusions
+            syncConfig.ExcludedPaths.RemoveAll(p => normalizedFiles.Contains(p, StringComparer.OrdinalIgnoreCase));
+        }
     }
 
     // File rules helpers - now handled by EditModDialog component

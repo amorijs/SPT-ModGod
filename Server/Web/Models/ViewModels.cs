@@ -69,12 +69,26 @@ public class EditModResult
     public bool IsOptional { get; set; }
     public List<string[]> InstallPaths { get; set; } = new();
     public List<ModGod.Models.FileCopyRule> FileRules { get; set; } = new();
-    
+
     /// <summary>
     /// List of files tracked by this mod (for installed mods only).
     /// Null means no change to installed files.
     /// </summary>
     public List<string>? InstalledFiles { get; set; }
+
+    /// <summary>
+    /// Whether to sync this mod's files to player clients.
+    /// True = synced (no exclusion), False = excluded from sync.
+    /// Null means no change to sync settings.
+    /// </summary>
+    public bool? SyncToPlayerClients { get; set; }
+
+    /// <summary>
+    /// Whether to sync this mod's files to headless clients.
+    /// True = synced (no exclusion), False = excluded from sync.
+    /// Null means no change to sync settings.
+    /// </summary>
+    public bool? SyncToHeadlessClients { get; set; }
 }
 
 #region Forge UI Models (used by frontend to communicate with ModGod internal API)

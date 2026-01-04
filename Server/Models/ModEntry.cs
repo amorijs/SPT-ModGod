@@ -67,6 +67,20 @@ public class ModEntry
     /// </summary>
     [JsonPropertyName("installedFiles")]
     public List<string> InstalledFiles { get; set; } = new();
+
+    /// <summary>
+    /// If true, this mod's files will be excluded from player client sync upon installation.
+    /// Only applies to pending mods; for installed mods, sync exclusions are managed directly.
+    /// </summary>
+    [JsonPropertyName("excludeFromPlayerSync")]
+    public bool ExcludeFromPlayerSync { get; set; } = false;
+
+    /// <summary>
+    /// If true, this mod's files will be excluded from headless client sync upon installation.
+    /// Only applies to pending mods; for installed mods, sync exclusions are managed directly.
+    /// </summary>
+    [JsonPropertyName("excludeFromHeadlessSync")]
+    public bool ExcludeFromHeadlessSync { get; set; } = false;
 }
 
 /// <summary>

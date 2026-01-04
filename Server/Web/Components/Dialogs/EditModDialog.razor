@@ -34,9 +34,21 @@
         <MudCheckBox @bind-Value="_isOptional"
                      Label="Optional mod (not enforced on clients)"
                      Color="Color.Primary"
+                     Class="mb-2" />
+
+        <MudCheckBox T="bool"
+                     Value="_syncToPlayerClients"
+                     ValueChanged="@((bool val) => OnSyncToPlayerClientsChanged(val))"
+                     Label="Sync to player clients"
+                     Color="Color.Primary"
+                     Class="mb-2" />
+
+        <MudCheckBox T="bool"
+                     Value="_syncToHeadlessClients"
+                     ValueChanged="@((bool val) => OnSyncToHeadlessClientsChanged(val))"
+                     Label="Sync to headless clients"
+                     Color="Color.Primary"
                      Class="mb-4" />
-
-
 
         @if (Mod != null && IsPendingInstall)
         {
@@ -624,6 +636,9 @@
     private string _modName = "";
     private string _downloadUrl = "";
     private bool _isOptional;
+    private bool _syncToPlayerClients = true;
+    private bool _syncToHeadlessClients = true;
+    private bool _syncSettingsModified = false;
     private List<InstallPathItem> _installPaths = new();
     private List<string>? _archiveContents;
 
@@ -711,6 +726,21 @@
             _installedFilesModified = false;
             _installedFilesExpandedDirs.Clear();
             _isInstalledFilesPopoverOpen = false;
+
+            // Initialize sync settings
+            _syncSettingsModified = false;
+            if (IsPendingInstall)
+            {
+                // For pending mods, use the stored flags (inverted: exclude=false means sync=true)
+                _syncToPlayerClients = !Mod.ExcludeFromPlayerSync;
+                _syncToHeadlessClients = !Mod.ExcludeFromHeadlessSync;
+            }
+            else
+            {
+                // For installed mods, check if files are in exclusion lists
+                _syncToPlayerClients = !AreAllFilesExcluded(Mod.InstalledFiles, ConfigService.StagedConfig.PlayerSyncConfig?.ExcludedPaths);
+                _syncToHeadlessClients = !AreAllFilesExcluded(Mod.InstalledFiles, ConfigService.StagedConfig.HeadlessSyncConfig?.ExcludedPaths);
+            }
 
             await LoadFileTreeAsync();
         }
@@ -1519,6 +1549,19 @@
             StringComparer.OrdinalIgnoreCase);
         _installedFilesModified = false;
 
+        // Reset sync settings
+        _syncSettingsModified = false;
+        if (IsPendingInstall)
+        {
+            _syncToPlayerClients = !Mod.ExcludeFromPlayerSync;
+            _syncToHeadlessClients = !Mod.ExcludeFromHeadlessSync;
+        }
+        else
+        {
+            _syncToPlayerClients = !AreAllFilesExcluded(Mod.InstalledFiles, ConfigService.StagedConfig.PlayerSyncConfig?.ExcludedPaths);
+            _syncToHeadlessClients = !AreAllFilesExcluded(Mod.InstalledFiles, ConfigService.StagedConfig.HeadlessSyncConfig?.ExcludedPaths);
+        }
+
         // Refresh file tree
         _fileTreeLoading = true;
         await LoadFileTreeAsync();
@@ -1535,7 +1578,10 @@
                 .Select(p => new FileCopyRule { Path = p, State = FileCopyRuleState.Ignore })
                 .ToList(),
             // Only include InstalledFiles if they were modified (for installed mods)
-            InstalledFiles = _installedFilesModified ? _installedFilesSet.ToList() : null
+            InstalledFiles = _installedFilesModified ? _installedFilesSet.ToList() : null,
+            // Only include sync settings if they were modified
+            SyncToPlayerClients = _syncSettingsModified ? _syncToPlayerClients : null,
+            SyncToHeadlessClients = _syncSettingsModified ? _syncToHeadlessClients : null
         };
 
         await OnSave.InvokeAsync(result);
@@ -1709,6 +1755,33 @@
             foreach (var file in GetAllDescendantFiles(child))
                 yield return file;
         }
+    }
+
+    /// <summary>
+    /// Checks if all files from a mod are in the exclusion list.
+    /// Returns true if all files are excluded (meaning sync is OFF).
+    /// </summary>
+    private bool AreAllFilesExcluded(List<string>? modFiles, List<string>? exclusionList)
+    {
+        if (modFiles == null || modFiles.Count == 0) return false;
+        if (exclusionList == null || exclusionList.Count == 0) return false;
+
+        var exclusionSet = new HashSet<string>(exclusionList, StringComparer.OrdinalIgnoreCase);
+
+        // Check if all mod files are in the exclusion list
+        return modFiles.All(f => exclusionSet.Contains(NormalizePath(f)));
+    }
+
+    private void OnSyncToPlayerClientsChanged(bool value)
+    {
+        _syncToPlayerClients = value;
+        _syncSettingsModified = true;
+    }
+
+    private void OnSyncToHeadlessClientsChanged(bool value)
+    {
+        _syncToHeadlessClients = value;
+        _syncSettingsModified = true;
     }
 }
 
