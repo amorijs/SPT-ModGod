@@ -1,0 +1,158 @@
+@using ModGod.Models
+@using Color = MudBlazor.Color
+
+<MudDialog @bind-Visible="Visible" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Warning" />
+                <span>Bulk Update Mods</span>
+            </div>
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="pa-2">
+            <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
+                Select which mods you want to update. All mods with available updates are checked by default.
+            </MudText>
+
+            <div class="d-flex justify-space-between align-center mb-3">
+                <MudButton Variant="Variant.Text"
+                           Size="Size.Small"
+                           OnClick="ToggleAll"
+                           StartIcon="@(AllSelected ? Icons.Material.Filled.CheckBoxOutlineBlank : Icons.Material.Filled.CheckBox)">
+                    @(AllSelected ? "Deselect All" : "Select All")
+                </MudButton>
+                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                    @SelectedCount of @TotalCount selected
+                </MudText>
+            </div>
+
+            <MudList T="string" Dense="true" Style="max-height: 400px; overflow-y: auto;">
+                @foreach (var mod in UpdatableMods)
+                {
+                    <MudListItem T="string" @onclick="@(() => ToggleSelection(mod))">
+                        <div class="d-flex align-center gap-3" style="width: 100%;">
+                            <MudCheckBox T="bool"
+                                         Value="@(_selection.GetValueOrDefault(GetModKey(mod), true))"
+                                         ValueChanged="@((bool val) => SetSelection(mod, val))"
+                                         Color="Color.Warning"
+                                         @onclick:stopPropagation="true" />
+                            <div style="flex: 1;">
+                                <MudText Style="color: var(--text-primary); font-weight: 500;">@mod.DisplayName</MudText>
+                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
+                                    <code>@mod.InstalledVersion</code> → <code style="color: var(--accent-orange);">@mod.LatestVersion</code>
+                                </MudText>
+                            </div>
+                            @if (!mod.IsTracked)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Style="color: var(--accent-purple); border-color: var(--accent-purple);">
+                                    Untracked
+                                </MudChip>
+                            }
+                        </div>
+                    </MudListItem>
+                    <MudDivider />
+                }
+            </MudList>
+
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                Updated mods will be staged. You'll need to click "Apply Changes" to complete the installation.
+            </MudAlert>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton Color="Color.Warning"
+                   Variant="Variant.Filled"
+                   Disabled="@(SelectedCount == 0)"
+                   OnClick="Confirm">
+            <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Class="mr-1" />
+            Update @SelectedCount Mod(s)
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public List<ModHealthInfo> UpdatableMods { get; set; } = new();
+    [Parameter] public EventCallback<List<ModHealthInfo>> OnConfirm { get; set; }
+
+    private Dictionary<string, bool> _selection = new();
+
+    // Stable dialog options to prevent MudBlazor JS interop issues
+    private static readonly DialogOptions _dialogOptions = new()
+    {
+        MaxWidth = MaxWidth.Medium,
+        FullWidth = true,
+        CloseOnEscapeKey = true,
+        BackdropClick = true
+    };
+
+    // Computed properties
+    private bool AllSelected => _selection.Count > 0 && _selection.All(kv => kv.Value);
+    private int SelectedCount => _selection.Count(kv => kv.Value);
+    private int TotalCount => _selection.Count;
+
+    protected override void OnParametersSet()
+    {
+        // Initialize selection when dialog becomes visible with new mods
+        if (Visible && UpdatableMods.Count > 0 && _selection.Count != UpdatableMods.Count)
+        {
+            // Use mod path as key to handle duplicate display names
+            _selection = UpdatableMods.ToDictionary(m => GetModKey(m), _ => true);
+        }
+        else if (!Visible)
+        {
+            // Reset when closed
+            _selection.Clear();
+        }
+    }
+
+    // Use DLL path as unique key (display name can have duplicates)
+    private static string GetModKey(ModHealthInfo mod) => mod.ScannedMod.DllPath;
+
+    private void ToggleSelection(ModHealthInfo mod)
+    {
+        var key = GetModKey(mod);
+        if (_selection.ContainsKey(key))
+        {
+            _selection[key] = !_selection[key];
+        }
+    }
+
+    private void SetSelection(ModHealthInfo mod, bool value)
+    {
+        _selection[GetModKey(mod)] = value;
+    }
+
+    private void ToggleAll()
+    {
+        var newValue = !AllSelected;
+        foreach (var key in _selection.Keys.ToList())
+        {
+            _selection[key] = newValue;
+        }
+    }
+
+    private async Task Cancel()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task Confirm()
+    {
+        var selectedMods = UpdatableMods
+            .Where(m => _selection.GetValueOrDefault(GetModKey(m), false))
+            .ToList();
+
+        if (selectedMods.Count > 0)
+        {
+            Visible = false;
+            await VisibleChanged.InvokeAsync(false);
+            await OnConfirm.InvokeAsync(selectedMods);
+        }
+    }
+}

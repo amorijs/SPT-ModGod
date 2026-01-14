@@ -568,83 +568,16 @@
 </MudDialog>
 
 <!-- Update Progress Dialog (for both single and bulk updates) -->
-<ModGod.Web.Components.Dialogs.UpdateProgressDialog 
+<ModGod.Web.Components.Dialogs.UpdateProgressDialog
     @bind-Visible="_showUpdateDialog"
     ModsToUpdate="_modsToUpdate"
     OnUpdateComplete="OnUpdateComplete" />
 
 <!-- Bulk Update Selection Dialog -->
-<MudDialog @bind-Visible="_showBulkUpdateSelectDialog" Options="new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true }">
-    <TitleContent>
-        <MudText Typo="Typo.h6" Style="color: var(--text-primary);">
-            <div class="d-flex align-center gap-2">
-                <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Warning" />
-                <span>Bulk Update Mods</span>
-            </div>
-        </MudText>
-    </TitleContent>
-    <DialogContent>
-        <div class="pa-2">
-            <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--text-secondary);">
-                Select which mods you want to update. All mods with available updates are checked by default.
-            </MudText>
-            
-            <div class="d-flex justify-space-between align-center mb-3">
-                <MudButton Variant="Variant.Text" 
-                           Size="Size.Small" 
-                           OnClick="ToggleAllBulkUpdateSelection"
-                           StartIcon="@(_bulkUpdateSelection.All(kv => kv.Value) ? Icons.Material.Filled.CheckBoxOutlineBlank : Icons.Material.Filled.CheckBox)">
-                    @(_bulkUpdateSelection.All(kv => kv.Value) ? "Deselect All" : "Select All")
-                </MudButton>
-                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
-                    @_bulkUpdateSelection.Count(kv => kv.Value) of @_bulkUpdateSelection.Count selected
-                </MudText>
-            </div>
-            
-            <MudList T="string" Dense="true" Style="max-height: 400px; overflow-y: auto;">
-                @foreach (var mod in GetUpdatableMods())
-                {
-                    <MudListItem T="string" @onclick="@(() => ToggleBulkUpdateSelection(mod))">
-                        <div class="d-flex align-center gap-3" style="width: 100%;">
-                            <MudCheckBox T="bool" 
-                                         Value="@(_bulkUpdateSelection.GetValueOrDefault(mod.DisplayName, true))"
-                                         ValueChanged="@((bool val) => SetBulkUpdateSelection(mod, val))"
-                                         Color="Color.Warning"
-                                         @onclick:stopPropagation="true" />
-                            <div style="flex: 1;">
-                                <MudText Style="color: var(--text-primary); font-weight: 500;">@mod.DisplayName</MudText>
-                                <MudText Typo="Typo.caption" Style="color: var(--text-secondary);">
-                                    <code>@mod.InstalledVersion</code> → <code style="color: var(--accent-orange);">@mod.LatestVersion</code>
-                                </MudText>
-                            </div>
-                            @if (!mod.IsTracked)
-                            {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Style="color: var(--accent-purple); border-color: var(--accent-purple);">
-                                    Untracked
-                                </MudChip>
-                            }
-                        </div>
-                    </MudListItem>
-                    <MudDivider />
-                }
-            </MudList>
-            
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
-                Updated mods will be staged. You'll need to click "Apply Changes" to complete the installation.
-            </MudAlert>
-        </div>
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="CloseBulkUpdateSelectDialog" Variant="Variant.Text">Cancel</MudButton>
-        <MudButton Color="Color.Warning" 
-                   Variant="Variant.Filled"
-                   Disabled="@(!_bulkUpdateSelection.Any(kv => kv.Value))"
-                   OnClick="StartBulkUpdate">
-            <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Class="mr-1" />
-            Update @_bulkUpdateSelection.Count(kv => kv.Value) Mod(s)
-        </MudButton>
-    </DialogActions>
-</MudDialog>
+<ModGod.Web.Components.Dialogs.BulkUpdateSelectionDialog
+    @bind-Visible="_showBulkUpdateSelectDialog"
+    UpdatableMods="_cachedUpdatableMods"
+    OnConfirm="OnBulkUpdateConfirm" />
 
 @code {
     [Inject] private ModHealthService HealthService { get; set; } = default!;
@@ -682,10 +615,10 @@
     // Update progress dialog state (used for both single and bulk updates)
     private bool _showUpdateDialog = false;
     private List<ModHealthInfo> _modsToUpdate = new();
-    
-    // Bulk update selection state (for the selection step before showing progress)
+
+    // Bulk update selection dialog state
     private bool _showBulkUpdateSelectDialog = false;
-    private Dictionary<string, bool> _bulkUpdateSelection = new();
+    private List<ModHealthInfo> _cachedUpdatableMods = new();
 
     private bool HasApiKey => ForgeService.HasApiKey;
 
@@ -1036,50 +969,27 @@
 
     private void OpenBulkUpdateDialog()
     {
-        var updatableMods = GetUpdatableMods();
-        _bulkUpdateSelection = updatableMods.ToDictionary(m => m.DisplayName, _ => true);
-        _showBulkUpdateSelectDialog = true;
-    }
-
-    private void CloseBulkUpdateSelectDialog()
-    {
-        _showBulkUpdateSelectDialog = false;
-    }
-
-    private void ToggleBulkUpdateSelection(ModHealthInfo mod)
-    {
-        if (_bulkUpdateSelection.ContainsKey(mod.DisplayName))
+        try
         {
-            _bulkUpdateSelection[mod.DisplayName] = !_bulkUpdateSelection[mod.DisplayName];
+            Console.WriteLine("[HealthCheckTab] OpenBulkUpdateDialog called");
+            _cachedUpdatableMods = GetUpdatableMods();
+            Console.WriteLine($"[HealthCheckTab] Got {_cachedUpdatableMods.Count} updatable mods");
+            _showBulkUpdateSelectDialog = true;
+            Console.WriteLine("[HealthCheckTab] Set _showBulkUpdateSelectDialog = true");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HealthCheckTab] ERROR in OpenBulkUpdateDialog: {ex}");
+            throw;
         }
     }
 
-    private void SetBulkUpdateSelection(ModHealthInfo mod, bool value)
+    private void OnBulkUpdateConfirm(List<ModHealthInfo> selectedMods)
     {
-        _bulkUpdateSelection[mod.DisplayName] = value;
-    }
-
-    private void ToggleAllBulkUpdateSelection()
-    {
-        var allSelected = _bulkUpdateSelection.All(kv => kv.Value);
-        var newValue = !allSelected;
-        foreach (var key in _bulkUpdateSelection.Keys.ToList())
+        if (selectedMods.Count > 0)
         {
-            _bulkUpdateSelection[key] = newValue;
+            _modsToUpdate = selectedMods;
+            _showUpdateDialog = true;
         }
-    }
-
-    private void StartBulkUpdate()
-    {
-        var selectedMods = GetUpdatableMods()
-            .Where(m => _bulkUpdateSelection.GetValueOrDefault(m.DisplayName, false))
-            .ToList();
-
-        if (selectedMods.Count == 0) return;
-
-        // Close selection dialog and open progress dialog
-        _showBulkUpdateSelectDialog = false;
-        _modsToUpdate = selectedMods;
-        _showUpdateDialog = true;
     }
 }

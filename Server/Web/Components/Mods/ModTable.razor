@@ -27,27 +27,50 @@
                 var hasWarning = !isPendingRow && !isPendingRemovalRow && (missingFilesRow > 0 || noTrackedFiles);
                 var warningTooltip = missingFilesRow > 0 ? $"{missingFilesRow} file(s) missing from disk" : "No files tracked";
                 var needsConfig = isPendingRow && (NeedsConfiguration?.Invoke(context) ?? false);
+                var overwriteCount = isPendingRow ? (GetOverwriteCount?.Invoke(context) ?? 0) : 0;
+                var skippedCount = isPendingRow ? (GetSkippedCount?.Invoke(context) ?? 0) : 0;
             }
-            <div class="d-flex align-center gap-2">
-                <MudText Style="color: var(--text-primary); font-weight: 600;">@context.ModName</MudText>
-                @if (context.IsProtected)
+            <div class="d-flex flex-column">
+                <div class="d-flex align-center gap-2">
+                    <MudText Style="color: var(--text-primary); font-weight: 600;">@context.ModName</MudText>
+                    @if (context.IsProtected)
+                    {
+                        <MudChip T="string" Size="Size.Small"
+                                 Style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%); color: #fff; font-size: 0.7rem;">
+                            <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Style="font-size: 0.8rem;" /> Built-in
+                        </MudChip>
+                    }
+                    @if (hasWarning)
+                    {
+                        <MudTooltip Text="@warningTooltip">
+                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Style="color: var(--accent-orange); vertical-align: middle;" />
+                        </MudTooltip>
+                    }
+                    @if (needsConfig)
+                    {
+                        <MudTooltip Text="Configure install paths">
+                            <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Style="color: var(--accent-red); vertical-align: middle;" />
+                        </MudTooltip>
+                    }
+                </div>
+                @if (isPendingRow && !needsConfig && (overwriteCount > 0 || skippedCount > 0))
                 {
-                    <MudChip T="string" Size="Size.Small"
-                             Style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%); color: #fff; font-size: 0.7rem;">
-                        <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Style="font-size: 0.8rem;" /> Built-in
-                    </MudChip>
-                }
-                @if (hasWarning)
-                {
-                    <MudTooltip Text="@warningTooltip">
-                        <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Style="color: var(--accent-orange); vertical-align: middle;" />
-                    </MudTooltip>
-                }
-                @if (needsConfig)
-                {
-                    <MudTooltip Text="Configure install paths">
-                        <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Small" Style="color: var(--accent-red); vertical-align: middle;" />
-                    </MudTooltip>
+                    <div class="d-flex gap-2 mt-1">
+                        @if (overwriteCount > 0)
+                        {
+                            <MudText Typo="Typo.caption" Style="color: var(--accent-orange);">
+                                <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Small" Style="vertical-align: middle; font-size: 0.9rem;" />
+                                @overwriteCount file(s) will be overwritten
+                            </MudText>
+                        }
+                        @if (skippedCount > 0)
+                        {
+                            <MudText Typo="Typo.caption" Style="color: var(--accent-cyan);">
+                                <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Style="vertical-align: middle; font-size: 0.9rem;" />
+                                @skippedCount file(s) preserved
+                            </MudText>
+                        }
+                    </div>
                 }
             </div>
         </MudTd>
@@ -145,6 +168,8 @@
     [Parameter] public Func<ModEntry, bool>? IsPendingRemoval { get; set; }
     [Parameter] public Func<ModEntry, bool>? NeedsConfiguration { get; set; }
     [Parameter] public Func<ModEntry, int>? GetMissingFilesCount { get; set; }
+    [Parameter] public Func<ModEntry, int>? GetOverwriteCount { get; set; }
+    [Parameter] public Func<ModEntry, int>? GetSkippedCount { get; set; }
     [Parameter] public Func<ModEntry, string>? GetStatusChipStyle { get; set; }
     [Parameter] public Func<ModEntry, string>? GetStatusText { get; set; }
     
