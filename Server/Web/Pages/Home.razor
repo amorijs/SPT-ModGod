@@ -220,12 +220,14 @@
                 else if (_isTableView)
                 {
                     <!-- Table View -->
-                    <ModGod.Web.Components.Mods.ModTable 
+                    <ModGod.Web.Components.Mods.ModTable
                         Mods="@filteredMods.OrderByDescending(m => m.IsProtected).ThenBy(m => IsModPendingInstall(m) ? 0 : IsModPendingRemoval(m) ? 1 : 2).ThenBy(m => m.ModName, StringComparer.OrdinalIgnoreCase).ToList()"
                         IsPendingInstall="IsModPendingInstall"
                         IsPendingRemoval="IsModPendingRemoval"
                         NeedsConfiguration="ModNeedsConfiguration"
                         GetMissingFilesCount="@(mod => GetMissingInstalledFiles(mod).Count)"
+                        GetOverwriteCount="@(mod => GetOverwriteStatsForMod(mod).OverwriteCount)"
+                        GetSkippedCount="@(mod => GetOverwriteStatsForMod(mod).SkippedCount)"
                         GetStatusChipStyle="GetStatusChipStyleForMod"
                         GetStatusText="GetStatusTextForMod"
                         OnEdit="EditMod"

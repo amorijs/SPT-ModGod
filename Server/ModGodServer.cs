@@ -24,7 +24,7 @@ public record ModMetadata : AbstractModMetadata, IModWebMetadata
     public override string Name { get; init; } = "ModGod";
     public override string Author { get; init; } = "Bewa";
     public override List<string>? Contributors { get; init; }
-    public override SemanticVersioning.Version Version { get; init; } = new("2.3.0");
+    public override SemanticVersioning.Version Version { get; init; } = new("2.3.1");
     public override SemanticVersioning.Range SptVersion { get; init; } = new("~4.0.0");
     public override List<string>? Incompatibilities { get; init; }
     public override Dictionary<string, SemanticVersioning.Range>? ModDependencies { get; init; }
