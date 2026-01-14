@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
     <PropertyGroup>
-        <TargetFramework>net9.0-windows</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
         <RootNamespace>ModGod</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -8,7 +8,7 @@
         <Version>2.3.1</Version>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-        <PlatformTarget>x64</PlatformTarget>
+        <!-- Removed PlatformTarget to allow AnyCPU (works on x64, ARM64, etc.) -->
         <!-- Clean output -->
         <DebugType>none</DebugType>
         <DebugSymbols>false</DebugSymbols>
